@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+
 class User(AbstractUser):
     class Role(models.TextChoices):
         SYSTEM_ADMIN = "system_admin", "مدیر سامانه"
@@ -13,11 +14,16 @@ class User(AbstractUser):
         LEGAL = "legal", "واحد حقوقی"
         AUDITOR = "auditor", "حسابرس"
 
-    username = models.CharField("نام کاربری", max_length=20, unique=True, help_text="در سیاست سازمان می‌تواند کد ملی باشد.")
+    username = models.CharField(
+        "نام کاربری", max_length=20, unique=True,
+        help_text="برای کاربران سازمانی از کد پرسنلی یکتا استفاده شود؛ از کد ملی به‌عنوان نام کاربری استفاده نکنید.",
+    )
     role = models.CharField("نقش", max_length=32, choices=Role.choices, default=Role.EMPLOYEE)
     mobile = models.CharField("شماره همراه", max_length=20, blank=True)
     national_id = models.CharField("کد ملی", max_length=10, blank=True, db_index=True)
-    company = models.ForeignKey("organizations.Company", null=True, blank=True, on_delete=models.PROTECT, related_name="users")
+    company = models.ForeignKey(
+        "organizations.Company", null=True, blank=True, on_delete=models.PROTECT, related_name="users"
+    )
     must_change_password = models.BooleanField("نیازمند تغییر رمز", default=True)
     mfa_enabled = models.BooleanField("احراز هویت چندمرحله‌ای فعال", default=False)
 
