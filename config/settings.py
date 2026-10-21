@@ -2,8 +2,17 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-this-before-deployment")
+
+# A development fallback is intentionally available for local setup only.
+# Production deployments must supply DJANGO_SECRET_KEY and set DJANGO_DEBUG=False.
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "dev-only-insecure-key-do-not-deploy"
+    else:
+        raise RuntimeError("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=False")
+
 ALLOWED_HOSTS = [x.strip() for x in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if x.strip()]
 
 INSTALLED_APPS = [
@@ -37,7 +46,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://"):
+if DATABASE_URL.startswith(("postgres://", "postgresql://")):
     import urllib.parse
     parsed = urllib.parse.urlparse(DATABASE_URL)
     DATABASES = {"default": {
@@ -81,6 +90,6 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "True").lower() == "true"
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
