@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>خلاصه‌ای از خسارت‌ها، درخواست‌ها و پیگیری‌های قابل دسترس شما.</p></div>
-  <div class="hero-badge"><span class="pulse"></span> سامانه عملیاتی</div>
+  <div class="hero-badge"><span class="pulse"></span> نسخه توسعه</div>
 </section>
 <section class="stats">
   <article class="stat"><span class="stat-icon blue">▤</span><div><span class="muted">خسارت‌های قابل مشاهده</span><strong>{{ claim_count }}</strong><small>براساس سطح دسترسی شما</small></div></article>
@@ -16,6 +16,8 @@
   <a class="quick-card" href="{% url 'request_create' %}"><span class="quick-icon">＋</span><strong>ثبت درخواست جدید</strong><p>کمک‌هزینه درمان، طرح بی‌نام، فرم‌ها و سایر موارد</p><span class="arrow">←</span></a>
   <a class="quick-card" href="{% url 'request_list' %}"><span class="quick-icon">◷</span><strong>درخواست‌های من</strong><p>مشاهده شماره پیگیری، وضعیت و پاسخ‌ها</p><span class="arrow">←</span></a>
   <a class="quick-card" href="{% url 'task_list' %}"><span class="quick-icon">☷</span><strong>وظایف و پیگیری‌ها</strong><p>مهلت‌ها و اقدامات در دست انجام</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'asset_list' %}"><span class="quick-icon">▦</span><strong>دارایی‌های بیمه‌شده</strong><p>خودروها، املاک و اطلاعات پوشش دارایی‌ها</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'announcement_list' %}"><span class="quick-icon">▤</span><strong>اطلاعیه‌ها و بخشنامه‌ها</strong><p>پیام‌های سازمانی متناسب با نقش و شرکت</p><span class="arrow">←</span></a>
 </section>
 <section class="two-col">
   <div class="panel"><div class="section-heading"><div><p class="eyebrow">آخرین موارد</p><h2>خسارت‌های اخیر</h2></div><a href="{% url 'claim_list' %}">مشاهده همه ←</a></div>
