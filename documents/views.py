@@ -20,7 +20,7 @@ def _visible_documents(user):
         return qs
     if user.role == "auditor":
         return qs.filter(is_confidential=False)
-    if user.role in {"subsidiary_rep", "employee", "finance", "legal"}:
+    if user.role in {"subsidiary_rep", "employee", "finance", "legal", "insurer"}:
         if not user.company_id:
             return qs.filter(company__isnull=True, is_confidential=False)
         return qs.filter(is_confidential=False).filter(
