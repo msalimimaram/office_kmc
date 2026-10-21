@@ -1,0 +1,66 @@
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import render, redirect
+from django.utils import timezone
+from django.db.models import Q
+
+from auditlog.models import AuditEvent
+from core.permissions import PRIVILEGED
+from .forms import AnnouncementForm
+from .models import Announcement
+
+STAFF_ROLES = PRIVILEGED | {"insurance_specialist"}
+ROLE_AUDIENCE = {
+    "system_admin": {"all", "staff"},
+    "department_head": {"all", "staff"},
+    "insurance_specialist": {"all", "staff"},
+    "subsidiary_rep": {"all", "subsidiary"},
+    "employee": {"all", "employees"},
+    "insurer": {"all", "insurers"},
+    "finance": {"all", "finance_legal"},
+    "legal": {"all", "finance_legal"},
+    "auditor": {"all", "staff"},
+}
+
+
+def _visible_announcements(user):
+    now = timezone.now()
+    qs = Announcement.objects.filter(is_published=True, publish_at__lte=now).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gte=now)
+    )
+    qs = qs.filter(audience__in=ROLE_AUDIENCE.get(user.role, {"all"}))
+    if user.is_superuser or user.role in STAFF_ROLES:
+        return qs
+    if user.company_id:
+        return qs.filter(Q(company__isnull=True) | Q(company_id=user.company_id))
+    return qs.filter(company__isnull=True)
+
+
+@login_required
+def announcement_list(request):
+    return render(request, "announcements/announcement_list.html", {
+        "announcements": _visible_announcements(request.user),
+        "can_manage": request.user.is_superuser or request.user.role in STAFF_ROLES,
+    })
+
+
+@login_required
+def announcement_create(request):
+    if not (request.user.is_superuser or request.user.role in STAFF_ROLES):
+        raise PermissionDenied
+    if request.method == "POST":
+        form = AnnouncementForm(request.POST, request.FILES)
+        if form.is_valid():
+            item = form.save(commit=False)
+            item.created_by = request.user
+            item.save()
+            AuditEvent.objects.create(
+                actor=request.user, action="announcement_created", object_type="Announcement",
+                object_id=str(item.pk), summary=f"اطلاعیه ثبت شد: {item.title}",
+            )
+            messages.success(request, "اطلاعیه ثبت شد.")
+            return redirect("announcement_list")
+    else:
+        form = AnnouncementForm()
+    return render(request, "announcements/announcement_form.html", {"form": form})
