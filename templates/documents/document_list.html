@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}اسناد و بخشنامه‌ها | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">مرکز اسناد</p><h1>اسناد و بخشنامه‌ها</h1><p class="muted">فقط فایل‌هایی نمایش داده می‌شوند که حساب شما مجاز به مشاهده آن‌هاست.</p></div>
+{% if can_upload %}<a class="button" href="{% url 'document_upload' %}">بارگذاری سند جدید</a>{% endif %}</div>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>عنوان</th><th>دسته‌بندی</th><th>شرکت</th><th>بارگذاری‌کننده</th><th>تاریخ</th><th>دسترسی</th><th></th></tr></thead><tbody>
+{% for item in documents %}<tr><td>{{ item.title }}</td><td>{{ item.category }}</td><td>{{ item.company.name|default:"سراسری" }}</td><td>{{ item.uploaded_by }}</td><td>{{ item.created_at|date:"Y/m/d H:i" }}</td><td>{% if item.is_confidential %}محرمانه{% else %}عادی{% endif %}</td><td><a href="{% url 'document_download' item.pk %}">دانلود امن ←</a></td></tr>
+{% empty %}<tr><td colspan="7" class="empty">سندی برای نمایش وجود ندارد.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
