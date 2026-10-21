@@ -21,23 +21,16 @@ def role_required(*roles):
 
 
 def scoped_claims_for(user):
-    """Return only claims the user is explicitly entitled to see.
-
-    Insurer accounts fail closed until the User model has a verified Insurer
-    relationship; never infer an insurer identity from a user-supplied field.
-    """
+    """Apply tenant and insurer scoping at the queryset boundary."""
     from claims.models import Claim
 
     qs = Claim.objects.select_related("person", "person__company", "contract", "insurer")
     if user.is_superuser or user.role in CLAIM_WIDE_ROLES:
         return qs
     if user.role == "insurer":
-        insurer_id = getattr(user, "insurer_id", None)
-        return qs.filter(insurer_id=insurer_id) if insurer_id else qs.none()
+        return qs.filter(insurer_id=user.insurer_id) if user.insurer_id else qs.none()
     if user.role == "subsidiary_rep":
-        if not user.company_id:
-            return qs.none()
-        return qs.filter(person__company_id=user.company_id)
+        return qs.filter(person__company_id=user.company_id) if user.company_id else qs.none()
     if user.role == "employee":
         if not user.national_id:
             return qs.none()
@@ -61,9 +54,7 @@ def scoped_requests_for(user):
             Q(assigned_to=user) | Q(assigned_to__isnull=True, is_confidential=False)
         ).distinct()
     if user.role == "subsidiary_rep":
-        if not user.company_id:
-            return qs.none()
-        return qs.filter(company_id=user.company_id, is_confidential=False)
+        return qs.filter(company_id=user.company_id, is_confidential=False) if user.company_id else qs.none()
     if user.role == "auditor":
         return qs.filter(is_confidential=False)
     return qs.filter(submitted_by=user)
