@@ -3,12 +3,13 @@ from django.contrib.auth import views as auth_views
 from django.urls import path, include
 
 from dashboard import views as dashboard_views
+from accounts.views import RequiredPasswordChangeView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
-    path("accounts/password-change/", auth_views.PasswordChangeView.as_view(
+    path("accounts/password-change/", RequiredPasswordChangeView.as_view(
         template_name="registration/password_change.html", success_url="/"
     ), name="password_change"),
     path("", dashboard_views.home, name="home"),
