@@ -17,6 +17,8 @@ def _asset_scope(user):
     qs = InsuredAsset.objects.select_related("company", "insurer", "contract", "created_by").prefetch_related("vehicle_details")
     if user.is_superuser or user.role in STAFF_ROLES:
         return qs
+    if user.role == "insurer":
+        return qs.filter(insurer_id=user.insurer_id) if user.insurer_id else qs.none()
     if user.role in {"subsidiary_rep", "finance", "legal"} and user.company_id:
         return qs.filter(company_id=user.company_id)
     return qs.none()
