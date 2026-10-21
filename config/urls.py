@@ -20,4 +20,5 @@ urlpatterns = [
     path("tasks/", include("tasks.urls")),
     path("imports/", include("imports.urls")),
     path("documents/", include("documents.urls")),
+    path("assets/", include("assets.urls")),
 ]
