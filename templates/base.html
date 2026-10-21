@@ -13,11 +13,11 @@
     {% if request.user.is_authenticated %}
     <nav class="topnav">
       <a href="{% url 'dashboard' %}">داشبورد</a><a href="{% url 'claim_list' %}">خسارت‌ها</a>
-      <a href="{% url 'contract_list' %}">قراردادها</a>
+      <a href="{% url 'contract_list' %}">قراردادها</a><a href="{% url 'asset_list' %}">دارایی‌ها</a>
       <a href="{% url 'document_list' %}">اسناد و بخشنامه‌ها</a>
       <a href="{% url 'request_list' %}">درخواست‌ها</a><a href="{% url 'people_list' %}">بیمه‌شدگان</a>
       <a href="{% url 'task_list' %}">وظایف</a>
-      {% if request.user.role == 'system_admin' or request.user.role == 'department_head' or request.user.role == 'insurance_specialist' %}
+      {% if request.user.role == 'system_admin' or request.user.role == 'department_head' or request.user.role == 'insurance_specialist' or request.user.role == 'insurer' and request.user.insurer_id %}
       <a href="{% url 'claim_import' %}">ورود اکسل</a>{% endif %}
     </nav>
     <div class="userbox"><span>{{ request.user.get_full_name|default:request.user.username }}</span><a href="{% url 'password_change' %}">تغییر رمز</a>
