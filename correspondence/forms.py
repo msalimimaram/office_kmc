@@ -26,8 +26,12 @@ class CorrespondenceForm(forms.ModelForm):
         self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
         if user.role == "subsidiary_rep" and user.company_id:
             self.fields.pop("company")
+            self.fields.pop("assigned_to")
+            self.fields.pop("is_confidential")
             self.fields["contract"].queryset = self.fields["contract"].queryset.filter(companies=user.company)
         elif user.role == "insurer" and user.insurer_id:
+            self.fields.pop("assigned_to")
+            self.fields.pop("is_confidential")
             self.fields["insurer"].queryset = Insurer.objects.filter(pk=user.insurer_id)
             self.fields["insurer"].initial = user.insurer_id
             self.fields["insurer"].disabled = True
