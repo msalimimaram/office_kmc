@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, redirect
 from django.db import transaction
+from django.db.models import Q
 
 from auditlog.models import AuditEvent
 from core.permissions import PRIVILEGED
@@ -26,8 +27,20 @@ def _asset_scope(user):
 
 @login_required
 def asset_list(request):
+    assets = _asset_scope(request.user)
+    query = request.GET.get("q", "").strip()[:100]
+    asset_type = request.GET.get("type", "").strip()
+    if query:
+        assets = assets.filter(
+            Q(asset_code__icontains=query) | Q(name__icontains=query) |
+            Q(policy_number__icontains=query) | Q(company__name__icontains=query) |
+            Q(vehicle_details__plate_number__icontains=query)
+        ).distinct()
+    if asset_type in dict(InsuredAsset.Type.choices):
+        assets = assets.filter(asset_type=asset_type)
     return render(request, "assets/asset_list.html", {
-        "assets": _asset_scope(request.user),
+        "assets": assets, "search_query": query, "selected_type": asset_type,
+        "asset_types": InsuredAsset.Type.choices,
         "can_create": request.user.is_superuser or request.user.role in EDIT_ROLES | {"subsidiary_rep"},
     })
 
