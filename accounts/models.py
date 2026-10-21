@@ -24,6 +24,10 @@ class User(AbstractUser):
     company = models.ForeignKey(
         "organizations.Company", null=True, blank=True, on_delete=models.PROTECT, related_name="users"
     )
+    insurer = models.ForeignKey(
+        "insurance.Insurer", null=True, blank=True, on_delete=models.PROTECT, related_name="users",
+        verbose_name="شرکت بیمه‌گر",
+    )
     must_change_password = models.BooleanField("نیازمند تغییر رمز", default=True)
     mfa_enabled = models.BooleanField("احراز هویت چندمرحله‌ای فعال", default=False)
 
