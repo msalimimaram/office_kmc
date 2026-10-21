@@ -14,6 +14,7 @@
 - کتابخانه اسناد با کنترل دسترسی هنگام دانلود
 - اطلاعیه‌ها و بخشنامه‌ها با مخاطب، شرکت هدف، زمان انتشار و پایان اعتبار
 - ثبت دارایی‌های بیمه‌شده شامل خودرو، ملک، تجهیزات و مشخصات بیمه‌نامه
+- دفتر مکاتبات تلفنی، ایمیلی، نامه‌ها و جلسات با پیگیری موعد و دسترسی محدود به شرکت/بیمه‌گر
 - ثبت رویدادهای حسابرسی برای عملیات حساس و آزمون‌های رگرسیون اولیه
 
 ## راه‌اندازی محلی در Windows
@@ -26,7 +27,7 @@ py -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 copy .env.example .env
-python manage.py makemigrations accounts organizations insurance claims requests_portal tasks documents imports auditlog assets announcements
+python manage.py makemigrations accounts organizations insurance claims requests_portal tasks documents imports auditlog assets announcements correspondence
 python manage.py migrate
 python manage.py check
 python manage.py test
