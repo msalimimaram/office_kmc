@@ -15,7 +15,7 @@ class User(AbstractUser):
         AUDITOR = "auditor", "حسابرس"
 
     username = models.CharField(
-        "نام کاربری", max_length=20, unique=True,
+        "نام کاربری", max_length=50, unique=True,
         help_text="برای کاربران سازمانی از کد پرسنلی یکتا استفاده شود؛ از کد ملی به‌عنوان نام کاربری استفاده نکنید.",
     )
     role = models.CharField("نقش", max_length=32, choices=Role.choices, default=Role.EMPLOYEE)
