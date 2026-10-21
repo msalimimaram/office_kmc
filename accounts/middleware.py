@@ -1,6 +1,5 @@
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.conf import settings
 
 
 class RequirePasswordChangeMiddleware:
@@ -12,6 +11,6 @@ class RequirePasswordChangeMiddleware:
         user = getattr(request, "user", None)
         if user is not None and user.is_authenticated and getattr(user, "must_change_password", False):
             exempt_paths = {reverse("password_change"), reverse("logout")}
-            if request.path_info not in exempt_paths and not request.path_info.startswith(settings.STATIC_URL):
+            if request.path_info not in exempt_paths and not request.path_info.startswith("/static/"):
                 return redirect("password_change")
         return self.get_response(request)
