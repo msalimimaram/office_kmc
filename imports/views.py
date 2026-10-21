@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -15,10 +15,39 @@ from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
 
-IMPORT_ROLES = {"system_admin", "department_head", "insurance_specialist", "insurer"}
+# Until insurer accounts are linked to a specific Insurer record, they must not
+# be allowed to import claims across insurer boundaries.
+IMPORT_ROLES = {"system_admin", "department_head", "insurance_specialist"}
+
 
 def _can_import(user):
     return user.is_superuser or user.role in IMPORT_ROLES
+
+
+def _parse_amount(value, line, key):
+    if value in (None, ""):
+        return Decimal("0")
+    try:
+        amount = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"ردیف {line}: ستون {key} باید عددی باشد.")
+    if not amount.is_finite() or amount < 0:
+        raise ValueError(f"ردیف {line}: ستون {key} باید عددی معتبر و نامنفی باشد.")
+    return amount
+
+
+def _parse_date(value, line, key):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        raise ValueError(f"ردیف {line}: تاریخ ستون {key} معتبر نیست؛ قالب YYYY-MM-DD استفاده شود.")
+
 
 @login_required
 def claim_import(request):
@@ -28,11 +57,16 @@ def claim_import(request):
         form = ClaimImportForm(request.POST, request.FILES)
         if form.is_valid():
             upload = form.cleaned_data["file"]
+            wb = None
             try:
                 wb = load_workbook(upload, read_only=True, data_only=True)
                 ws = wb.active
                 rows = ws.iter_rows(values_only=True)
-                headers = [str(v).strip().lower() if v is not None else "" for v in next(rows)]
+                headers = next(rows, None)
+                if not headers:
+                    form.add_error("file", "فایل اکسل خالی است.")
+                    return render(request, "imports/claim_import.html", {"form": form})
+                headers = [str(v).strip().lower() if v is not None else "" for v in headers]
                 required = {"claim_number", "national_id", "service_type"}
                 if not required.issubset(set(headers)):
                     form.add_error("file", "ستون‌های اجباری: claim_number، national_id و service_type هستند.")
@@ -42,9 +76,11 @@ def claim_import(request):
                 for line, row in enumerate(rows, start=2):
                     if not any(v is not None for v in row):
                         continue
+
                     def val(key):
                         i = idx.get(key)
                         return row[i] if i is not None and i < len(row) else None
+
                     claim_no = str(val("claim_number") or "").strip()
                     nid = str(val("national_id") or "").strip()
                     if nid.endswith(".0"):
@@ -53,49 +89,50 @@ def claim_import(request):
                     if not claim_no or not nid or not service:
                         errors.append(f"ردیف {line}: شناسه خسارت، کد ملی و نوع خدمت الزامی است.")
                         continue
+                    if len(claim_no) > 100:
+                        errors.append(f"ردیف {line}: شناسه خسارت بیش از حد مجاز طولانی است.")
+                        continue
                     if claim_no in seen or Claim.objects.filter(claim_number=claim_no).exists():
                         errors.append(f"ردیف {line}: شناسه خسارت {claim_no} تکراری است.")
                         continue
-                    seen.add(claim_no)
-                    person = Person.objects.filter(national_id=nid, is_active=True).first()
-                    if not person:
+                    people = Person.objects.filter(national_id=nid, is_active=True)
+                    # Duplicate national IDs across subsidiaries must never be
+                    # resolved by an arbitrary .first() match.
+                    person_count = people.count()
+                    if person_count == 0:
                         errors.append(f"ردیف {line}: شخصی با کد ملی واردشده یافت نشد.")
                         continue
-                    def amount(key):
-                        value = val(key)
-                        if value in (None, ""):
-                            return Decimal("0")
-                        try:
-                            return Decimal(str(value).replace(",", ""))
-                        except InvalidOperation:
-                            raise ValueError(f"ردیف {line}: ستون {key} باید عددی باشد.")
+                    if person_count > 1:
+                        errors.append(f"ردیف {line}: کد ملی در چند شرکت یافت شد؛ داده‌ها باید رفع ابهام شوند.")
+                        continue
+                    person = people.get()
                     try:
-                        requested, assessed, payable, paid = [
-                            amount(k) for k in ("requested_amount", "assessed_amount", "payable_amount", "paid_amount")
-                        ]
+                        amounts = {
+                            key: _parse_amount(val(key), line, key)
+                            for key in ("requested_amount", "assessed_amount", "payable_amount", "paid_amount")
+                        }
+                        dates = {
+                            key: _parse_date(val(key), line, key)
+                            for key in ("service_date", "registered_date", "payment_date")
+                        }
                     except ValueError as exc:
                         errors.append(str(exc))
                         continue
-                    def date_value(key):
-                        value = val(key)
-                        if not value:
-                            return None
-                        if isinstance(value, datetime):
-                            return value.date()
-                        try:
-                            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
-                        except ValueError:
-                            return None
+                    if amounts["paid_amount"] > amounts["payable_amount"]:
+                        errors.append(f"ردیف {line}: مبلغ پرداختی نمی‌تواند از مبلغ قابل پرداخت بیشتر باشد.")
+                        continue
+                    if dates["payment_date"] and not amounts["paid_amount"]:
+                        errors.append(f"ردیف {line}: تاریخ پرداخت بدون مبلغ پرداختی ثبت شده است.")
+                        continue
+                    seen.add(claim_no)
                     data.append({
-                        "claim_number": claim_no, "person_id": person.pk, "service_type": service[:120],
-                        "requested_amount": str(requested), "assessed_amount": str(assessed),
-                        "payable_amount": str(payable), "paid_amount": str(paid),
-                        "service_date": date_value("service_date").isoformat() if date_value("service_date") else None,
-                        "registered_date": date_value("registered_date").isoformat() if date_value("registered_date") else None,
-                        "payment_date": date_value("payment_date").isoformat() if date_value("payment_date") else None,
+                        "claim_number": claim_no,
+                        "person_id": person.pk,
+                        "service_type": service[:120],
+                        **{key: str(value) for key, value in amounts.items()},
+                        **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
                     })
-                wb.close()
                 batch = ImportBatch.objects.create(
                     batch_number="IMP-" + secrets.token_hex(5).upper(),
                     file=upload, uploaded_by=request.user, total_rows=len(data) + len(errors),
@@ -108,11 +145,16 @@ def claim_import(request):
                     "form": ClaimImportForm(), "batch": batch, "preview_count": len(data),
                     "errors": errors[:100], "confirm_available": bool(data),
                 })
-            except Exception as exc:
-                form.add_error("file", f"فایل قابل پردازش نیست یا ساختار آن معتبر نیست: {exc}")
+            except Exception:
+                # Keep implementation details and file contents out of user-visible errors.
+                form.add_error("file", "فایل قابل پردازش نیست یا ساختار آن معتبر نیست. قالب فایل و ستون‌ها را بررسی کنید.")
+            finally:
+                if wb is not None:
+                    wb.close()
     else:
         form = ClaimImportForm()
     return render(request, "imports/claim_import.html", {"form": form})
+
 
 @login_required
 def claim_import_confirm(request, batch_id):
@@ -124,7 +166,6 @@ def claim_import_confirm(request, batch_id):
     with transaction.atomic():
         for row in batch.preview_data:
             item = dict(row)
-            item["person_id"] = item.pop("person_id")
             for field in ("service_date", "registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
