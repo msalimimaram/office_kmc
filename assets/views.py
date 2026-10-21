@@ -10,6 +10,7 @@ from .forms import InsuredAssetForm
 from .models import InsuredAsset, Vehicle
 
 STAFF_ROLES = PRIVILEGED | {"insurance_specialist", "auditor"}
+EDIT_ROLES = PRIVILEGED | {"insurance_specialist"}
 
 
 def _asset_scope(user):
@@ -25,13 +26,13 @@ def _asset_scope(user):
 def asset_list(request):
     return render(request, "assets/asset_list.html", {
         "assets": _asset_scope(request.user),
-        "can_create": request.user.is_superuser or request.user.role in STAFF_ROLES | {"subsidiary_rep"},
+        "can_create": request.user.is_superuser or request.user.role in EDIT_ROLES | {"subsidiary_rep"},
     })
 
 
 @login_required
 def asset_create(request):
-    if not (request.user.is_superuser or request.user.role in STAFF_ROLES | {"subsidiary_rep"}):
+    if not (request.user.is_superuser or request.user.role in EDIT_ROLES | {"subsidiary_rep"}):
         raise PermissionDenied
     if request.user.role == "subsidiary_rep" and not request.user.company_id:
         raise PermissionDenied
