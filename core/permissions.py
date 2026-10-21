@@ -28,7 +28,10 @@ def scoped_claims_for(user):
     if user.is_superuser or user.role in CLAIM_WIDE_ROLES:
         return qs
     if user.role == "insurer":
-        return qs.filter(insurer_id=user.insurer_id) if user.insurer_id else qs.none()
+        if not user.insurer_id:
+            return qs.none()
+        from django.db.models import Q
+        return qs.filter(Q(insurer_id=user.insurer_id) | Q(contract__insurer_id=user.insurer_id)).distinct()
     if user.role == "subsidiary_rep":
         return qs.filter(person__company_id=user.company_id) if user.company_id else qs.none()
     if user.role == "employee":
