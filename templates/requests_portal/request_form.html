@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block title %}ثبت درخواست{% endblock %}
+{% block content %}<div class="page-heading"><div><p class="eyebrow">فرم درخواست</p><h1>ثبت درخواست جدید</h1><p class="muted">شرح روشن درخواست، رسیدگی را سریع‌تر می‌کند.</p></div></div>
+<section class="panel narrow"><form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<div class="security-note"><span>◇</span><p>مدارک پزشکی و تصاویر آن‌ها را بارگذاری نکنید. فایل‌های اداری مجاز با محدودیت نوع و حجم پذیرفته می‌شوند.</p></div><button class="btn primary">ثبت و دریافت شماره پیگیری</button></form></section>{% endblock %}

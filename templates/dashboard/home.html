@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}داشبورد | اداره بیمه{% endblock %}
+{% block content %}
+<section class="hero">
+  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>خلاصه‌ای از خسارت‌ها، درخواست‌ها و پیگیری‌های قابل دسترس شما.</p></div>
+  <div class="hero-badge"><span class="pulse"></span> سامانه عملیاتی</div>
+</section>
+<section class="stats">
+  <article class="stat"><span class="stat-icon blue">▤</span><div><span class="muted">خسارت‌های قابل مشاهده</span><strong>{{ claim_count }}</strong><small>براساس سطح دسترسی شما</small></div></article>
+  <article class="stat"><span class="stat-icon amber">◷</span><div><span class="muted">درخواست‌های من/مجاز</span><strong>{{ request_count }}</strong><small>تمام وضعیت‌ها</small></div></article>
+  <article class="stat"><span class="stat-icon teal">↗</span><div><span class="muted">درخواست‌های باز</span><strong>{{ open_request_count }}</strong><small>نیازمند پیگیری</small></div></article>
+  <article class="stat"><span class="stat-icon violet">✓</span><div><span class="muted">وظایف فعال</span><strong>{{ task_count }}</strong><small>واگذارشده یا ایجادشده</small></div></article>
+</section>
+<section class="quick-grid">
+  <a class="quick-card" href="{% url 'claim_list' %}"><span class="quick-icon">▤</span><strong>پیگیری خسارت</strong><p>مشاهده وضعیت، مبالغ اعلام‌شده و ثبت اعتراض</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'request_create' %}"><span class="quick-icon">＋</span><strong>ثبت درخواست جدید</strong><p>کمک‌هزینه درمان، طرح بی‌نام، فرم‌ها و سایر موارد</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'request_list' %}"><span class="quick-icon">◷</span><strong>درخواست‌های من</strong><p>مشاهده شماره پیگیری، وضعیت و پاسخ‌ها</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'task_list' %}"><span class="quick-icon">☷</span><strong>وظایف و پیگیری‌ها</strong><p>مهلت‌ها و اقدامات در دست انجام</p><span class="arrow">←</span></a>
+</section>
+<section class="two-col">
+  <div class="panel"><div class="section-heading"><div><p class="eyebrow">آخرین موارد</p><h2>خسارت‌های اخیر</h2></div><a href="{% url 'claim_list' %}">مشاهده همه ←</a></div>
+    <div class="table-wrap"><table><thead><tr><th>شناسه</th><th>بیمه‌شده</th><th>نوع خدمت</th><th>وضعیت</th></tr></thead><tbody>{% for claim in recent_claims %}<tr><td><a href="{% url 'claim_detail' claim.pk %}">{{ claim.claim_number }}</a></td><td>{{ claim.person }}</td><td>{{ claim.service_type }}</td><td><span class="status">{{ claim.get_status_display }}</span></td></tr>{% empty %}<tr><td colspan="4" class="empty">موردی برای نمایش وجود ندارد.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  <div class="panel"><div class="section-heading"><div><p class="eyebrow">پیگیری‌ها</p><h2>درخواست‌های اخیر</h2></div><a href="{% url 'request_list' %}">مشاهده همه ←</a></div>
+    <div class="activity-list">{% for item in recent_requests %}<a class="activity" href="{% url 'request_detail' item.pk %}"><span class="activity-dot"></span><span><strong>{{ item.title }}</strong><small>{{ item.reference }} · {{ item.get_status_display }}</small></span><span class="arrow">←</span></a>{% empty %}<p class="empty">درخواستی برای نمایش وجود ندارد.</p>{% endfor %}</div>
+  </div>
+</section>
+<div class="security-note"><span>◇</span><div><strong>حریم خصوصی در اولویت است</strong><p>اطلاعاتی که در این صفحه می‌بینید بر اساس نقش و مجوز حساب شما فیلتر شده‌اند. مدارک پزشکی و تراکنش مالی در این سامانه ثبت نمی‌شوند.</p></div></div>
+{% endblock %}

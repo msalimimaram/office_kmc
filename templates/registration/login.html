@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}ورود | اداره بیمه{% endblock %}
+{% block content %}
+<section class="login-wrap">
+  <div class="login-art"><div class="login-emblem">ب</div><p class="eyebrow">پرتال سازمانی</p><h1>اداره بیمه</h1><p>مدیریت امن اطلاعات، خسارت‌ها و درخواست‌های بیمه‌ای</p><div class="art-lines"></div></div>
+  <div class="login-card"><p class="eyebrow">خوش آمدید</p><h2>ورود به سامانه</h2><p class="muted">برای ادامه، اطلاعات حساب سازمانی خود را وارد کنید.</p>
+    <form method="post">{% csrf_token %}{{ form.non_field_errors }}
+      <label for="{{ form.username.id_for_label }}">نام کاربری</label>{{ form.username }}
+      <label for="{{ form.password.id_for_label }}">رمز عبور</label>{{ form.password }}
+      <button class="btn primary full" type="submit">ورود امن <span>←</span></button>
+    </form>
+    <p class="small muted">اگر برای ورود یا بازیابی حساب مشکل دارید، با مدیر مجاز سامانه تماس بگیرید.</p>
+  </div>
+</section>
+{% endblock %}

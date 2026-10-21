@@ -1,0 +1,32 @@
+{% load static %}
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}اداره بیمه{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/site.css' %}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark">ب</span><span>اداره بیمه<small>سامانه یکپارچه مدیریت بیمه</small></span></a>
+    {% if request.user.is_authenticated %}
+    <nav class="topnav">
+      <a href="{% url 'dashboard' %}">داشبورد</a><a href="{% url 'claim_list' %}">خسارت‌ها</a>
+      <a href="{% url 'request_list' %}">درخواست‌ها</a><a href="{% url 'people_list' %}">بیمه‌شدگان</a>
+      <a href="{% url 'task_list' %}">وظایف</a>
+      {% if request.user.role == 'system_admin' or request.user.role == 'department_head' or request.user.role == 'insurance_specialist' or request.user.role == 'insurer' %}
+      <a href="{% url 'claim_import' %}">ورود اکسل</a>{% endif %}
+    </nav>
+    <div class="userbox"><span>{{ request.user.get_full_name|default:request.user.username }}</span><a href="{% url 'password_change' %}">تغییر رمز</a>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">خروج</button></form>
+    </div>
+    {% endif %}
+  </header>
+  <main class="page">
+    {% if messages %}{% for message in messages %}<div class="notice {{ message.tags }}">{{ message }}</div>{% endfor %}{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>اداره بیمه <span>•</span> سامانه داخلی مدیریت اطلاعات و درخواست‌های بیمه‌ای</footer>
+</body>
+</html>
