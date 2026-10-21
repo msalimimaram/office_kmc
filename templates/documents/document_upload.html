@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}بارگذاری سند | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">مرکز اسناد</p><h1>بارگذاری سند</h1><p class="muted">از بارگذاری مدارک پزشکی یا اطلاعات غیرضروری حساس خودداری کنید.</p></div></div>
+<section class="panel"><form method="post" enctype="multipart/form-data" class="form-grid">{% csrf_token %}
+<label>عنوان سند<input name="title" maxlength="250" required value="{{ title|default:'' }}"></label>
+<label>دسته‌بندی<input name="category" maxlength="100" required value="{{ category|default:'' }}"></label>
+<label>شرکت مرتبط<select name="company"><option value="">سراسری</option>{% for company in companies %}<option value="{{ company.pk }}" {% if selected_company == company.pk|stringformat:"s" %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></label>
+<label>فایل<input type="file" name="file" required accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg"></label>
+<label class="check-label"><input type="checkbox" name="is_confidential" {% if is_confidential %}checked{% endif %}> سند محرمانه</label>
+<div><button type="submit">ثبت سند</button> <a href="{% url 'document_list' %}">انصراف</a></div>
+</form></section>
+{% endblock %}
