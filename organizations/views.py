@@ -1,16 +1,38 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
 from django.shortcuts import render
+
 from .models import Person
+
 
 @login_required
 def people_list(request):
     if request.user.role in {"system_admin", "department_head", "insurance_specialist", "auditor"} or request.user.is_superuser:
         people = Person.objects.select_related("company", "employee")
     elif request.user.role == "subsidiary_rep":
-        people = Person.objects.filter(company=request.user.company)
+        if not request.user.company_id:
+            people = Person.objects.none()
+        else:
+            people = Person.objects.filter(company_id=request.user.company_id)
     elif request.user.role == "employee":
-        people = Person.objects.filter(national_id=request.user.national_id) | Person.objects.filter(employee__national_id=request.user.national_id)
+        if not request.user.national_id:
+            people = Person.objects.none()
+        else:
+            people = Person.objects.filter(
+                Q(national_id=request.user.national_id) |
+                Q(employee__national_id=request.user.national_id)
+            )
     else:
         raise PermissionDenied
-    return render(request, "organizations/people_list.html", {"people": people.distinct()})
+    query = request.GET.get("q", "").strip()[:100]
+    if query:
+        people = people.filter(
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query) |
+            Q(personnel_code__icontains=query) |
+            Q(national_id__icontains=query)
+        )
+    return render(request, "organizations/people_list.html", {
+        "people": people.distinct(), "search_query": query,
+    })
