@@ -34,8 +34,20 @@ def _scope(user):
 
 @login_required
 def correspondence_list(request):
+    items = _scope(request.user)
+    query = request.GET.get("q", "").strip()[:100]
+    follow_up = request.GET.get("follow_up", "").strip()
+    if query:
+        items = items.filter(
+            Q(subject__icontains=query) | Q(summary__icontains=query) |
+            Q(external_reference__icontains=query) | Q(company__name__icontains=query) |
+            Q(insurer__name__icontains=query)
+        )
+    if follow_up in dict(Correspondence.FollowUp.choices):
+        items = items.filter(follow_up_status=follow_up)
     return render(request, "correspondence/correspondence_list.html", {
-        "items": _scope(request.user),
+        "items": items.distinct(), "search_query": query, "selected_follow_up": follow_up,
+        "follow_up_choices": Correspondence.FollowUp.choices,
         "can_create": request.user.is_superuser or request.user.role in CREATE_ROLES | {"subsidiary_rep"} or request.user.role == "insurer" and bool(request.user.insurer_id),
     })
 
