@@ -4,4 +4,5 @@ from . import views
 urlpatterns = [
     path("", views.announcement_list, name="announcement_list"),
     path("new/", views.announcement_create, name="announcement_create"),
+    path("<int:pk>/attachment/", views.announcement_download, name="announcement_download"),
 ]
