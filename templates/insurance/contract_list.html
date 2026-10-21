@@ -5,6 +5,7 @@
   <div><p class="eyebrow">مدیریت قراردادها</p><h1>قراردادهای بیمه</h1><p class="muted">قراردادها بر اساس سطح دسترسی حساب شما نمایش داده می‌شوند.</p></div>
 </div>
 <section class="panel">
+  <form method="get" class="filter-bar"><label>جست‌وجو<input type="search" name="q" value="{{ search_query }}" placeholder="شماره، عنوان یا نام بیمه‌گر"></label><label>رشته بیمه<select name="line"><option value="">همه رشته‌ها</option>{% for key,label in lines %}<option value="{{ key }}" {% if selected_line == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label>وضعیت<select name="state"><option value="">همه</option><option value="active" {% if selected_state == "active" %}selected{% endif %}>فعال</option><option value="inactive" {% if selected_state == "inactive" %}selected{% endif %}>غیرفعال</option></select></label><button class="btn primary" type="submit">اعمال فیلتر</button><a href="{% url 'contract_list' %}">پاک‌کردن</a></form>
   <div class="table-wrap"><table>
     <thead><tr><th>شماره قرارداد</th><th>عنوان</th><th>بیمه‌گر</th><th>رشته بیمه</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th>شرکت‌های مشمول</th></tr></thead>
     <tbody>
