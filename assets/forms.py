@@ -31,7 +31,9 @@ class InsuredAssetForm(forms.ModelForm):
         if user.role == "subsidiary_rep" and user.company_id:
             self.fields.pop("company")
             self.fields["contract"].queryset = Contract.objects.filter(companies=user.company, is_active=True)
-            self.fields["insurer"].queryset = Insurer.objects.filter(contracts__companies=user.company, is_active=True).distinct()
+            self.fields["insurer"].queryset = Insurer.objects.filter(
+                contracts__companies=user.company, is_active=True
+            ).distinct()
         if "company" in self.fields:
             self.fields["company"].queryset = Company.objects.filter(is_active=True)
         if "contract" in self.fields:
@@ -44,9 +46,12 @@ class InsuredAssetForm(forms.ModelForm):
         if cleaned.get("policy_start") and cleaned.get("policy_end") and cleaned["policy_end"] < cleaned["policy_start"]:
             self.add_error("policy_end", "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد.")
         contract = cleaned.get("contract")
+        company = cleaned.get("company") or self.user.company
         insurer = cleaned.get("insurer")
-        if contract and insurer and contract.insurer_id != insurer.pk:
+        if contract and not insurer:
+            cleaned["insurer"] = contract.insurer
+        elif contract and insurer and contract.insurer_id != insurer.pk:
             self.add_error("insurer", "بیمه‌گر انتخاب‌شده با بیمه‌گر قرارداد یکسان نیست.")
-        if contract and self.user.role == "subsidiary_rep" and not contract.companies.filter(pk=self.user.company_id).exists():
-            self.add_error("contract", "این قرارداد برای شرکت شما تعریف نشده است.")
+        if contract and company and not contract.companies.filter(pk=company.pk).exists():
+            self.add_error("contract", "این قرارداد برای شرکت انتخاب‌شده تعریف نشده است.")
         return cleaned
