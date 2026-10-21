@@ -21,4 +21,5 @@ urlpatterns = [
     path("imports/", include("imports.urls")),
     path("documents/", include("documents.urls")),
     path("assets/", include("assets.urls")),
+    path("announcements/", include("announcements.urls")),
 ]
