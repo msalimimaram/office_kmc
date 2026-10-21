@@ -1,6 +1,8 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
+from django.db.models import Q
+from .models import InsuranceLine
 
 from .models import Contract
 from core.permissions import PRIVILEGED
@@ -17,4 +19,20 @@ def contract_list(request):
         contracts = Contract.objects.filter(insurer_id=user.insurer_id).select_related("insurer").prefetch_related("companies")
     else:
         raise PermissionDenied
-    return render(request, "insurance/contract_list.html", {"contracts": contracts})
+    query = request.GET.get("q", "").strip()[:100]
+    line = request.GET.get("line", "").strip()
+    state = request.GET.get("state", "").strip()
+    if query:
+        contracts = contracts.filter(
+            Q(code__icontains=query) | Q(title__icontains=query) | Q(insurer__name__icontains=query)
+        )
+    if line in dict(InsuranceLine.choices):
+        contracts = contracts.filter(line=line)
+    if state == "active":
+        contracts = contracts.filter(is_active=True)
+    elif state == "inactive":
+        contracts = contracts.filter(is_active=False)
+    return render(request, "insurance/contract_list.html", {
+        "contracts": contracts.distinct(), "search_query": query, "selected_line": line,
+        "lines": InsuranceLine.choices, "selected_state": state,
+    })
