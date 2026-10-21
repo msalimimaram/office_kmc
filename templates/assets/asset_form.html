@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}ثبت دارایی بیمه‌شده | اداره بیمه{% endblock %}
+{% block content %}<div class="page-heading"><div><p class="eyebrow">اموال و دارایی‌ها</p><h1>ثبت دارایی بیمه‌شده</h1></div></div>
+<section class="panel narrow"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn primary" type="submit">ذخیره دارایی</button> <a href="{% url 'asset_list' %}">انصراف</a></form></section>{% endblock %}
