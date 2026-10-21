@@ -54,9 +54,12 @@ def correspondence_create(request):
             item.created_by = request.user
             if request.user.role == "subsidiary_rep":
                 item.company = request.user.company
+                item.is_confidential = False
+                item.assigned_to = None
             if request.user.role == "insurer":
                 item.insurer = request.user.insurer
                 item.is_confidential = False
+                item.assigned_to = None
             item.save()
             AuditEvent.objects.create(
                 actor=request.user, action="correspondence_created", object_type="Correspondence",
