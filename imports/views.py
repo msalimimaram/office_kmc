@@ -15,13 +15,13 @@ from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
 
-# Until insurer accounts are linked to a specific Insurer record, they must not
-# be allowed to import claims across insurer boundaries.
-IMPORT_ROLES = {"system_admin", "department_head", "insurance_specialist"}
+IMPORT_ROLES = {"system_admin", "department_head", "insurance_specialist", "insurer"}
 
 
 def _can_import(user):
-    return user.is_superuser or user.role in IMPORT_ROLES
+    if user.is_superuser or user.role in {"system_admin", "department_head", "insurance_specialist"}:
+        return True
+    return user.role == "insurer" and bool(user.insurer_id)
 
 
 def _parse_amount(value, line, key):
@@ -96,13 +96,11 @@ def claim_import(request):
                         errors.append(f"ردیف {line}: شناسه خسارت {claim_no} تکراری است.")
                         continue
                     people = Person.objects.filter(national_id=nid, is_active=True)
-                    # Duplicate national IDs across subsidiaries must never be
-                    # resolved by an arbitrary .first() match.
-                    person_count = people.count()
-                    if person_count == 0:
+                    count = people.count()
+                    if count == 0:
                         errors.append(f"ردیف {line}: شخصی با کد ملی واردشده یافت نشد.")
                         continue
-                    if person_count > 1:
+                    if count > 1:
                         errors.append(f"ردیف {line}: کد ملی در چند شرکت یافت شد؛ داده‌ها باید رفع ابهام شوند.")
                         continue
                     person = people.get()
@@ -126,12 +124,12 @@ def claim_import(request):
                         continue
                     seen.add(claim_no)
                     data.append({
-                        "claim_number": claim_no,
-                        "person_id": person.pk,
+                        "claim_number": claim_no, "person_id": person.pk,
                         "service_type": service[:120],
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
+                        "insurer_id": request.user.insurer_id if request.user.role == "insurer" else None,
                     })
                 batch = ImportBatch.objects.create(
                     batch_number="IMP-" + secrets.token_hex(5).upper(),
@@ -146,7 +144,6 @@ def claim_import(request):
                     "errors": errors[:100], "confirm_available": bool(data),
                 })
             except Exception:
-                # Keep implementation details and file contents out of user-visible errors.
                 form.add_error("file", "فایل قابل پردازش نیست یا ساختار آن معتبر نیست. قالب فایل و ستون‌ها را بررسی کنید.")
             finally:
                 if wb is not None:
