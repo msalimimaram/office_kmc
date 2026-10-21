@@ -10,6 +10,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from openpyxl import load_workbook
 
 from claims.models import Claim
+from insurance.models import Contract
 from organizations.models import Person
 from .forms import ClaimImportForm
 from .models import ImportBatch
@@ -96,6 +97,11 @@ def claim_import(request):
                         errors.append(f"ردیف {line}: شناسه خسارت {claim_no} تکراری است.")
                         continue
                     people = Person.objects.filter(national_id=nid, is_active=True)
+                    if request.user.role == "insurer":
+                        allowed_company_ids = Contract.objects.filter(
+                            insurer_id=request.user.insurer_id, is_active=True
+                        ).values_list("companies__id", flat=True)
+                        people = people.filter(company_id__in=allowed_company_ids, is_insured=True)
                     count = people.count()
                     if count == 0:
                         errors.append(f"ردیف {line}: شخصی با کد ملی واردشده یافت نشد.")
