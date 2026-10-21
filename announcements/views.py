@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import render, redirect
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404, render, redirect
 from django.utils import timezone
+from django.utils.text import get_valid_filename
 from django.db.models import Q
 
 from auditlog.models import AuditEvent
@@ -64,3 +68,20 @@ def announcement_create(request):
     else:
         form = AnnouncementForm()
     return render(request, "announcements/announcement_form.html", {"form": form})
+
+
+@login_required
+def announcement_download(request, pk):
+    item = get_object_or_404(_visible_announcements(request.user), pk=pk)
+    if not item.attachment:
+        raise Http404("پیوستی برای این اطلاعیه وجود ندارد.")
+    try:
+        handle = item.attachment.open("rb")
+    except (OSError, ValueError):
+        raise Http404("فایل در دسترس نیست.")
+    filename = get_valid_filename(Path(item.attachment.name).name) or f"announcement-{item.pk}"
+    AuditEvent.objects.create(
+        actor=request.user, action="announcement_attachment_downloaded",
+        object_type="Announcement", object_id=str(item.pk), summary=f"دریافت پیوست اطلاعیه: {item.title}",
+    )
+    return FileResponse(handle, as_attachment=True, filename=filename)
