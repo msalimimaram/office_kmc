@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}ثبت مکاتبه | اداره بیمه{% endblock %}
+{% block content %}<div class="page-heading"><div><p class="eyebrow">ارتباطات سازمانی</p><h1>ثبت مکاتبه و پیگیری</h1></div></div><section class="panel narrow"><form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn primary" type="submit">ذخیره مکاتبه</button> <a href="{% url 'correspondence_list' %}">انصراف</a></form></section>{% endblock %}
