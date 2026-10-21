@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}دارایی‌های بیمه‌شده | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">اموال و دارایی‌ها</p><h1>دارایی‌های بیمه‌شده</h1><p class="muted">خودروها، املاک و سایر دارایی‌ها همراه با اطلاعات بیمه‌نامه.</p></div>{% if can_create %}<a class="button" href="{% url 'asset_create' %}">ثبت دارایی</a>{% endif %}</div>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>کد</th><th>دارایی</th><th>نوع</th><th>شرکت</th><th>بیمه‌گر</th><th>شماره بیمه‌نامه</th><th>ارزش بیمه‌شده</th><th>پایان پوشش</th><th>مشخصات خودرو</th></tr></thead><tbody>
+{% for item in assets %}<tr><td>{{ item.asset_code }}</td><td>{{ item.name }}</td><td>{{ item.get_asset_type_display }}</td><td>{{ item.company.name }}</td><td>{{ item.insurer|default:"—" }}</td><td>{{ item.policy_number|default:"—" }}</td><td>{{ item.insured_value|floatformat:0 }}</td><td>{{ item.policy_end|default:"—" }}</td><td>{% if item.asset_type == "vehicle" %}{{ item.vehicle_details.plate_number|default:"—" }}{% else %}—{% endif %}</td></tr>
+{% empty %}<tr><td colspan="9" class="empty">دارایی‌ای برای نمایش وجود ندارد.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
