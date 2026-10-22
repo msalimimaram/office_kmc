@@ -1,0 +1,9 @@
+{% if page_obj and page_obj.paginator.num_pages > 1 %}
+<nav class="pagination" aria-label="صفحه‌بندی">
+  <span class="pagination-summary">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} رکورد</span>
+  <div class="pagination-actions">
+    {% if page_obj.has_previous %}<a class="btn secondary" href="?page={{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}">صفحه قبل</a>{% endif %}
+    {% if page_obj.has_next %}<a class="btn secondary" href="?page={{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}">صفحه بعد</a>{% endif %}
+  </div>
+</nav>
+{% endif %}
