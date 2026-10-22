@@ -2,13 +2,17 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 
-from .models import Claim, ClaimObjection
+from .models import Claim
 from .forms import ClaimObjectionForm
 from core.permissions import scoped_claims_for
 from auditlog.models import AuditEvent
+
+
+OBJECTION_SUBMITTER_ROLES = {"employee", "subsidiary_rep"}
 
 
 @login_required
@@ -36,22 +40,27 @@ def claim_list(request):
 @login_required
 def claim_detail(request, pk):
     claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
-    objections = claim.objections.all()
+    can_submit_objection = request.user.role in OBJECTION_SUBMITTER_ROLES
+    objections = claim.objections.select_related("submitted_by").all()
     if request.method == "POST":
+        if not can_submit_objection:
+            raise PermissionDenied
         form = ClaimObjectionForm(request.POST)
         if form.is_valid():
-            objection = form.save(commit=False)
-            objection.claim = claim
-            objection.submitted_by = request.user
-            objection.save()
-            AuditEvent.objects.create(
-                actor=request.user, action="claim_objection_created", object_type="Claim",
-                object_id=str(claim.pk), summary="اعتراض به خسارت ثبت شد",
-            )
+            with transaction.atomic():
+                objection = form.save(commit=False)
+                objection.claim = claim
+                objection.submitted_by = request.user
+                objection.save()
+                AuditEvent.objects.create(
+                    actor=request.user, action="claim_objection_created", object_type="Claim",
+                    object_id=str(claim.pk), summary="اعتراض به خسارت ثبت شد",
+                )
             messages.success(request, "اعتراض شما ثبت شد.")
             return redirect("claim_detail", pk=claim.pk)
     else:
         form = ClaimObjectionForm()
     return render(request, "claims/claim_detail.html", {
         "claim": claim, "objections": objections, "form": form,
+        "can_submit_objection": can_submit_objection,
     })
