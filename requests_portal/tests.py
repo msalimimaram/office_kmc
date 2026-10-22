@@ -100,10 +100,12 @@ class ServiceRequestTests(TestCase):
         )
         client = Client()
         client.force_login(self.user)
-        response = client.post(reverse("request_detail", args=[item.pk]), {
-            "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
-        })
-        self.assertEqual(response.status_code, 403)
+        for forbidden_status in (ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED, ServiceRequest.Status.COMPLETED):
+            with self.subTest(status=forbidden_status):
+                response = client.post(reverse("request_detail", args=[item.pk]), {
+                    "status": forbidden_status, "response": "تصمیم نهایی"
+                })
+                self.assertEqual(response.status_code, 403)
         item.refresh_from_db()
         self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
 
