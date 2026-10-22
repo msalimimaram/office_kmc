@@ -6,4 +6,5 @@
 {% for item in assets %}<tr><td>{{ item.asset_code }}</td><td>{{ item.name }}</td><td>{{ item.get_asset_type_display }}</td><td>{{ item.company.name }}</td><td>{{ item.insurer|default:"—" }}</td><td>{{ item.policy_number|default:"—" }}</td><td>{{ item.insured_value|floatformat:0 }}</td><td>{{ item.policy_end|default:"—" }}</td><td>{% if item.asset_type == "vehicle" %}{{ item.vehicle_details.plate_number|default:"—" }}{% else %}—{% endif %}</td></tr>
 {% empty %}<tr><td colspan="9" class="empty">دارایی‌ای برای نمایش وجود ندارد.</td></tr>{% endfor %}
 </tbody></table></div></section>
+{% include "includes/pagination.html" %}
 {% endblock %}
