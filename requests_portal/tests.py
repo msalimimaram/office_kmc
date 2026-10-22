@@ -89,6 +89,13 @@ class ServiceRequestTests(TestCase):
         client = Client()
         client.force_login(head)
         self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 200)
+        decision = client.post(reverse("request_detail", args=[medical.pk]), {
+            "status": ServiceRequest.Status.APPROVED,
+            "response": "درخواست بررسی و تأیید شد",
+        })
+        self.assertEqual(decision.status_code, 302)
+        medical.refresh_from_db()
+        self.assertEqual(medical.status, ServiceRequest.Status.APPROVED)
         client.force_login(specialist)
         self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 404)
 
