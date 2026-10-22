@@ -61,7 +61,7 @@ python manage.py runserver
 
 متغیرهای اصلی در `.env.example` آمده‌اند. در محیط غیرتوسعه‌ای، `DJANGO_DEBUG=False`، کلید محرمانه قوی، میزبان‌های مجاز صریح و `DATABASE_URL` معتبر PostgreSQL الزامی است. متغیرهای واقعی محیط بر مقادیر فایل محلی اولویت دارند. فایل `.env` را commit نکنید.
 
-راهنمای کامل: [پیکربندی و استقرار](docs/DEPLOYMENT.md)، [معماری](docs/ARCHITECTURE.md)، [آزمون](docs/TESTING.md)، [امنیت](SECURITY.md)، [مشخصات محصول](PRODUCT_SPEC.md).
+راهنمای کامل: [پیکربندی و استقرار](docs/DEPLOYMENT.md)، [معماری](docs/ARCHITECTURE.md)، [آزمون](docs/TESTING.md)، [بازبینی امنیتی](docs/SECURITY_REVIEW.md)، [چک‌لیست انتشار](docs/RELEASE_CHECKLIST.md)، [مشارکت در توسعه](CONTRIBUTING.md)، [گزارش تغییرات](CHANGELOG.md)، [سیاست امنیت](SECURITY.md) و [مشخصات محصول](PRODUCT_SPEC.md).
 
 ## قرارداد ورود Excel خسارت
 
