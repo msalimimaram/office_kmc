@@ -4,7 +4,9 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from .models import ServiceRequest
 from .forms import ServiceRequestForm
@@ -12,7 +14,6 @@ from core.permissions import scoped_requests_for, PRIVILEGED
 from auditlog.models import AuditEvent
 
 
-# Explicit transitions prevent requests from jumping between unrelated states.
 TRANSITIONS = {
     ServiceRequest.Status.SUBMITTED: {
         ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.NEEDS_INFO,
@@ -62,20 +63,19 @@ def request_create(request):
     if request.method == "POST":
         form = ServiceRequestForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
-            item = form.save(commit=False)
-            item.submitted_by = request.user
-            item.company = request.user.company
-            item.person = form.cleaned_data.get("person")
-            item.reference = "IB-" + secrets.token_hex(5).upper()
-            # Medical-assistance requests are confidential by default. The
-            # requester cannot turn off confidentiality through form fields.
-            item.is_confidential = item.kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE
-            item.save()
-            AuditEvent.objects.create(
-                actor=request.user, action="service_request_created",
-                object_type="ServiceRequest", object_id=str(item.pk),
-                summary=f"درخواست {item.reference} ثبت شد",
-            )
+            with transaction.atomic():
+                item = form.save(commit=False)
+                item.submitted_by = request.user
+                item.company = request.user.company
+                item.person = form.cleaned_data.get("person")
+                item.reference = "IB-" + secrets.token_hex(5).upper()
+                item.is_confidential = item.kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE
+                item.save()
+                AuditEvent.objects.create(
+                    actor=request.user, action="service_request_created",
+                    object_type="ServiceRequest", object_id=str(item.pk),
+                    summary=f"درخواست {item.reference} ثبت شد",
+                )
             messages.success(request, f"درخواست شما با شماره پیگیری {item.reference} ثبت شد.")
             return redirect("request_list")
     else:
@@ -92,33 +92,54 @@ def request_detail(request, pk):
         status = request.POST.get("status")
         if status not in dict(ServiceRequest.Status.choices):
             raise PermissionDenied
-        # Final decisions are reserved for the department head and system admin,
-        # regardless of whether the requested transition would otherwise be valid.
         if request.user.role == "insurance_specialist" and status in {
             ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED,
             ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED,
         }:
             raise PermissionDenied
-        if status != item.status and status not in TRANSITIONS.get(item.status, set()):
-            messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
-            return redirect("request_detail", pk=item.pk)
+
         response_text = request.POST.get("response", "").strip()[:10000]
         if status in {ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.REJECTED} and not response_text:
             messages.error(request, "برای درخواست اطلاعات تکمیلی یا رد درخواست، درج توضیح الزامی است.")
             return redirect("request_detail", pk=item.pk)
-        previous_status = item.status
-        item.status = status
-        item.response = response_text
-        if item.assigned_to_id is None:
-            item.assigned_to = request.user
-        item.save(update_fields=["status", "response", "assigned_to", "updated_at"])
-        AuditEvent.objects.create(
-            actor=request.user, action="service_request_updated",
-            object_type="ServiceRequest", object_id=str(item.pk),
-            summary=f"وضعیت درخواست از {previous_status} به {status} تغییر کرد",
-        )
+
+        with transaction.atomic():
+            # Re-read under a row lock so concurrent updates cannot silently overwrite
+            # each other's status or response.
+            item = get_object_or_404(
+                scoped_requests_for(request.user).select_for_update(), pk=pk
+            )
+            if not _may_process_request(request.user, item):
+                raise PermissionDenied
+            previous_status = item.status
+            if status != previous_status and status not in TRANSITIONS.get(previous_status, set()):
+                messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
+                return redirect("request_detail", pk=item.pk)
+
+            item.status = status
+            if response_text:
+                stamp = timezone.localtime().strftime("%Y-%m-%d %H:%M")
+                actor = request.user.get_full_name() or request.user.get_username()
+                entry = f"[{stamp} | {actor} | {status}]\n{response_text}"
+                item.response = f"{item.response.rstrip()}\n\n{entry}".strip() if item.response else entry
+
+            # Only the specialist who starts reviewing an unassigned, non-confidential
+            # request claims it. A head/admin update must not remove it from the queue.
+            if (
+                request.user.role == "insurance_specialist"
+                and item.assigned_to_id is None
+                and status == ServiceRequest.Status.IN_REVIEW
+            ):
+                item.assigned_to = request.user
+            item.save(update_fields=["status", "response", "assigned_to", "updated_at"])
+            AuditEvent.objects.create(
+                actor=request.user, action="service_request_updated",
+                object_type="ServiceRequest", object_id=str(item.pk),
+                summary=f"وضعیت درخواست از {previous_status} به {status} تغییر کرد",
+            )
         messages.success(request, "درخواست به‌روزرسانی شد.")
         return redirect("request_detail", pk=item.pk)
+
     can_process = _may_process_request(request.user, item)
     allowed_statuses = [(item.status, item.get_status_display())]
     if can_process:
