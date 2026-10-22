@@ -6,7 +6,6 @@ only for development and single-process deployments.
 """
 import hashlib
 
-from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
