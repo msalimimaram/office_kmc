@@ -9,7 +9,7 @@ class OrganizationScopeTests(TestCase):
         b = Company.objects.create(code="B", name="شرکت ب")
         Person.objects.create(company=a, national_id="1111111111", first_name="علی", last_name="الف")
         Person.objects.create(company=b, national_id="2222222222", first_name="رضا", last_name="ب")
-        user = User.objects.create_user(username="1111111111", password="StrongPass!2026", national_id="1111111111", role="employee", company=a)
+        user = User.objects.create_user(username="1111111111", password="StrongPass!2026", must_change_password=False, national_id="1111111111", role="employee", company=a)
         client = Client()
         client.force_login(user)
         response = client.get(reverse("people_list"))
