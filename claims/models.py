@@ -37,6 +37,13 @@ class Claim(models.Model):
         ordering = ["-registered_date", "-created_at"]
         verbose_name = "خسارت"
         verbose_name_plural = "خسارت‌ها"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(requested_amount__gte=0), name="claim_requested_nonnegative"),
+            models.CheckConstraint(condition=models.Q(assessed_amount__gte=0), name="claim_assessed_nonnegative"),
+            models.CheckConstraint(condition=models.Q(payable_amount__gte=0), name="claim_payable_nonnegative"),
+            models.CheckConstraint(condition=models.Q(paid_amount__gte=0), name="claim_paid_nonnegative"),
+            models.CheckConstraint(condition=models.Q(paid_amount__lte=models.F("payable_amount")), name="claim_paid_lte_payable"),
+        ]
 
     def clean(self):
         super().clean()
