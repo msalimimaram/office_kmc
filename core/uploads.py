@@ -43,7 +43,10 @@ def validate_uploaded_file(upload, *, max_size, allowed_extensions=ALLOWED_EXTEN
         elif extension in {".docx", ".xlsx"}:
             try:
                 with ZipFile(upload) as archive:
-                    names = set(archive.namelist())
+                    entries = archive.infolist()
+                    if len(entries) > 5000 or sum(entry.file_size for entry in entries) > 100 * 1024 * 1024:
+                        return "ساختار فایل Office بیش از حد بزرگ یا پیچیده است."
+                    names = {entry.filename for entry in entries}
                     if archive.testzip() is not None or "[Content_Types].xml" not in names:
                         return "ساختار فایل Office معتبر نیست."
                     required = "word/document.xml" if extension == ".docx" else "xl/workbook.xml"
@@ -52,7 +55,7 @@ def validate_uploaded_file(upload, *, max_size, allowed_extensions=ALLOWED_EXTEN
             except (BadZipFile, OSError):
                 return "فایل Office معتبر نیست."
         return None
-    except (UnidentifiedImageError, OSError, ValueError):
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         return "محتوای فایل معتبر یا قابل خواندن نیست."
     finally:
         try:
