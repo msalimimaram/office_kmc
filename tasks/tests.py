@@ -48,3 +48,14 @@ class InternalTaskFormScopeTests(TestCase):
         assignee_ids = set(form.fields["assignees"].queryset.values_list("pk", flat=True))
         self.assertIn(self.specialist.pk, assignee_ids)
         self.assertNotIn(self.employee.pk, assignee_ids)
+
+    def test_confidential_request_task_cannot_be_assigned_to_specialist(self):
+        form = InternalTaskForm(data={
+            "title": "وظیفه محرمانه",
+            "description": "شرح محرمانه",
+            "assignees": [str(self.specialist.pk)],
+            "priority": "normal",
+            "related_request": str(self.confidential_request.pk),
+        }, user=self.head)
+        self.assertFalse(form.is_valid())
+        self.assertIn("assignees", form.errors)
