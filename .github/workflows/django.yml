@@ -32,5 +32,7 @@ jobs:
           pip install -r requirements.txt
       - name: Check Django configuration
         run: python manage.py check
+      - name: Generate migrations for clean test database
+        run: python manage.py makemigrations
       - name: Run Tests
         run: python manage.py test
