@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.db import models
+from django.core.paginator import Paginator
 from django.utils.text import get_valid_filename
 
 from .models import DocumentRecord
@@ -31,8 +32,9 @@ def _visible_documents(user):
 
 @login_required
 def document_list(request):
+    page_obj = Paginator(_visible_documents(request.user).order_by("-created_at", "-pk"), 25).get_page(request.GET.get("page"))
     return render(request, "documents/document_list.html", {
-        "documents": _visible_documents(request.user),
+        "documents": page_obj.object_list, "page_obj": page_obj,
         "can_upload": request.user.is_superuser or request.user.role in STAFF_ROLES,
     })
 
