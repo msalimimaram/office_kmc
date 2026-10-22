@@ -17,10 +17,12 @@ def people_list(request):
         else:
             people = Person.objects.filter(company_id=request.user.company_id)
     elif request.user.role == "employee":
-        if not request.user.national_id:
+        if not request.user.national_id or not request.user.company_id:
             people = Person.objects.none()
         else:
-            people = Person.objects.filter(
+            # National IDs are only unique within a company in this schema;
+            # scope the identity match to the employee's company as well.
+            people = Person.objects.filter(company_id=request.user.company_id).filter(
                 Q(national_id=request.user.national_id) |
                 Q(employee__national_id=request.user.national_id)
             )
