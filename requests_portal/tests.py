@@ -12,7 +12,7 @@ class ServiceRequestTests(TestCase):
         self.company = Company.objects.create(code="A", name="شرکت الف")
         self.other_company = Company.objects.create(code="B", name="شرکت ب")
         self.user = User.objects.create_user(
-            username="emp", password="StrongPass!2026", role="employee", company=self.company
+            username="emp", password="StrongPass!2026", must_change_password=False, role="employee", company=self.company
         )
 
     def test_user_can_submit_request(self):
@@ -27,7 +27,7 @@ class ServiceRequestTests(TestCase):
 
     def test_subsidiary_representative_cannot_see_confidential_or_other_company_requests(self):
         rep = User.objects.create_user(
-            username="rep", password="StrongPass!2026", role="subsidiary_rep", company=self.company
+            username="rep", password="StrongPass!2026", must_change_password=False, role="subsidiary_rep", company=self.company
         )
         ServiceRequest.objects.create(
             reference="IB-PUBLIC-1", kind=ServiceRequest.Kind.OTHER,
@@ -58,7 +58,7 @@ class ServiceRequestTests(TestCase):
         ServiceRequest.objects.create(
             reference="IB-OTHER-2", kind=ServiceRequest.Kind.OTHER,
             submitted_by=User.objects.create_user(
-                username="other-emp", password="StrongPass!2026", role="employee", company=self.other_company
+                username="other-emp", password="StrongPass!2026", must_change_password=False, role="employee", company=self.other_company
             ),
             company=self.other_company, title="درخواست دیگری", description="شرح",
         )
