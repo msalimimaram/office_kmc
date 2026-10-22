@@ -1,8 +1,13 @@
 from django import forms
+from django.contrib.auth import get_user_model
 from insurance.models import Contract, Insurer
 from organizations.models import Company
 from .models import Correspondence
 from core.uploads import validate_uploaded_file
+
+
+User = get_user_model()
+INTERNAL_ASSIGNEE_ROLES = {"system_admin", "department_head", "insurance_specialist"}
 
 
 class CorrespondenceForm(forms.ModelForm):
@@ -25,6 +30,11 @@ class CorrespondenceForm(forms.ModelForm):
         self.fields["company"].queryset = Company.objects.filter(is_active=True)
         self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
         self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
+        self.fields["assigned_to"].queryset = User.objects.filter(
+            is_active=True, role__in=INTERNAL_ASSIGNEE_ROLES
+        ).order_by("last_name", "first_name", "username")
+        if user.role == "insurance_specialist":
+            self.fields.pop("is_confidential")
         if user.role == "subsidiary_rep" and user.company_id:
             self.fields.pop("company")
             self.fields.pop("assigned_to")
