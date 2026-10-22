@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 
 from .models import InternalTask
@@ -22,7 +23,9 @@ def task_list(request):
     tasks = InternalTask.objects.filter(assignees=request.user) | InternalTask.objects.filter(created_by=request.user)
     if request.user.is_superuser or request.user.role in {"system_admin", "department_head"}:
         tasks = InternalTask.objects.all()
-    return render(request, "tasks/task_list.html", {"tasks": tasks.distinct()})
+    tasks = tasks.distinct().select_related("created_by").prefetch_related("assignees").order_by("-due_at", "-pk")
+    page_obj = Paginator(tasks, 25).get_page(request.GET.get("page"))
+    return render(request, "tasks/task_list.html", {"tasks": page_obj.object_list, "page_obj": page_obj})
 
 
 @login_required
