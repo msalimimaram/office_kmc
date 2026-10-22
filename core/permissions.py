@@ -35,12 +35,14 @@ def scoped_claims_for(user):
     if user.role == "subsidiary_rep":
         return qs.filter(person__company_id=user.company_id) if user.company_id else qs.none()
     if user.role == "employee":
-        if not user.national_id:
+        # National IDs are constrained per company in the data model, so always
+        # combine the identity match with the employee's company boundary.
+        if not user.national_id or not user.company_id:
             return qs.none()
         from django.db.models import Q
         return qs.filter(
-            Q(person__national_id=user.national_id) |
-            Q(person__employee__national_id=user.national_id)
+            Q(person__company_id=user.company_id, person__national_id=user.national_id) |
+            Q(person__company_id=user.company_id, person__employee__national_id=user.national_id)
         ).distinct()
     return qs.none()
 
