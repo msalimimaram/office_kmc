@@ -31,7 +31,12 @@ def scoped_claims_for(user):
         if not user.insurer_id:
             return qs.none()
         from django.db.models import Q
-        return qs.filter(Q(insurer_id=user.insurer_id) | Q(contract__insurer_id=user.insurer_id)).distinct()
+        # A contradictory claim row must not be visible to two insurers. Use the
+        # contract's insurer only when the claim has no explicit insurer recorded.
+        return qs.filter(
+            Q(insurer_id=user.insurer_id) |
+            Q(insurer__isnull=True, contract__insurer_id=user.insurer_id)
+        ).distinct()
     if user.role == "subsidiary_rep":
         return qs.filter(person__company_id=user.company_id) if user.company_id else qs.none()
     if user.role == "employee":
@@ -55,8 +60,10 @@ def scoped_requests_for(user):
     if user.is_superuser or user.role in PRIVILEGED:
         return qs
     if user.role == "insurance_specialist":
-        return qs.filter(
-            Q(assigned_to=user) | Q(assigned_to__isnull=True, is_confidential=False)
+        # Confidential requests belong to the head/admin queue even if a legacy
+        # row was accidentally assigned to a specialist.
+        return qs.filter(is_confidential=False).filter(
+            Q(assigned_to=user) | Q(assigned_to__isnull=True)
         ).distinct()
     if user.role == "subsidiary_rep":
         return qs.filter(company_id=user.company_id, is_confidential=False) if user.company_id else qs.none()
