@@ -6,4 +6,5 @@
 {% for item in items %}<tr><td>{{ item.subject }}</td><td>{{ item.get_channel_display }}</td><td>{{ item.get_direction_display }}</td><td>{{ item.company|default:"—" }}</td><td>{{ item.insurer|default:"—" }}</td><td>{{ item.occurred_at|date:"Y/m/d H:i" }}</td><td>{{ item.follow_up_due|default:"—" }}</td><td><span class="status">{{ item.get_follow_up_status_display }}</span></td><td>{% if item.attachment %}<a href="{% url 'correspondence_download' item.pk %}">دانلود امن</a>{% else %}—{% endif %}</td></tr>
 {% empty %}<tr><td colspan="9" class="empty">مکاتبه‌ای برای نمایش وجود ندارد.</td></tr>{% endfor %}
 </tbody></table></div></section>
+{% include "includes/pagination.html" %}
 {% endblock %}
