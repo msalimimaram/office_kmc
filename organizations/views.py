@@ -26,7 +26,8 @@ def people_list(request):
             )
     else:
         raise PermissionDenied
-    query = request.GET.get("q", "").strip()[:100]
+    people = people.select_related("company", "employee")
+    query = request.GET.get("q", "").strip()[:100
     if query:
         people = people.filter(
             Q(first_name__icontains=query) |
