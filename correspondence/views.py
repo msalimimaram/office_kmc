@@ -20,8 +20,10 @@ CREATE_ROLES = PRIVILEGED | {"insurance_specialist"}
 
 def _scope(user):
     qs = Correspondence.objects.select_related("company", "insurer", "contract", "assigned_to", "created_by")
-    if user.is_superuser or user.role in PRIVILEGED | {"insurance_specialist"}:
+    if user.is_superuser or user.role in PRIVILEGED:
         return qs
+    if user.role == "insurance_specialist":
+        return qs.filter(is_confidential=False)
     if user.role == "auditor":
         return qs.filter(is_confidential=False)
     if user.role == "insurer":
@@ -74,6 +76,8 @@ def correspondence_create(request):
                 item.insurer = request.user.insurer
                 item.is_confidential = False
                 item.assigned_to = None
+            if request.user.role == "insurance_specialist":
+                item.is_confidential = False
             item.save()
             AuditEvent.objects.create(
                 actor=request.user, action="correspondence_created", object_type="Correspondence",
