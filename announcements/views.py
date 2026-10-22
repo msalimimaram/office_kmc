@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 from django.db.models import Q
+from django.core.paginator import Paginator
 
 from auditlog.models import AuditEvent
 from core.permissions import PRIVILEGED
@@ -43,8 +44,9 @@ def _visible_announcements(user):
 
 @login_required
 def announcement_list(request):
+    page_obj = Paginator(_visible_announcements(request.user).order_by("-publish_at", "-created_at"), 20).get_page(request.GET.get("page"))
     return render(request, "announcements/announcement_list.html", {
-        "announcements": _visible_announcements(request.user),
+        "announcements": page_obj.object_list, "page_obj": page_obj,
         "can_manage": request.user.is_superuser or request.user.role in STAFF_ROLES,
     })
 
