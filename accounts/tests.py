@@ -51,3 +51,49 @@ class AdminAccessIsolationTests(TestCase):
         client.force_login(user)
         response = client.get(reverse("admin:index"))
         self.assertEqual(response.status_code, 200)
+
+
+from django.core.cache import cache
+
+
+class LoginThrottlingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_repeated_invalid_password_attempts_are_throttled(self):
+        client = Client()
+        login_url = reverse("login")
+        for _ in range(5):
+            response = client.post(login_url, {
+                "username": "unknown-account",
+                "password": "incorrect-password",
+            }, REMOTE_ADDR="192.0.2.10")
+            self.assertEqual(response.status_code, 200)
+
+        response = client.post(login_url, {
+            "username": "unknown-account",
+            "password": "incorrect-password",
+        }, REMOTE_ADDR="192.0.2.10")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("login_throttled", response.context["form"].errors.as_data().get("__all__", [])[0].code)
+
+    def test_throttle_is_scoped_to_username_and_client_ip(self):
+        client = Client()
+        login_url = reverse("login")
+        for _ in range(5):
+            client.post(login_url, {
+                "username": "unknown-account",
+                "password": "incorrect-password",
+            }, REMOTE_ADDR="192.0.2.11")
+
+        response = client.post(login_url, {
+            "username": "unknown-account",
+            "password": "incorrect-password",
+        }, REMOTE_ADDR="192.0.2.12")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("login_throttled", [
+            error.code for error in response.context["form"].errors.as_data().get("__all__", [])
+        ])
