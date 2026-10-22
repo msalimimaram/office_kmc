@@ -94,7 +94,7 @@ def request_detail(request, pk):
         # Specialists may process only non-confidential requests in their queue.
         if request.user.role == "insurance_specialist" and status in {
             ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED,
-            ServiceRequest.Status.CLOSED,
+            ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED,
         }:
             raise PermissionDenied
         previous_status = item.status
@@ -118,6 +118,7 @@ def request_detail(request, pk):
             next_statuses -= {
                 ServiceRequest.Status.APPROVED,
                 ServiceRequest.Status.REJECTED,
+                ServiceRequest.Status.COMPLETED,
                 ServiceRequest.Status.CLOSED,
             }
         allowed_statuses.extend(
