@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
+from django.core.paginator import Paginator
 
 from .models import Claim, ClaimObjection
 from .forms import ClaimObjectionForm
@@ -24,8 +25,10 @@ def claim_list(request):
         )
     if status in dict(Claim.Status.choices):
         claims = claims.filter(status=status)
+    page_obj = Paginator(claims, 25).get_page(request.GET.get("page"))
     return render(request, "claims/claim_list.html", {
-        "claims": claims, "search_query": query, "selected_status": status,
+        "claims": page_obj.object_list, "page_obj": page_obj,
+        "search_query": query, "selected_status": status,
         "statuses": Claim.Status.choices,
     })
 
