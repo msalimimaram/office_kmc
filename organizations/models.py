@@ -1,4 +1,6 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+
 
 class Company(models.Model):
     code = models.CharField("کد شرکت", max_length=30, unique=True)
@@ -15,6 +17,7 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class Person(models.Model):
     class Relationship(models.TextChoices):
@@ -41,6 +44,17 @@ class Person(models.Model):
         constraints = [models.UniqueConstraint(fields=["company", "national_id"], name="uniq_person_company_national_id")]
         verbose_name = "شخص بیمه‌شده"
         verbose_name_plural = "اشخاص بیمه‌شده"
+
+    def clean(self):
+        super().clean()
+        if self.employee_id and self.company_id and self.employee.company_id != self.company_id:
+            raise ValidationError({"employee": "کارمند اصلی و فرد تحت تکفل باید متعلق به یک شرکت باشند."})
+        if self.employee_id == self.pk and self.pk:
+            raise ValidationError({"employee": "یک شخص نمی‌تواند کارمند اصلی خودش باشد."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
