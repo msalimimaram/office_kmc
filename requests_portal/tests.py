@@ -65,7 +65,6 @@ class ServiceRequestTests(TestCase):
         visible = set(scoped_requests_for(self.user).values_list("reference", flat=True))
         self.assertEqual(visible, {"IB-OWN-1"})
 
-
     def test_medical_assistance_is_visible_to_head_but_not_specialist_or_company_rep(self):
         medical = ServiceRequest.objects.create(
             reference="IB-MED-1", kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
@@ -121,7 +120,7 @@ class ServiceRequestTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
 
-    def test_specialist_can_process_non_confidential_request_but_cannot_approve_it(self):
+    def test_specialist_can_claim_unassigned_request_when_review_starts(self):
         item = ServiceRequest.objects.create(
             reference="IB-QUEUE-1", kind=ServiceRequest.Kind.OTHER,
             submitted_by=self.user, company=self.company,
@@ -137,10 +136,41 @@ class ServiceRequestTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "رسیدگی به درخواست")
         response = client.post(reverse("request_detail", args=[item.pk]), {
+            "status": ServiceRequest.Status.IN_REVIEW, "response": "شروع بررسی"
+        })
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        self.assertEqual(item.assigned_to_id, specialist.pk)
+        self.assertEqual(item.status, ServiceRequest.Status.IN_REVIEW)
+        response = client.post(reverse("request_detail", args=[item.pk]), {
             "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
         })
         self.assertEqual(response.status_code, 403)
 
+    def test_head_updates_do_not_claim_specialist_queue_and_response_history_is_preserved(self):
+        item = ServiceRequest.objects.create(
+            reference="IB-HISTORY-1", kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.user, company=self.company,
+            title="درخواست تاریخچه", description="شرح",
+        )
+        head = User.objects.create_user(
+            username="head-history", password="StrongPass!2026",
+            must_change_password=False, role="department_head"
+        )
+        client = Client()
+        client.force_login(head)
+        response = client.post(reverse("request_detail", args=[item.pk]), {
+            "status": ServiceRequest.Status.IN_REVIEW, "response": "بررسی آغاز شد"
+        })
+        self.assertEqual(response.status_code, 302)
+        response = client.post(reverse("request_detail", args=[item.pk]), {
+            "status": ServiceRequest.Status.NEEDS_INFO, "response": "لطفاً اطلاعات تکمیلی ارائه شود"
+        })
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        self.assertIsNone(item.assigned_to_id)
+        self.assertIn("بررسی آغاز شد", item.response)
+        self.assertIn("لطفاً اطلاعات تکمیلی ارائه شود", item.response)
 
     def test_employee_medical_request_must_select_self_or_insured_dependent(self):
         self.user.national_id = "1111111111"
@@ -184,7 +214,6 @@ class ServiceRequestTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ServiceRequest.objects.count(), 0)
-
 
     def test_finance_and_auditor_cannot_open_request_creation_endpoint(self):
         for role in ("finance", "legal", "auditor", "insurer", "insurance_specialist"):
