@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -31,6 +32,33 @@ class InsuredAsset(models.Model):
         ordering = ["company__name", "asset_type", "name"]
         verbose_name = "دارایی بیمه‌شده"
         verbose_name_plural = "دارایی‌های بیمه‌شده"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(insured_value__gte=0), name="insured_asset_value_nonnegative"),
+            models.CheckConstraint(
+                condition=models.Q(policy_end__isnull=True) | models.Q(policy_start__isnull=True) | models.Q(policy_end__gte=models.F("policy_start")),
+                name="insured_asset_policy_dates_ordered",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.insured_value is not None and self.insured_value < 0:
+            errors["insured_value"] = "ارزش بیمه‌شده نمی‌تواند منفی باشد."
+        if self.policy_start and self.policy_end and self.policy_end < self.policy_start:
+            errors["policy_end"] = "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد."
+        if self.contract_id:
+            contract = self.contract
+            if self.insurer_id and contract.insurer_id != self.insurer_id:
+                errors["insurer"] = "بیمه‌گر دارایی باید با بیمه‌گر قرارداد یکسان باشد."
+            if self.company_id and not contract.companies.filter(pk=self.company_id).exists():
+                errors["contract"] = "قرارداد انتخاب‌شده برای شرکت این دارایی تعریف نشده است."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.asset_code} — {self.name}"
