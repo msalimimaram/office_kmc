@@ -2,7 +2,7 @@ from django.test import TestCase, Client
 from django.urls import reverse
 
 from accounts.models import User
-from organizations.models import Company
+from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from core.permissions import scoped_requests_for
 
@@ -128,3 +128,47 @@ class ServiceRequestTests(TestCase):
             "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
         })
         self.assertEqual(response.status_code, 403)
+
+
+    def test_employee_medical_request_must_select_self_or_insured_dependent(self):
+        self.user.national_id = "1111111111"
+        self.user.save(update_fields=["national_id"])
+        employee_person = Person.objects.create(
+            company=self.company, national_id="1111111111",
+            first_name="کارمند", last_name="آزمایشی",
+        )
+        dependent = Person.objects.create(
+            company=self.company, national_id="2222222222",
+            first_name="فرد", last_name="تحت تکفل",
+            relationship="child", employee=employee_person,
+        )
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            "person": str(dependent.pk),
+            "title": "کمک‌هزینه درمان فرد تحت تکفل",
+            "description": "درخواست آزمایشی",
+        })
+        self.assertEqual(response.status_code, 302)
+        item = ServiceRequest.objects.get()
+        self.assertEqual(item.person_id, dependent.pk)
+        self.assertTrue(item.is_confidential)
+
+    def test_employee_cannot_link_medical_request_to_person_from_another_company(self):
+        self.user.national_id = "1111111111"
+        self.user.save(update_fields=["national_id"])
+        other_person = Person.objects.create(
+            company=self.other_company, national_id="1111111111",
+            first_name="شخص", last_name="شرکت دیگر",
+        )
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            "person": str(other_person.pk),
+            "title": "درخواست کمک‌هزینه",
+            "description": "شرح",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ServiceRequest.objects.count(), 0)
