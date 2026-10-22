@@ -36,6 +36,14 @@ class Contract(models.Model):
     is_active = models.BooleanField("فعال", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="contract_end_on_or_after_start",
+            ),
+        ]
+
     def clean(self):
         super().clean()
         if self.start_date and self.end_date and self.end_date < self.start_date:
