@@ -1,5 +1,7 @@
-from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+
 
 class Claim(models.Model):
     class Status(models.TextChoices):
@@ -36,7 +38,30 @@ class Claim(models.Model):
         verbose_name = "خسارت"
         verbose_name_plural = "خسارت‌ها"
 
-    def __str__(self): return self.claim_number
+    def clean(self):
+        super().clean()
+        errors = {}
+        money_fields = ("requested_amount", "assessed_amount", "payable_amount", "paid_amount")
+        for field in money_fields:
+            value = getattr(self, field, None)
+            if value is not None and value < 0:
+                errors[field] = "مبلغ نمی‌تواند منفی باشد."
+        if self.paid_amount is not None and self.payable_amount is not None and self.paid_amount > self.payable_amount:
+            errors["paid_amount"] = "مبلغ پرداخت‌شده نمی‌تواند از مبلغ قابل پرداخت بیشتر باشد."
+        if self.payment_date and not self.paid_amount:
+            errors["payment_date"] = "تاریخ پرداخت بدون مبلغ پرداخت‌شده قابل ثبت نیست."
+        if self.contract_id and self.insurer_id and self.contract.insurer_id != self.insurer_id:
+            errors["insurer"] = "بیمه‌گر خسارت باید با بیمه‌گر قرارداد یکسان باشد."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.claim_number
+
 
 class ClaimObjection(models.Model):
     class Status(models.TextChoices):
@@ -44,10 +69,11 @@ class ClaimObjection(models.Model):
         IN_REVIEW = "in_review", "در حال بررسی"
         ANSWERED = "answered", "پاسخ داده‌شده"
         CLOSED = "closed", "بسته‌شده"
+
     claim = models.ForeignKey(Claim, on_delete=models.PROTECT, related_name="objections")
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     description = models.TextField("شرح اعتراض")
-    status = models.CharField("وضعیت", max_length=20, choices=Status.choices, default=Status.OPEN)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     response = models.TextField("پاسخ", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
