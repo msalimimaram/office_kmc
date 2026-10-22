@@ -2,6 +2,7 @@ from django import forms
 from insurance.models import Contract, Insurer
 from organizations.models import Company
 from .models import Correspondence
+from core.uploads import validate_uploaded_file
 
 
 class CorrespondenceForm(forms.ModelForm):
@@ -49,8 +50,7 @@ class CorrespondenceForm(forms.ModelForm):
             self.add_error("contract", "قرارداد انتخاب‌شده برای شرکت مشخص‌شده نیست.")
         attachment = cleaned.get("attachment")
         if attachment:
-            if attachment.size > 15 * 1024 * 1024:
-                self.add_error("attachment", "حداکثر حجم پیوست ۱۵ مگابایت است.")
-            elif attachment.name.rsplit(".", 1)[-1].lower() not in {"pdf", "docx", "xlsx", "png", "jpg", "jpeg"}:
-                self.add_error("attachment", "نوع پیوست مجاز نیست.")
+            error = validate_uploaded_file(attachment, max_size=15 * 1024 * 1024)
+            if error:
+                self.add_error("attachment", error)
         return cleaned
