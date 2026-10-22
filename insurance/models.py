@@ -1,4 +1,6 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+
 
 class Insurer(models.Model):
     name = models.CharField("نام بیمه‌گر", max_length=200, unique=True)
@@ -6,7 +8,10 @@ class Insurer(models.Model):
     contact_email = models.EmailField("ایمیل", blank=True)
     contact_phone = models.CharField("تلفن", max_length=40, blank=True)
     is_active = models.BooleanField("فعال", default=True)
-    def __str__(self): return self.name
+
+    def __str__(self):
+        return self.name
+
 
 class InsuranceLine(models.TextChoices):
     HEALTH = "health", "درمان تکمیلی"
@@ -16,6 +21,7 @@ class InsuranceLine(models.TextChoices):
     THIRD_PARTY = "third_party", "شخص ثالث"
     BODY = "body", "بدنه خودرو"
     OTHER = "other", "سایر"
+
 
 class Contract(models.Model):
     code = models.CharField("شماره قرارداد", max_length=80, unique=True)
@@ -28,8 +34,20 @@ class Contract(models.Model):
     coverage_summary = models.TextField("خلاصه پوشش‌ها", blank=True)
     terms = models.TextField("شرایط و استثناها", blank=True)
     is_active = models.BooleanField("فعال", default=True)
-    created_at = models.DateTimeField("ایجاد", auto_now_add=True)
-    def __str__(self): return f"{self.code} — {self.title}"
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        super().clean()
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError({"end_date": "تاریخ پایان قرارداد نمی‌تواند قبل از تاریخ شروع باشد."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.code} — {self.title}"
+
 
 class ContractRevision(models.Model):
     contract = models.ForeignKey(Contract, on_delete=models.PROTECT, related_name="revisions")
@@ -38,5 +56,6 @@ class ContractRevision(models.Model):
     document = models.FileField("فایل سند غیرپزشکی", upload_to="contract_docs/", blank=True)
     created_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["contract", "revision_number"], name="uniq_contract_revision")]
