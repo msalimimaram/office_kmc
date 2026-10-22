@@ -1,9 +1,10 @@
+from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
 
 from accounts.models import User
 from organizations.models import Company, Person
-from claims.models import Claim
+from claims.models import Claim, ClaimObjection
 
 
 class ClaimVisibilityTests(TestCase):
@@ -47,7 +48,6 @@ class ClaimVisibilityTests(TestCase):
         self.assertNotContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
 
-
     def test_employee_identity_match_never_crosses_company_boundary(self):
         duplicate = Person.objects.create(
             company=self.company_b, national_id="1111111111",
@@ -62,3 +62,29 @@ class ClaimVisibilityTests(TestCase):
         response = client.get(reverse("claim_list"))
         self.assertContains(response, "CL-1")
         self.assertNotContains(response, "CL-CROSS-COMPANY")
+
+    def test_claim_cannot_record_negative_or_overpaid_amounts(self):
+        with self.assertRaises(ValidationError):
+            Claim.objects.create(
+                claim_number="CL-NEGATIVE", person=self.person_a,
+                service_type="خدمت", requested_amount=-1,
+            )
+        with self.assertRaises(ValidationError):
+            Claim.objects.create(
+                claim_number="CL-OVERPAID", person=self.person_a,
+                service_type="خدمت", payable_amount=100, paid_amount=101,
+            )
+
+    def test_only_employee_or_company_representative_can_submit_claim_objection(self):
+        claim = Claim.objects.get(claim_number="CL-1")
+        client = Client()
+        client.force_login(self.admin)
+        response = client.post(reverse("claim_detail", args=[claim.pk]), {"description": "اعتراض آزمایشی"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(ClaimObjection.objects.filter(claim=claim).count(), 0)
+
+        client.force_login(self.employee)
+        response = client.post(reverse("claim_detail", args=[claim.pk]), {"description": "اعتراض از طرف بیمه‌شده"})
+        self.assertEqual(response.status_code, 302)
+        objection = ClaimObjection.objects.get(claim=claim)
+        self.assertEqual(objection.submitted_by, self.employee)
