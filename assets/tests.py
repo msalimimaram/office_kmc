@@ -38,3 +38,21 @@ class AssetScopeTests(TestCase):
         response = client.get(reverse("asset_create"))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "AS-B")
+
+    def test_asset_rejects_negative_insured_value_and_invalid_policy_dates(self):
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            InsuredAsset.objects.create(
+                asset_code="ASSET-NEG", name="دارایی نامعتبر",
+                asset_type=InsuredAsset.Type.PROPERTY, company=self.company_a,
+                created_by=self.rep, insured_value=-1,
+            )
+        with self.assertRaises(ValidationError):
+            InsuredAsset.objects.create(
+                asset_code="ASSET-DATES", name="دارایی با تاریخ نامعتبر",
+                asset_type=InsuredAsset.Type.PROPERTY, company=self.company_a,
+                created_by=self.rep, policy_start=date(2026, 2, 1),
+                policy_end=date(2026, 1, 1),
+            )
