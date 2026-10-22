@@ -92,15 +92,16 @@ def request_detail(request, pk):
         status = request.POST.get("status")
         if status not in dict(ServiceRequest.Status.choices):
             raise PermissionDenied
-        if status != item.status and status not in TRANSITIONS.get(item.status, set()):
-            messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
-            return redirect("request_detail", pk=item.pk)
-        # Specialists may process only non-confidential requests in their queue.
+        # Final decisions are reserved for the department head and system admin,
+        # regardless of whether the requested transition would otherwise be valid.
         if request.user.role == "insurance_specialist" and status in {
             ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED,
             ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED,
         }:
             raise PermissionDenied
+        if status != item.status and status not in TRANSITIONS.get(item.status, set()):
+            messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
+            return redirect("request_detail", pk=item.pk)
         previous_status = item.status
         item.status = status
         item.response = request.POST.get("response", "").strip()[:10000]
