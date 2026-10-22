@@ -187,7 +187,7 @@ class ServiceRequestTests(TestCase):
 
 
     def test_finance_and_auditor_cannot_open_request_creation_endpoint(self):
-        for role in ("finance", "legal", "auditor", "insurer"):
+        for role in ("finance", "legal", "auditor", "insurer", "insurance_specialist"):
             with self.subTest(role=role):
                 user = User.objects.create_user(
                     username=f"no-create-{role}", password="StrongPass!2026",
