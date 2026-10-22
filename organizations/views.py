@@ -1,6 +1,7 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
+from django.core.paginator import Paginator
 from django.shortcuts import render
 
 from .models import Person
@@ -33,6 +34,7 @@ def people_list(request):
             Q(personnel_code__icontains=query) |
             Q(national_id__icontains=query)
         )
+    page_obj = Paginator(people.distinct().order_by("last_name", "first_name", "pk"), 25).get_page(request.GET.get("page"))
     return render(request, "organizations/people_list.html", {
-        "people": people.distinct(), "search_query": query,
+        "people": page_obj.object_list, "page_obj": page_obj, "search_query": query,
     })
