@@ -47,3 +47,19 @@ class InternalTaskForm(forms.ModelForm):
         if user.role not in MANAGER_ROLES and not user.is_superuser:
             self.fields["assignees"].queryset = User.objects.none()
             self.fields["related_request"].queryset = ServiceRequest.objects.none()
+
+    def clean(self):
+        cleaned = super().clean()
+        related_request = cleaned.get("related_request")
+        assignees = cleaned.get("assignees")
+        if related_request and related_request.is_confidential:
+            allowed = PRIVILEGED_ROLES
+            if assignees and any(
+                not (assignee.is_superuser or assignee.role in allowed)
+                for assignee in assignees
+            ):
+                self.add_error(
+                    "assignees",
+                    "وظیفه مرتبط با درخواست محرمانه فقط می‌تواند به مدیر سامانه یا رئیس اداره بیمه تخصیص داده شود.",
+                )
+        return cleaned
