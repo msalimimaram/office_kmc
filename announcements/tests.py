@@ -25,11 +25,11 @@ class AnnouncementVisibilityTests(TestCase):
         )
         Announcement.objects.create(
             title="اطلاعیه شرکت دیگر", body="متن", audience=Announcement.Audience.ALL,
-            company=self.company_b, is_published=True, publish_at=now - timedelta(minutes=1),
+            company=self.company_b, is_published=True, publish_at=now - timedelta(minutes=1), created_by=self.admin,
         )
         Announcement.objects.create(
             title="پیش‌نویس", body="متن", audience=Announcement.Audience.ALL,
-            is_published=False, publish_at=now - timedelta(minutes=1),
+            is_published=False, publish_at=now - timedelta(minutes=1), created_by=self.admin,
         )
         Announcement.objects.create(
             title="اطلاعیه منقضی", body="متن", audience=Announcement.Audience.ALL,
