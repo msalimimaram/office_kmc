@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: "ci-only-not-for-deployment"
     strategy:
       fail-fast: false
       matrix:
