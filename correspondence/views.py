@@ -46,7 +46,7 @@ def correspondence_list(request):
         )
     if follow_up in dict(Correspondence.FollowUp.choices):
         items = items.filter(follow_up_status=follow_up)
-    page_obj = Paginator(items.distinct(), 25).get_page(request.GET.get("page"))
+    page_obj = Paginator(items.distinct().order_by("-occurred_at", "-pk"), 25).get_page(request.GET.get("page"))
     return render(request, "correspondence/correspondence_list.html", {
         "items": page_obj.object_list, "page_obj": page_obj, "search_query": query, "selected_follow_up": follow_up,
         "follow_up_choices": Correspondence.FollowUp.choices,
