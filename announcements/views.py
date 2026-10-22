@@ -31,7 +31,7 @@ ROLE_AUDIENCE = {
 
 def _visible_announcements(user):
     now = timezone.now()
-    qs = Announcement.objects.filter(is_published=True, publish_at__lte=now).filter(
+    qs = Announcement.objects.select_related("company", "created_by").filter(is_published=True, publish_at__lte=now).filter(
         Q(expires_at__isnull=True) | Q(expires_at__gte=now)
     )
     qs = qs.filter(audience__in=ROLE_AUDIENCE.get(user.role, {"all"}))
