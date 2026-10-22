@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, redirect
 from django.db import transaction
+from django.core.paginator import Paginator
 from django.db.models import Q
 
 from auditlog.models import AuditEvent
@@ -38,8 +39,9 @@ def asset_list(request):
         ).distinct()
     if asset_type in dict(InsuredAsset.Type.choices):
         assets = assets.filter(asset_type=asset_type)
+    page_obj = Paginator(assets.order_by("name", "pk"), 25).get_page(request.GET.get("page"))
     return render(request, "assets/asset_list.html", {
-        "assets": assets, "search_query": query, "selected_type": asset_type,
+        "assets": page_obj.object_list, "page_obj": page_obj, "search_query": query, "selected_type": asset_type,
         "asset_types": InsuredAsset.Type.choices,
         "can_create": request.user.is_superuser or request.user.role in EDIT_ROLES | {"subsidiary_rep"},
     })
