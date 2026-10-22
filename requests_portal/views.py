@@ -57,11 +57,12 @@ def request_list(request):
 @login_required
 def request_create(request):
     if request.method == "POST":
-        form = ServiceRequestForm(request.POST, request.FILES)
+        form = ServiceRequestForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             item = form.save(commit=False)
             item.submitted_by = request.user
             item.company = request.user.company
+            item.person = form.cleaned_data.get("person")
             item.reference = "IB-" + secrets.token_hex(5).upper()
             # Medical-assistance requests are confidential by default. The
             # requester cannot turn off confidentiality through form fields.
@@ -75,7 +76,7 @@ def request_create(request):
             messages.success(request, f"درخواست شما با شماره پیگیری {item.reference} ثبت شد.")
             return redirect("request_list")
     else:
-        form = ServiceRequestForm()
+        form = ServiceRequestForm(user=request.user)
     return render(request, "requests_portal/request_form.html", {"form": form})
 
 
