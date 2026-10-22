@@ -46,3 +46,19 @@ class ClaimVisibilityTests(TestCase):
         response = client.get(reverse("claim_list"))
         self.assertNotContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
+
+
+    def test_employee_identity_match_never_crosses_company_boundary(self):
+        duplicate = Person.objects.create(
+            company=self.company_b, national_id="1111111111",
+            first_name="شخص", last_name="با کد ملی تکراری",
+        )
+        Claim.objects.create(
+            claim_number="CL-CROSS-COMPANY", person=duplicate,
+            service_type="خدمت آزمایشی", requested_amount=500,
+        )
+        client = Client()
+        client.force_login(self.employee)
+        response = client.get(reverse("claim_list"))
+        self.assertContains(response, "CL-1")
+        self.assertNotContains(response, "CL-CROSS-COMPANY")
