@@ -14,12 +14,15 @@ from auditlog.models import AuditEvent
 from core.uploads import validate_uploaded_file
 
 STAFF_ROLES = {"system_admin", "department_head", "insurance_specialist"}
+PRIVILEGED_ROLES = {"system_admin", "department_head"}
 
 
 def _visible_documents(user):
     qs = DocumentRecord.objects.select_related("uploaded_by", "company")
-    if user.is_superuser or user.role in STAFF_ROLES:
+    if user.is_superuser or user.role in PRIVILEGED_ROLES:
         return qs
+    if user.role == "insurance_specialist":
+        return qs.filter(is_confidential=False)
     if user.role == "auditor":
         return qs.filter(is_confidential=False)
     if user.role in {"subsidiary_rep", "employee", "finance", "legal", "insurer"}:
@@ -51,7 +54,10 @@ def document_upload(request):
         title = request.POST.get("title", "").strip()[:250]
         category = request.POST.get("category", "").strip()[:100]
         upload = request.FILES.get("file")
-        confidential = request.POST.get("is_confidential") == "on"
+        confidential = (
+            request.POST.get("is_confidential") == "on"
+            and (request.user.is_superuser or request.user.role in PRIVILEGED_ROLES)
+        )
         company_id = request.POST.get("company") or None
         errors = []
         if not title:
