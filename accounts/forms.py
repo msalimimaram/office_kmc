@@ -25,6 +25,16 @@ class ThrottledAuthenticationForm(AuthenticationForm):
         digest = hashlib.sha256(f"{username}\0{ip_address}".encode("utf-8")).hexdigest()
         return f"login-failures:{digest}"
 
+    def _record_failure(self, key):
+        # Use the cache backend's increment operation where possible so shared
+        # caches can update counters atomically across application workers.
+        if not cache.add(key, 1, timeout=LOGIN_LOCKOUT_SECONDS):
+            try:
+                cache.incr(key)
+            except ValueError:
+                # The key may have expired between add/get and increment.
+                cache.add(key, 1, timeout=LOGIN_LOCKOUT_SECONDS)
+
     def clean(self):
         key = self._attempt_key()
         if cache.get(key, 0) >= LOGIN_FAILURE_LIMIT:
@@ -36,8 +46,7 @@ class ThrottledAuthenticationForm(AuthenticationForm):
         try:
             cleaned_data = super().clean()
         except ValidationError:
-            failures = cache.get(key, 0)
-            cache.set(key, failures + 1, timeout=LOGIN_LOCKOUT_SECONDS)
+            self._record_failure(key)
             raise
 
         cache.delete(key)
