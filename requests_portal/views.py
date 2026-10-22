@@ -56,6 +56,9 @@ def request_list(request):
 
 @login_required
 def request_create(request):
+    allowed_roles = PRIVILEGED | {"insurance_specialist", "subsidiary_rep", "employee"}
+    if not request.user.is_superuser and request.user.role not in allowed_roles:
+        raise PermissionDenied
     if request.method == "POST":
         form = ServiceRequestForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
