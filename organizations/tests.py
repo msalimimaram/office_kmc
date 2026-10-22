@@ -15,3 +15,19 @@ class OrganizationScopeTests(TestCase):
         response = client.get(reverse("people_list"))
         self.assertContains(response, "علی")
         self.assertNotContains(response, "رضا")
+
+    def test_dependent_cannot_belong_to_a_different_company_than_employee(self):
+        from django.core.exceptions import ValidationError
+
+        company_a = Company.objects.create(code="DEP-A", name="شرکت والد")
+        company_b = Company.objects.create(code="DEP-B", name="شرکت وابسته")
+        employee = Person.objects.create(
+            company=company_a, national_id="3333333333",
+            first_name="کارمند", last_name="والد",
+        )
+        with self.assertRaises(ValidationError):
+            Person.objects.create(
+                company=company_b, national_id="4444444444",
+                first_name="فرد", last_name="تحت تکفل",
+                relationship=Person.Relationship.CHILD, employee=employee,
+            )
