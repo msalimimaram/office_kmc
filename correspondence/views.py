@@ -7,6 +7,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils.text import get_valid_filename
 from django.db.models import Q
+from django.core.paginator import Paginator
 
 from auditlog.models import AuditEvent
 from core.permissions import PRIVILEGED
@@ -45,8 +46,9 @@ def correspondence_list(request):
         )
     if follow_up in dict(Correspondence.FollowUp.choices):
         items = items.filter(follow_up_status=follow_up)
+    page_obj = Paginator(items.distinct(), 25).get_page(request.GET.get("page"))
     return render(request, "correspondence/correspondence_list.html", {
-        "items": items.distinct(), "search_query": query, "selected_follow_up": follow_up,
+        "items": page_obj.object_list, "page_obj": page_obj, "search_query": query, "selected_follow_up": follow_up,
         "follow_up_choices": Correspondence.FollowUp.choices,
         "can_create": request.user.is_superuser or request.user.role in CREATE_ROLES | {"subsidiary_rep"} or request.user.role == "insurer" and bool(request.user.insurer_id),
     })
