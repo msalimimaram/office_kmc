@@ -25,6 +25,8 @@ def task_list(request):
         tasks = InternalTask.objects.all()
     else:
         tasks = InternalTask.objects.filter(assignees=request.user) | InternalTask.objects.filter(created_by=request.user)
+    if not (request.user.is_superuser or request.user.role in {"system_admin", "department_head"}):
+        tasks = tasks.exclude(related_request__is_confidential=True)
     tasks = tasks.distinct().select_related("created_by", "related_request").prefetch_related("assignees").order_by("-due_at", "-pk")
     page_obj = Paginator(tasks, 25).get_page(request.GET.get("page"))
     return render(request, "tasks/task_list.html", {"tasks": page_obj.object_list, "page_obj": page_obj})
@@ -55,7 +57,10 @@ def task_create(request):
 
 @login_required
 def task_update(request, pk):
-    task = get_object_or_404(InternalTask.objects.select_related("created_by"), pk=pk)
+    task_scope = InternalTask.objects.select_related("created_by", "related_request")
+    if not (request.user.is_superuser or request.user.role in {"system_admin", "department_head"}):
+        task_scope = task_scope.exclude(related_request__is_confidential=True)
+    task = get_object_or_404(task_scope, pk=pk)
     is_manager = request.user.is_superuser or request.user.role in {"system_admin", "department_head"}
     if not is_manager and not task.assignees.filter(pk=request.user.pk).exists():
         raise PermissionDenied
