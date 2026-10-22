@@ -1,5 +1,6 @@
 from django import forms
 from .models import Announcement
+from core.uploads import validate_uploaded_file
 
 
 class AnnouncementForm(forms.ModelForm):
@@ -18,8 +19,7 @@ class AnnouncementForm(forms.ModelForm):
             self.add_error("expires_at", "پایان اعتبار باید بعد از زمان انتشار باشد.")
         attachment = cleaned.get("attachment")
         if attachment:
-            if attachment.size > 15 * 1024 * 1024:
-                self.add_error("attachment", "حداکثر حجم پیوست ۱۵ مگابایت است.")
-            elif attachment.name.rsplit(".", 1)[-1].lower() not in {"pdf", "docx", "xlsx", "png", "jpg", "jpeg"}:
-                self.add_error("attachment", "نوع پیوست مجاز نیست.")
+            error = validate_uploaded_file(attachment, max_size=15 * 1024 * 1024)
+            if error:
+                self.add_error("attachment", error)
         return cleaned
