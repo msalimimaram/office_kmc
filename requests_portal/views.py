@@ -3,6 +3,7 @@ import secrets
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import ServiceRequest
@@ -48,8 +49,9 @@ def _may_process_request(user, item):
 
 @login_required
 def request_list(request):
-    qs = scoped_requests_for(request.user)
-    return render(request, "requests_portal/request_list.html", {"requests_list": qs})
+    qs = scoped_requests_for(request.user).order_by("-created_at", "-pk")
+    page_obj = Paginator(qs, 25).get_page(request.GET.get("page"))
+    return render(request, "requests_portal/request_list.html", {"requests_list": page_obj.object_list, "page_obj": page_obj})
 
 
 @login_required
