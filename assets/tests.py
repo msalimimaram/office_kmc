@@ -11,7 +11,7 @@ class AssetScopeTests(TestCase):
         self.company_a = Company.objects.create(code="AS-A", name="شرکت الف")
         self.company_b = Company.objects.create(code="AS-B", name="شرکت ب")
         self.rep = User.objects.create_user(
-            username="asset-rep", password="StrongPass!2026",
+            username="asset-rep", password="StrongPass!2026", must_change_password=False,
             role="subsidiary_rep", company=self.company_a,
         )
         InsuredAsset.objects.create(
