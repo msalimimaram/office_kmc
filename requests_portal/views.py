@@ -110,7 +110,21 @@ def request_detail(request, pk):
         )
         messages.success(request, "درخواست به‌روزرسانی شد.")
         return redirect("request_detail", pk=item.pk)
+    can_process = _may_process_request(request.user, item)
+    allowed_statuses = [(item.status, item.get_status_display())]
+    if can_process:
+        next_statuses = set(TRANSITIONS.get(item.status, set()))
+        if request.user.role == "insurance_specialist":
+            next_statuses -= {
+                ServiceRequest.Status.APPROVED,
+                ServiceRequest.Status.REJECTED,
+                ServiceRequest.Status.CLOSED,
+            }
+        allowed_statuses.extend(
+            (key, label) for key, label in ServiceRequest.Status.choices
+            if key in next_statuses
+        )
     return render(request, "requests_portal/request_detail.html", {
-        "item": item, "statuses": ServiceRequest.Status.choices,
-        "can_process": _may_process_request(request.user, item),
+        "item": item, "statuses": allowed_statuses,
+        "can_process": can_process,
     })
