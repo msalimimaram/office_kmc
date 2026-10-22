@@ -16,7 +16,7 @@ from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
 
-IMPORT_ROLES = {"system_admin", "department_head", "insurance_specialist", "insurer"}
+MAX_IMPORT_ROWS = 10000
 
 
 def _can_import(user):
@@ -34,6 +34,11 @@ def _parse_amount(value, line, key):
         raise ValueError(f"ردیف {line}: ستون {key} باید عددی باشد.")
     if not amount.is_finite() or amount < 0:
         raise ValueError(f"ردیف {line}: ستون {key} باید عددی معتبر و نامنفی باشد.")
+    exponent = amount.as_tuple().exponent
+    integer_digits = max(0, len(amount.as_tuple().digits) + exponent)
+    decimal_places = max(0, -exponent)
+    if integer_digits > 14 or decimal_places > 2:
+        raise ValueError(f"ردیف {line}: ستون {key} حداکثر ۱۴ رقم صحیح و ۲ رقم اعشار می‌پذیرد.")
     return amount
 
 
@@ -75,6 +80,9 @@ def claim_import(request):
                 idx = {name: headers.index(name) for name in headers if name}
                 data, errors, seen = [], [], set()
                 for line, row in enumerate(rows, start=2):
+                    if line > MAX_IMPORT_ROWS + 1:
+                        errors.append(f"حداکثر تعداد ردیف داده در هر فایل {MAX_IMPORT_ROWS} است؛ فایل به این حد رسید.")
+                        break
                     if not any(v is not None for v in row):
                         continue
 
@@ -163,10 +171,12 @@ def claim_import(request):
 def claim_import_confirm(request, batch_id):
     if request.method != "POST" or not _can_import(request.user):
         raise PermissionDenied
-    batch = get_object_or_404(
-        ImportBatch, pk=batch_id, uploaded_by=request.user, status=ImportBatch.Status.VALIDATED
-    )
     with transaction.atomic():
+        batch = get_object_or_404(
+            ImportBatch.objects.select_for_update(),
+            pk=batch_id, uploaded_by=request.user, status=ImportBatch.Status.VALIDATED
+        )
+        # A concurrent confirmation cannot process the same batch twice.
         for row in batch.preview_data:
             item = dict(row)
             for field in ("service_date", "registered_date", "payment_date"):
@@ -176,9 +186,9 @@ def claim_import_confirm(request, batch_id):
         batch.status = ImportBatch.Status.PROCESSED
         batch.preview_data = []
         batch.save(update_fields=["status", "preview_data"])
-    AuditEvent.objects.create(
-        actor=request.user, action="claim_excel_import", object_type="ImportBatch",
-        object_id=str(batch.pk), summary=f"{batch.valid_rows} ردیف ثبت شد؛ {batch.invalid_rows} خطا"
-    )
+        AuditEvent.objects.create(
+            actor=request.user, action="claim_excel_import", object_type="ImportBatch",
+            object_id=str(batch.pk), summary=f"{batch.valid_rows} ردیف ثبت شد؛ {batch.invalid_rows} خطا"
+        )
     messages.success(request, f"ثبت نهایی انجام شد: {batch.valid_rows} خسارت؛ {batch.invalid_rows} ردیف خطا.")
     return redirect("claim_import")
