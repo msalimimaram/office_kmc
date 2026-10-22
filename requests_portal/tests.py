@@ -64,3 +64,65 @@ class ServiceRequestTests(TestCase):
         )
         visible = set(scoped_requests_for(self.user).values_list("reference", flat=True))
         self.assertEqual(visible, {"IB-OWN-1"})
+
+
+    def test_medical_assistance_is_visible_to_head_but_not_specialist_or_company_rep(self):
+        medical = ServiceRequest.objects.create(
+            reference="IB-MED-1", kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.user, company=self.company,
+            title="درخواست محرمانه کمک‌هزینه درمان", description="شرح محرمانه",
+            is_confidential=True,
+        )
+        head = User.objects.create_user(
+            username="head", password="StrongPass!2026", must_change_password=False, role="department_head"
+        )
+        specialist = User.objects.create_user(
+            username="specialist", password="StrongPass!2026", must_change_password=False, role="insurance_specialist"
+        )
+        rep = User.objects.create_user(
+            username="rep-med", password="StrongPass!2026", must_change_password=False, role="subsidiary_rep", company=self.company
+        )
+        self.assertIn(medical, scoped_requests_for(head))
+        self.assertNotIn(medical, scoped_requests_for(specialist))
+        self.assertNotIn(medical, scoped_requests_for(rep))
+
+        client = Client()
+        client.force_login(head)
+        self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 200)
+        client.force_login(specialist)
+        self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 404)
+
+    def test_employee_cannot_change_request_status(self):
+        item = ServiceRequest.objects.create(
+            reference="IB-OWN-STATUS", kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.user, company=self.company,
+            title="درخواست من", description="شرح",
+        )
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_detail", args=[item.pk]), {
+            "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
+        })
+        self.assertEqual(response.status_code, 403)
+        item.refresh_from_db()
+        self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
+
+    def test_specialist_can_process_non_confidential_request_but_cannot_approve_it(self):
+        item = ServiceRequest.objects.create(
+            reference="IB-QUEUE-1", kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.user, company=self.company,
+            title="درخواست عادی", description="شرح",
+        )
+        specialist = User.objects.create_user(
+            username="specialist-queue", password="StrongPass!2026",
+            must_change_password=False, role="insurance_specialist"
+        )
+        client = Client()
+        client.force_login(specialist)
+        response = client.get(reverse("request_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "رسیدگی به درخواست")
+        response = client.post(reverse("request_detail", args=[item.pk]), {
+            "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
+        })
+        self.assertEqual(response.status_code, 403)
