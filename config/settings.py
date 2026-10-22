@@ -1,11 +1,14 @@
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from dotenv import load_dotenv
 
-# A development fallback is intentionally available for local setup only.
-# Production deployments must supply DJANGO_SECRET_KEY and set DJANGO_DEBUG=False.
-DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
+BASE_DIR = Path(__file__).resolve().parent.parent
+# Load local development configuration; real environment variables take precedence.
+load_dotenv(BASE_DIR / ".env")
+
+# Fail closed by default. Set DJANGO_DEBUG=True only in local development.
+DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
     if DEBUG:
@@ -13,7 +16,12 @@ if not SECRET_KEY:
     else:
         raise RuntimeError("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=False")
 
-ALLOWED_HOSTS = [x.strip() for x in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if x.strip()]
+_allowed_hosts_raw = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+if not DEBUG and not os.getenv("DJANGO_ALLOWED_HOSTS"):
+    raise RuntimeError("DJANGO_ALLOWED_HOSTS must be explicitly set when DJANGO_DEBUG=False")
+ALLOWED_HOSTS = [x.strip() for x in _allowed_hosts_raw.split(",") if x.strip()]
+if not ALLOWED_HOSTS:
+    raise RuntimeError("DJANGO_ALLOWED_HOSTS must contain at least one host")
 
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
@@ -46,7 +54,7 @@ TEMPLATES = [{
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith(("postgres://", "postgresql://")):
     import urllib.parse
     parsed = urllib.parse.urlparse(DATABASE_URL)
@@ -57,8 +65,12 @@ if DATABASE_URL.startswith(("postgres://", "postgresql://")):
         "PORT": parsed.port or 5432,
         "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")},
     }}
-else:
+elif not DATABASE_URL and DEBUG:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+elif not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL must point to PostgreSQL when DJANGO_DEBUG=False")
+else:
+    raise RuntimeError("DATABASE_URL must use postgres:// or postgresql://")
 
 AUTH_USER_MODEL = "accounts.User"
 AUTH_PASSWORD_VALIDATORS = [
