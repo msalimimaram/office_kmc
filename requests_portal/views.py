@@ -102,9 +102,13 @@ def request_detail(request, pk):
         if status != item.status and status not in TRANSITIONS.get(item.status, set()):
             messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
             return redirect("request_detail", pk=item.pk)
+        response_text = request.POST.get("response", "").strip()[:10000]
+        if status in {ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.REJECTED} and not response_text:
+            messages.error(request, "برای درخواست اطلاعات تکمیلی یا رد درخواست، درج توضیح الزامی است.")
+            return redirect("request_detail", pk=item.pk)
         previous_status = item.status
         item.status = status
-        item.response = request.POST.get("response", "").strip()[:10000]
+        item.response = response_text
         if item.assigned_to_id is None:
             item.assigned_to = request.user
         item.save(update_fields=["status", "response", "assigned_to", "updated_at"])
