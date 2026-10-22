@@ -54,7 +54,7 @@ def home(request):
         "show_correspondence": "correspondence" in capabilities,
         "show_imports": "imports" in capabilities,
         "can_review_requests": "review" in capabilities,
-        "can_create_request": user.role in {"system_admin", "department_head", "insurance_specialist", "subsidiary_rep", "employee"} or user.is_superuser,
+        "can_create_request": user.role in {"system_admin", "department_head", "subsidiary_rep", "employee"} or user.is_superuser,
         "is_employee_dashboard": user.role == "employee" and not user.is_superuser,
     }
     return render(request, "dashboard/home.html", context)
