@@ -42,6 +42,7 @@ python manage.py runserver
 - `DB_SSLMODE`: تنظیم TLS پایگاه داده متناسب با زیرساخت.
 - `DJANGO_SECURE_SSL_REDIRECT`: در تولید معمولاً فعال؛ با reverse proxy درست هماهنگ شود.
 - `DJANGO_HSTS_SECONDS`: فقط پس از اطمینان از HTTPS کامل، HSTS را فعال نگه دارید.
+- `DJANGO_HSTS_INCLUDE_SUBDOMAINS` و `DJANGO_HSTS_PRELOAD`: به‌صورت پیش‌فرض خاموش‌اند؛ فقط پس از بررسی تمام زیردامنه‌ها و تصمیم آگاهانه مالک زیرساخت فعال شوند.
 - `DJANGO_SESSION_COOKIE_AGE`: مهلت بی‌فعالیتی نشست برحسب ثانیه؛ پیش‌فرض ۱۸۰۰ ثانیه (۳۰ دقیقه). نشست با فعالیت تمدید می‌شود و با بستن مرورگر نیز منقضی می‌شود.
 
 مقادیر واقعی را در secret manager محیط نگه دارید. `.env` نباید وارد Git شود. مقادیر `.env.example` نمونه‌اند و رمز واقعی نیستند.
