@@ -2,6 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 from django.db.models import Q
+from django.core.paginator import Paginator
 from .models import InsuranceLine
 
 from .models import Contract
@@ -32,7 +33,8 @@ def contract_list(request):
         contracts = contracts.filter(is_active=True)
     elif state == "inactive":
         contracts = contracts.filter(is_active=False)
+    page_obj = Paginator(contracts.distinct().order_by("-start_date", "code", "pk"), 25).get_page(request.GET.get("page"))
     return render(request, "insurance/contract_list.html", {
-        "contracts": contracts.distinct(), "search_query": query, "selected_line": line,
+        "contracts": page_obj.object_list, "page_obj": page_obj, "search_query": query, "selected_line": line,
         "lines": InsuranceLine.choices, "selected_state": state,
     })
