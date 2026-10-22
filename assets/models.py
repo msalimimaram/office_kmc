@@ -49,7 +49,9 @@ class InsuredAsset(models.Model):
             errors["policy_end"] = "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد."
         if self.contract_id:
             contract = self.contract
-            if self.insurer_id and contract.insurer_id != self.insurer_id:
+            if not self.insurer_id:
+                self.insurer = contract.insurer
+            elif contract.insurer_id != self.insurer_id:
                 errors["insurer"] = "بیمه‌گر دارایی باید با بیمه‌گر قرارداد یکسان باشد."
             if self.company_id and not contract.companies.filter(pk=self.company_id).exists():
                 errors["contract"] = "قرارداد انتخاب‌شده برای شرکت این دارایی تعریف نشده است."
