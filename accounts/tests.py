@@ -27,3 +27,27 @@ class InitialPasswordChangeTests(TestCase):
         client.force_login(user)
         response = client.get(reverse("password_change"))
         self.assertEqual(response.status_code, 200)
+
+
+class AdminAccessIsolationTests(TestCase):
+    def test_staff_employee_cannot_open_django_admin(self):
+        company = Company.objects.create(code="ADM-A", name="شرکت الف")
+        user = User.objects.create_user(
+            username="employee-staff", password="StrongPass!2026",
+            role="employee", company=company, is_staff=True,
+            must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("admin:index"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_system_admin_can_open_django_admin(self):
+        user = User.objects.create_user(
+            username="system-admin", password="StrongPass!2026",
+            role="system_admin", is_staff=True, must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("admin:index"))
+        self.assertEqual(response.status_code, 200)
