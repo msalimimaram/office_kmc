@@ -50,12 +50,11 @@ class ServiceRequestForm(forms.ModelForm):
         return cleaned
 
     def clean_attachment(self):
-        f = self.cleaned_data.get("attachment")
-        if f:
-            if f.size > 10 * 1024 * 1024:
-                raise forms.ValidationError("حداکثر حجم فایل ۱۰ مگابایت است.")
-            allowed = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx"}
-            import os
-            if os.path.splitext(f.name)[1].lower() not in allowed:
-                raise forms.ValidationError("نوع فایل مجاز نیست.")
-        return f
+        from core.uploads import validate_uploaded_file
+
+        upload = self.cleaned_data.get("attachment")
+        if upload:
+            error = validate_uploaded_file(upload, max_size=10 * 1024 * 1024)
+            if error:
+                raise ValidationError(error)
+        return upload
