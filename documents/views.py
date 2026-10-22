@@ -11,6 +11,7 @@ from django.utils.text import get_valid_filename
 
 from .models import DocumentRecord
 from auditlog.models import AuditEvent
+from core.uploads import validate_uploaded_file
 
 STAFF_ROLES = {"system_admin", "department_head", "insurance_specialist"}
 
@@ -59,10 +60,10 @@ def document_upload(request):
             errors.append("دسته‌بندی سند الزامی است.")
         if not upload:
             errors.append("انتخاب فایل الزامی است.")
-        elif upload.size > 20 * 1024 * 1024:
-            errors.append("حداکثر حجم فایل ۲۰ مگابایت است.")
-        elif Path(upload.name).suffix.lower() not in {".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg"}:
-            errors.append("نوع فایل مجاز نیست. فقط PDF، DOCX، XLSX و تصویر پشتیبانی می‌شوند.")
+        else:
+            file_error = validate_uploaded_file(upload, max_size=20 * 1024 * 1024)
+            if file_error:
+                errors.append(file_error)
         company = None
         if company_id:
             company = get_object_or_404(Company, pk=company_id)
