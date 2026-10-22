@@ -184,3 +184,16 @@ class ServiceRequestTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ServiceRequest.objects.count(), 0)
+
+
+    def test_finance_and_auditor_cannot_open_request_creation_endpoint(self):
+        for role in ("finance", "legal", "auditor", "insurer"):
+            with self.subTest(role=role):
+                user = User.objects.create_user(
+                    username=f"no-create-{role}", password="StrongPass!2026",
+                    must_change_password=False, role=role,
+                )
+                client = Client()
+                client.force_login(user)
+                response = client.get(reverse("request_create"))
+                self.assertEqual(response.status_code, 403)
