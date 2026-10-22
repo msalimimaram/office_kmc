@@ -23,6 +23,14 @@ class ClaimImportValidationTests(SimpleTestCase):
     def test_empty_amount_defaults_to_zero(self):
         self.assertEqual(_parse_amount(None, 2, "paid_amount"), Decimal("0"))
 
+    def test_amount_rejects_more_than_two_decimal_places(self):
+        with self.assertRaisesRegex(ValueError, "۲ رقم اعشار"):
+            _parse_amount("12.345", 2, "paid_amount")
+
+    def test_amount_rejects_values_that_exceed_model_precision(self):
+        with self.assertRaisesRegex(ValueError, "۱۴ رقم صحیح"):
+            _parse_amount("100000000000000.00", 2, "requested_amount")
+
     def test_date_accepts_iso_date(self):
         self.assertEqual(_parse_date("2026-10-21", 2, "service_date"), date(2026, 10, 21))
 
