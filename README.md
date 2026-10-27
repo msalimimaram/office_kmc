@@ -1,3 +1,15 @@
+# Office KMC — Insurance Operations Management
+
+**Project summary (English):** A Django-based, Persian/RTL web application project for organizing insurance operations such as organizational records, policies, claims, requests, tasks, documents, bulk imports, and audit-related workflows.
+
+**Technology:** Python · Django · Django ORM · Server-rendered templates · SQLite for local development · PostgreSQL as the intended non-development database.
+
+**Current status:** Under development; intended for controlled evaluation with synthetic data only. Do not use real employee, customer, or insured-person data until the outstanding security, access-control, and deployment requirements have been completed and verified.
+
+**Repository:** [Source code and technical documentation](https://github.com/msalimimaram/office_kmc)
+
+---
+
 # اداره بیمه | سامانه سازمانی مدیریت بیمه
 
 سامانه وب فارسی و راست‌چین برای ثبت و پیگیری اطلاعات بیمه‌ای، قراردادها، خسارت‌ها، درخواست‌ها، دارایی‌های بیمه‌شده و مکاتبات اداره بیمه. این پروژه مستقل از GAMva است.
