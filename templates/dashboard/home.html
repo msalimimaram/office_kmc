@@ -2,9 +2,57 @@
 {% block title %}داشبورد | اداره بیمه{% endblock %}
 {% block content %}
 <section class="hero">
-  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
-  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% else %}پنل سازمانی{% endif %}</div>
+  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% elif is_management %}نمای مدیریتی عملیات، خسارت‌ها، درخواست‌ها و عملکرد سامانه.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
+  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% elif is_management %}مرکز کنترل مدیریتی{% else %}پنل سازمانی{% endif %}</div>
 </section>
+
+{% if is_management %}
+<section class="management-kpi-grid" aria-label="شاخص‌های کلیدی مدیریتی">
+  <article class="management-kpi"><span>بیمه‌شدگان فعال</span><strong>{{ management_kpis.insured_count }}</strong><small>{{ management_kpis.company_count }} شرکت فعال</small></article>
+  <article class="management-kpi"><span>خسارت‌ها</span><strong>{{ management_kpis.claim_count }}</strong><small>{{ management_kpis.paid_claim_count }} مورد پرداخت‌شده</small></article>
+  <article class="management-kpi"><span>مبلغ قابل پرداخت</span><strong>{{ management_kpis.payable_amount|floatformat:0 }}</strong><small>ریال</small></article>
+  <article class="management-kpi"><span>نسبت پرداخت</span><strong>{{ management_kpis.payment_rate }}٪</strong><div class="progress"><i style="width:{{ management_kpis.payment_rate }}%"></i></div></article>
+  <article class="management-kpi"><span>درخواست‌ها</span><strong>{{ management_kpis.request_count }}</strong><small>{{ management_kpis.open_request_count }} مورد باز</small></article>
+  <article class="management-kpi"><span>نرخ خاتمه درخواست</span><strong>{{ management_kpis.resolution_rate }}٪</strong><div class="progress"><i style="width:{{ management_kpis.resolution_rate }}%"></i></div></article>
+</section>
+
+<section class="management-grid">
+  <div class="panel">
+    <div class="section-heading"><div><p class="eyebrow">رتبه‌بندی عملکرد</p><h2>شرکت‌ها بر اساس حجم خسارت</h2></div></div>
+    <div class="ranking-list">
+      {% for row in management_kpis.ranking %}
+      <div class="ranking-row"><span class="rank-number">{{ forloop.counter }}</span><span class="ranking-name">{{ row.name }}</span><strong>{{ row.claim_count }}</strong><small>خسارت</small></div>
+      {% empty %}<p class="empty">داده‌ای برای رتبه‌بندی وجود ندارد.</p>{% endfor %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="section-heading"><div><p class="eyebrow">ترکیب وضعیت</p><h2>وضعیت خسارت‌ها</h2></div></div>
+    <div class="bar-list">
+      {% for row in management_kpis.status_breakdown %}
+      <div class="bar-item"><div><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div><div class="bar-track"><i style="width:{% widthratio row.count management_kpis.claim_count 100 %}%"></i></div></div>
+      {% empty %}<p class="empty">داده‌ای برای نمایش وجود ندارد.</p>{% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><p class="eyebrow">روند شش‌ماهه</p><h2>تعداد خسارت ثبت‌شده</h2></div><span class="chart-caption">به تفکیک ماه</span></div>
+  <div class="trend-chart">
+    {% for row in management_kpis.monthly_trend %}
+    <div class="trend-column"><span class="trend-value">{{ row.count }}</span><div class="trend-bar"><i style="height:{% widthratio row.count management_kpis.claim_count 100 %}%"></i></div><small>{{ row.label }}</small></div>
+    {% empty %}<p class="empty">داده‌ای برای نمودار وجود ندارد.</p>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if is_employee_dashboard %}
+<section class="insured-visuals" aria-label="خلاصه وضعیت بیمه‌ای">
+  <article class="insured-card insured-primary"><div class="insured-ring" style="--value:{{ insured_metrics.claim_paid_ratio }}"><span>{{ insured_metrics.claim_paid_ratio }}٪</span></div><div><p class="eyebrow">خلاصه خسارت</p><h2>{{ insured_metrics.claim_total }} خسارت ثبت‌شده</h2><p>{{ insured_metrics.claim_paid }} مورد پرداخت‌شده و {{ insured_metrics.claim_pending }} مورد در حال پیگیری.</p></div></article>
+  <article class="insured-card"><span class="visual-icon">◷</span><div><small>درخواست‌های باز</small><strong>{{ insured_metrics.request_open }}</strong><p>مواردی که هنوز نیازمند پیگیری هستند.</p></div></article>
+  <article class="insured-card"><span class="visual-icon">✓</span><div><small>پرداخت‌شده</small><strong>{{ insured_metrics.claim_paid }}</strong><p>خسارت‌هایی که وضعیت پرداخت آن‌ها ثبت شده است.</p></div></article>
+</section>
+{% endif %}
+
 <section class="stats">
   {% if show_claims %}<article class="stat"><span class="stat-icon blue">▤</span><div><span class="muted">{% if is_employee_dashboard %}خسارت‌های من و افراد تحت تکفل{% else %}خسارت‌های قابل مشاهده{% endif %}</span><strong>{{ claim_count }}</strong><small>براساس سطح دسترسی شما</small></div></article>{% endif %}
   {% if show_requests %}<article class="stat"><span class="stat-icon amber">◷</span><div><span class="muted">{% if is_employee_dashboard %}درخواست‌های من{% else %}درخواست‌های قابل مشاهده{% endif %}</span><strong>{{ request_count }}</strong><small>تمام وضعیت‌ها</small></div></article>{% endif %}
