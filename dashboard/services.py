@@ -34,9 +34,7 @@ def management_kpis(user) -> dict:
     paid_claims = claims.filter(status=Claim.Status.PAID).count()
     payable = _money(claims.aggregate(v=Sum("payable_amount"))["v"])
     paid = _money(claims.aggregate(v=Sum("paid_amount"))["v"])
-    open_requests = requests.exclude(
-        status__in=[ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED, ServiceRequest.Status.REJECTED]
-    )
+    open_requests = requests.exclude(status__in=[ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED, ServiceRequest.Status.REJECTED])
     completed_requests = requests.filter(status__in=[ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED])
 
     payment_rate = float((paid / payable) * 100) if payable else 0
@@ -76,15 +74,13 @@ def management_kpis(user) -> dict:
     for row in monthly_rows:
         month = row["month"]
         key = month.strftime("%Y-%m") if month else "نامشخص"
-        monthly_map[key] = {
-            "label": key,
-            "count": row["count"],
-            "payable": _money(row["payable"]),
-            "paid": _money(row["paid"]),
-        }
+        monthly_map[key] = {"label": key, "count": row["count"], "payable": _money(row["payable"]), "paid": _money(row["paid"])}
 
-    # The current model has no historical employee coverage table, so this is a
-    # current-state operational KPI, not a historical headcount series.
+    monthly_trend = list(monthly_map.values())
+    max_monthly_count = max((row["count"] for row in monthly_trend), default=0)
+    for row in monthly_trend:
+        row["bar_percent"] = round((row["count"] / max_monthly_count) * 100) if max_monthly_count else 0
+
     return {
         "insured_count": people.count(),
         "company_count": Company.objects.filter(is_active=True).count(),
@@ -98,7 +94,7 @@ def management_kpis(user) -> dict:
         "resolution_rate": round(resolution_rate, 1),
         "ranking": ranking,
         "status_breakdown": status_breakdown,
-        "monthly_trend": list(monthly_map.values()),
+        "monthly_trend": monthly_trend,
     }
 
 
@@ -109,9 +105,7 @@ def insured_dashboard_metrics(user) -> dict:
     claim_total = claims.count()
     paid = claims.filter(status=Claim.Status.PAID).count()
     pending = claims.exclude(status__in=[Claim.Status.PAID, Claim.Status.CLOSED, Claim.Status.REJECTED]).count()
-    requests_open = requests.exclude(
-        status__in=[ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED, ServiceRequest.Status.REJECTED]
-    ).count()
+    requests_open = requests.exclude(status__in=[ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED, ServiceRequest.Status.REJECTED]).count()
     return {
         "claim_total": claim_total,
         "claim_paid": paid,
