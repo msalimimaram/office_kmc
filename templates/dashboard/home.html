@@ -18,7 +18,7 @@
 
 <section class="management-grid">
   <div class="panel">
-    <div class="section-heading"><div><p class="eyebrow">رتبه‌بندی عملکرد</p><h2>شرکت‌ها بر اساس حجم خسارت</h2></div></div>
+    <div class="section-heading"><div><p class="eyebrow">رتبه‌بندی عملیاتی</p><h2>شرکت‌ها بر اساس حجم خسارت</h2></div></div>
     <div class="ranking-list">
       {% for row in management_kpis.ranking %}
       <div class="ranking-row"><span class="rank-number">{{ forloop.counter }}</span><span class="ranking-name">{{ row.name }}</span><strong>{{ row.claim_count }}</strong><small>خسارت</small></div>
@@ -39,7 +39,7 @@
   <div class="section-heading"><div><p class="eyebrow">روند شش‌ماهه</p><h2>تعداد خسارت ثبت‌شده</h2></div><span class="chart-caption">به تفکیک ماه</span></div>
   <div class="trend-chart">
     {% for row in management_kpis.monthly_trend %}
-    <div class="trend-column"><span class="trend-value">{{ row.count }}</span><div class="trend-bar"><i style="height:{% widthratio row.count management_kpis.claim_count 100 %}%"></i></div><small>{{ row.label }}</small></div>
+    <div class="trend-column"><span class="trend-value">{{ row.count }}</span><div class="trend-bar"><i style="height:{{ row.bar_percent }}%"></i></div><small>{{ row.label }}</small></div>
     {% empty %}<p class="empty">داده‌ای برای نمودار وجود ندارد.</p>{% endfor %}
   </div>
 </section>
