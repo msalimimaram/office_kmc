@@ -4,10 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Load local development configuration; real environment variables take precedence.
 load_dotenv(BASE_DIR / ".env")
-
-# Fail closed by default. Set DJANGO_DEBUG=True only in local development.
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
@@ -22,6 +19,9 @@ if not DEBUG and not os.getenv("DJANGO_ALLOWED_HOSTS"):
 ALLOWED_HOSTS = [x.strip() for x in _allowed_hosts_raw.split(",") if x.strip()]
 if not ALLOWED_HOSTS:
     raise RuntimeError("DJANGO_ALLOWED_HOSTS must contain at least one host")
+
+_csrf_origins_raw = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [x.strip() for x in _csrf_origins_raw.split(",") if x.strip()]
 
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
@@ -59,13 +59,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith(("postgres://", "postgresql://")):
     import urllib.parse
     parsed = urllib.parse.urlparse(DATABASE_URL)
-    DATABASES = {"default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": parsed.path.lstrip("/"), "USER": parsed.username or "",
-        "PASSWORD": parsed.password or "", "HOST": parsed.hostname or "localhost",
-        "PORT": parsed.port or 5432,
-        "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")},
-    }}
+    DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": parsed.path.lstrip("/"), "USER": parsed.username or "", "PASSWORD": parsed.password or "", "HOST": parsed.hostname or "localhost", "PORT": parsed.port or 5432, "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")}, "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60"))}}
 elif not DATABASE_URL and DEBUG:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 elif not DATABASE_URL:
@@ -85,6 +79,7 @@ TIME_ZONE = "Asia/Tehran"
 USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "private-media/"
 MEDIA_ROOT = BASE_DIR / "private_media"
@@ -97,8 +92,6 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
-# Rotate sessions on login (Django default) and expire inactive sessions promptly.
-# SESSION_SAVE_EVERY_REQUEST refreshes the expiry only while the user is active.
 SESSION_COOKIE_AGE = int(os.getenv("DJANGO_SESSION_COOKIE_AGE", "1800"))
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
@@ -111,6 +104,5 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000"))
-    # Enable subdomain HSTS/preload only after verifying every affected hostname.
     SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("DJANGO_HSTS_INCLUDE_SUBDOMAINS", "False").lower() == "true"
     SECURE_HSTS_PRELOAD = os.getenv("DJANGO_HSTS_PRELOAD", "False").lower() == "true"
