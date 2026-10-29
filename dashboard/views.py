@@ -5,6 +5,7 @@ from claims.models import Claim
 from requests_portal.models import ServiceRequest
 from tasks.models import InternalTask
 from core.permissions import scoped_claims_for, scoped_requests_for
+from dashboard.services import insured_dashboard_metrics, management_kpis
 
 
 ROLE_CAPABILITIES = {
@@ -37,13 +38,16 @@ def home(request):
     else:
         tasks = InternalTask.objects.none()
 
+    is_management = user.is_superuser or user.role in {"system_admin", "department_head"}
+    is_employee_dashboard = user.role == "employee" and not user.is_superuser
+
     context = {
         "claim_count": claims.count(),
         "request_count": requests.count(),
         "open_request_count": requests.exclude(status__in=["closed", "completed", "rejected"]).count(),
         "task_count": tasks.exclude(status__in=["done", "cancelled"]).count(),
-        "recent_claims": claims.order_by("-registered_date", "-pk")[:8],
-        "recent_requests": requests.order_by("-created_at", "-pk")[:8],
+        "recent_claims": claims.select_related("person").order_by("-registered_date", "-pk")[:8],
+        "recent_requests": requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8],
         "capabilities": capabilities,
         "show_claims": "claims" in capabilities,
         "show_requests": "requests" in capabilities,
@@ -55,6 +59,9 @@ def home(request):
         "show_imports": "imports" in capabilities,
         "can_review_requests": "review" in capabilities,
         "can_create_request": user.role in {"system_admin", "department_head", "subsidiary_rep", "employee"} or user.is_superuser,
-        "is_employee_dashboard": user.role == "employee" and not user.is_superuser,
+        "is_employee_dashboard": is_employee_dashboard,
+        "is_management": is_management,
+        "management_kpis": management_kpis(user) if is_management else {},
+        "insured_metrics": insured_dashboard_metrics(user) if is_employee_dashboard else {},
     }
     return render(request, "dashboard/home.html", context)
