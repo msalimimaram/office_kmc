@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: office_kmc
+      POSTGRES_USER: office_kmc
+      POSTGRES_PASSWORD: office_kmc
+    ports:
+      - "5432:5432"
+    volumes:
+      - office_kmc_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U office_kmc -d office_kmc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  office_kmc_postgres:
