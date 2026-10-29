@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
                 ("last_name", models.CharField(blank=True, max_length=150, verbose_name="last name")),
                 ("email", models.EmailField(blank=True, max_length=254, verbose_name="email address")),
                 ("is_staff", models.BooleanField(default=False, help_text="Designates whether the user can log into this admin site.", verbose_name="staff status")),
-                ("is_active", models.BooleanField(default=True, help_text="Designates whether this user should be treated as active. Unselect this instead of deleting accounts.")),
+                ("is_active", models.BooleanField(default=True, help_text="Designates whether this user should be treated as active. Unselect this instead of deleting accounts.", verbose_name="active")),
                 ("date_joined", models.DateTimeField(auto_now_add=True, verbose_name="date joined")),
                 ("role", models.CharField(choices=[("system_admin","مدیر سامانه"),("department_head","رئیس اداره بیمه"),("insurance_specialist","کارشناس اداره بیمه"),("subsidiary_rep","نماینده شرکت تابعه"),("employee","بیمه‌شده"),("insurer","کارشناس بیمه‌گر"),("finance","واحد مالی"),("legal","واحد حقوقی"),("auditor","حسابرس")], default="employee", max_length=32, verbose_name="نقش")),
                 ("mobile", models.CharField(blank=True, max_length=20, verbose_name="شماره همراه")),
