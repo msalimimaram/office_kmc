@@ -226,3 +226,47 @@ class ServiceRequestTests(TestCase):
                 client.force_login(user)
                 response = client.get(reverse("request_create"))
                 self.assertEqual(response.status_code, 403)
+
+
+
+class MedicalRequestConfidentialityInvariantTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="MED-CONF", name="شرکت محرمانه")
+        self.user = User.objects.create_user(
+            username="medical-conf-user",
+            password="StrongPass!2026",
+            role="employee",
+            company=self.company,
+            must_change_password=False,
+        )
+
+    def test_model_save_forces_medical_assistance_to_be_confidential(self):
+        item = ServiceRequest.objects.create(
+            reference="IB-MED-CONF-1",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.user,
+            company=self.company,
+            title="درخواست محرمانه",
+            description="شرح آزمایشی",
+            is_confidential=False,
+        )
+
+        self.assertTrue(item.is_confidential)
+        item.refresh_from_db()
+        self.assertTrue(item.is_confidential)
+
+    def test_database_constraint_prevents_direct_declassification(self):
+        from django.db import IntegrityError, transaction
+
+        item = ServiceRequest.objects.create(
+            reference="IB-MED-CONF-2",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.user,
+            company=self.company,
+            title="درخواست محرمانه دوم",
+            description="شرح آزمایشی",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ServiceRequest.objects.filter(pk=item.pk).update(is_confidential=False)

@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 
+
 class ServiceRequest(models.Model):
     class Kind(models.TextChoices):
         MEDICAL_ASSISTANCE = "medical_assistance", "کمک‌هزینه درمان"
@@ -13,6 +14,7 @@ class ServiceRequest(models.Model):
         DOCUMENT_REQUEST = "document_request", "درخواست مدارک یا فرم"
         BASE_INSURANCE_WAIVER = "base_insurance_waiver", "فرم انصراف از سهم بیمه پایه"
         OTHER = "other", "سایر درخواست‌ها"
+
     class Status(models.TextChoices):
         SUBMITTED = "submitted", "ثبت‌شده"
         IN_REVIEW = "in_review", "در حال بررسی"
@@ -37,6 +39,26 @@ class ServiceRequest(models.Model):
     is_confidential = models.BooleanField("محرمانه", default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
         ordering = ["-created_at"]
-    def __str__(self): return f"{self.reference} — {self.title}"
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(kind="medical_assistance") | models.Q(is_confidential=True),
+                name="svc_medical_confidential",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.kind == self.Kind.MEDICAL_ASSISTANCE:
+            self.is_confidential = True
+
+    def save(self, *args, **kwargs):
+        # Enforce confidentiality for every normal model save, including admin edits.
+        if self.kind == self.Kind.MEDICAL_ASSISTANCE:
+            self.is_confidential = True
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.reference} — {self.title}"

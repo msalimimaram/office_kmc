@@ -1,6 +1,6 @@
-from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
+from django.conf import settings
 from django.db.models import F, Q
 
 
@@ -46,7 +46,6 @@ class Migration(migrations.Migration):
                 ("submitted_by", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to=settings.AUTH_USER_MODEL)),
             ],
         ),
-        migrations.AddConstraint(migrations.AlterModelOptions(model_name="claim", options={"ordering":["-registered_date","-created_at"],"verbose_name":"خسارت","verbose_name_plural":"خسارت‌ها"}) if False else migrations.RunPython.noop),
         migrations.AddConstraint(model_name="claim", constraint=models.CheckConstraint(condition=Q(requested_amount__gte=0), name="claim_requested_nonnegative")),
         migrations.AddConstraint(model_name="claim", constraint=models.CheckConstraint(condition=Q(assessed_amount__gte=0), name="claim_assessed_nonnegative")),
         migrations.AddConstraint(model_name="claim", constraint=models.CheckConstraint(condition=Q(payable_amount__gte=0), name="claim_payable_nonnegative")),
