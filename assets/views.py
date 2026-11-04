@@ -45,10 +45,19 @@ def _asset_scope(user):
         employed_person_ids = PersonEmployment.objects.filter(
             company_id__in=company_ids
         ).values_list("person_id", flat=True)
+        rep_lines = line_codes_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+        if "*" in rep_lines or not rep_lines:
+            rep_asset_scope = models.Q(pk__gt=0)
+        else:
+            rep_asset_scope = models.Q(pk__in=[])
+            if rep_lines.intersection({"third_party", "body", "vehicle"}):
+                rep_asset_scope |= models.Q(asset_type=InsuredAsset.Type.VEHICLE)
+            if rep_lines.intersection({"fire", "property", "liability", "equipment"}):
+                rep_asset_scope |= ~models.Q(asset_type=InsuredAsset.Type.VEHICLE)
         allowed |= (
             models.Q(company_id__in=company_ids)
             | models.Q(person_id__in=employed_person_ids)
-        )
+        ) & rep_asset_scope
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
