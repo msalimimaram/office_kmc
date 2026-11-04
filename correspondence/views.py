@@ -19,7 +19,7 @@ from accounts.access import (
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
 from .forms import CorrespondenceForm
-from .models import Correspondence
+from .models import Correspondence, CorrespondenceEvent
 from .services import create_correspondence, add_correspondence_event
 
 
@@ -175,7 +175,7 @@ def correspondence_download(request, pk):
     add_correspondence_event(
         correspondence=item,
         actor=request.user,
-        event_type=Correspondence.EventType.CREATED if hasattr(Correspondence, "EventType") else "follow_up",
+        event_type=CorrespondenceEvent.EventType.ATTACHMENT_DOWNLOADED,
         summary="پیوست مکاتبه دریافت شد.",
         metadata={"action": "download"},
         request=request,
