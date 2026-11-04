@@ -11,10 +11,8 @@ from django.utils import timezone
 from claims.models import Claim
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
+from accounts.access import has_global_access
 from core.permissions import scoped_claims_for, scoped_requests_for
-
-
-MANAGEMENT_ROLES = {"system_admin", "department_head"}
 
 
 def _money(value: Decimal | None) -> Decimal:
@@ -23,7 +21,7 @@ def _money(value: Decimal | None) -> Decimal:
 
 def management_kpis(user) -> dict:
     """Build the management dashboard from the same scoped querysets used elsewhere."""
-    if not (user.is_superuser or user.role in MANAGEMENT_ROLES):
+    if not has_global_access(user):
         return {}
 
     claims = scoped_claims_for(user)
