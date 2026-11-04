@@ -125,15 +125,24 @@ class Claim(models.Model):
 
 
 class ClaimPayment(models.Model):
-    """An immutable-by-history instalment reported as paid by a trusted source."""
+    class EntryType(models.TextChoices):
+        PAYMENT = "payment", "پرداخت ثبت‌شده"
+        REVERSAL = "reversal", "برگشت/اصلاح پرداخت"
+
+    """An append-only payment ledger entry reported by a trusted source."""
 
     claim = models.ForeignKey(Claim, on_delete=models.PROTECT, related_name="payments")
-    amount = models.DecimalField("مبلغ پرداخت", max_digits=16, decimal_places=2)
-    paid_at = models.DateField("تاریخ پرداخت", null=True, blank=True)
+    entry_type = models.CharField("نوع رویداد", max_length=12, choices=EntryType.choices, default=EntryType.PAYMENT)
+    amount = models.DecimalField("مبلغ", max_digits=16, decimal_places=2)
+    paid_at = models.DateField("تاریخ پرداخت/اصلاح", null=True, blank=True)
     source_reference = models.CharField("شماره حواله/مرجع منبع", max_length=160, blank=True)
     source_insurer = models.ForeignKey(
         "insurance.Insurer", null=True, blank=True, on_delete=models.PROTECT,
         related_name="claim_payments",
+    )
+    reverses_payment = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="reversal_entries",
     )
     note = models.TextField("توضیحات", blank=True)
     recorded_by = models.ForeignKey(
@@ -151,26 +160,54 @@ class ClaimPayment(models.Model):
         ordering = ("claim_id", "paid_at", "created_at", "pk")
         constraints = [
             models.CheckConstraint(condition=models.Q(amount__gt=0), name="claim_payment_amount_positive"),
+            models.CheckConstraint(
+                condition=(models.Q(entry_type="payment", reverses_payment__isnull=True)
+                           | models.Q(entry_type="reversal", reverses_payment__isnull=False)),
+                name="claim_payment_reversal_target",
+            ),
         ]
-        verbose_name = "مرحله پرداخت خسارت"
-        verbose_name_plural = "مراحل پرداخت خسارت"
+        verbose_name = "رویداد پرداخت خسارت"
+        verbose_name_plural = "رویدادهای پرداخت خسارت"
+
+    @property
+    def signed_amount(self):
+        return self.amount if self.entry_type == self.EntryType.PAYMENT else -self.amount
 
     def clean(self):
         super().clean()
         if self.amount is not None and self.amount <= 0:
-            raise ValidationError({"amount": "مبلغ هر مرحله پرداخت باید بزرگ‌تر از صفر باشد."})
+            raise ValidationError({"amount": "مبلغ هر رویداد باید بزرگ‌تر از صفر باشد."})
         if self.claim_id and self.source_insurer_id and self.claim.insurer_id and self.source_insurer_id != self.claim.insurer_id:
             raise ValidationError({"source_insurer": "بیمه‌گر پرداخت با بیمه‌گر خسارت مطابقت ندارد."})
+        if self.entry_type == self.EntryType.PAYMENT and self.reverses_payment_id:
+            raise ValidationError({"reverses_payment": "رکورد پرداخت اصلی نمی‌تواند رکورد پرداخت دیگری را برگشت بزند."})
+        if self.entry_type == self.EntryType.REVERSAL:
+            if not self.reverses_payment_id:
+                raise ValidationError({"reverses_payment": "برای ثبت برگشت باید پرداخت اصلی مشخص شود."})
+            original = self.reverses_payment
+            if original.entry_type != self.EntryType.PAYMENT or original.claim_id != self.claim_id:
+                raise ValidationError({"reverses_payment": "پرداخت اصلی باید متعلق به همین خسارت باشد."})
+            already_reversed = ClaimPayment.objects.filter(
+                reverses_payment_id=original.pk,
+                entry_type=self.EntryType.REVERSAL,
+            )
+            if self.pk:
+                already_reversed = already_reversed.exclude(pk=self.pk)
+            total_reversed = sum(already_reversed.values_list("amount", flat=True))
+            if total_reversed + self.amount > original.amount:
+                raise ValidationError({"amount": "مجموع مبالغ برگشتی نمی‌تواند از پرداخت اصلی بیشتر باشد."})
 
     def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("رویداد پرداخت ویرایش نمی‌شود؛ برای اصلاح رکورد برگشت جدید ثبت کنید.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        raise ValidationError("سوابق پرداخت حذف نمی‌شوند؛ برای اصلاح، رکورد اصلاحی ثبت کنید.")
+        raise ValidationError("سوابق پرداخت حذف نمی‌شوند؛ برای اصلاح، رکورد برگشت ثبت کنید.")
 
     def __str__(self):
-        return f"{self.claim} — {self.amount}"
+        return f"{self.claim} — {self.get_entry_type_display()} — {self.amount}"
 
 
 class ClaimObjection(models.Model):
