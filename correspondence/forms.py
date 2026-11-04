@@ -101,7 +101,10 @@ class CorrespondenceForm(forms.ModelForm):
         if has_role(self.user, RoleAssignment.Role.SUBSIDIARY_REP):
             company_ids = company_ids_for(self.user, role=RoleAssignment.Role.SUBSIDIARY_REP)
             if not company or company.pk not in company_ids:
-                self.add_error("company", "شرکت فعال نمایندگی مشخص یا مجاز نیست.")
+                if "company" in self.fields:
+                    self.add_error("company", "شرکت فعال نمایندگی مشخص یا مجاز نیست.")
+                else:
+                    self.add_error(None, "شرکت فعال نمایندگی مشخص یا مجاز نیست.")
         if has_role(self.user, RoleAssignment.Role.INSURER_REP):
             insurer_ids = insurer_ids_for(self.user)
             if not insurer or insurer.pk not in insurer_ids:
