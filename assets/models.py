@@ -100,3 +100,126 @@ class Vehicle(models.Model):
 
     def __str__(self):
         return self.plate_number
+
+
+class AssetValuation(models.Model):
+    class Method(models.TextChoices):
+        FORMAL = "formal", "ارزیابی رسمی"
+        EXPERT = "expert", "نظر کارشناس"
+        DECLARED = "declared", "اظهار واحد"
+        LEGACY = "legacy_snapshot", "انتقال از اطلاعات قدیمی"
+
+    asset = models.ForeignKey(InsuredAsset, on_delete=models.PROTECT, related_name="valuations")
+    valuation_date = models.DateField("تاریخ ارزیابی", null=True, blank=True)
+    market_value = models.DecimalField("ارزش روز", max_digits=18, decimal_places=2, default=0)
+    insured_value = models.DecimalField("ارزش بیمه‌شده", max_digits=18, decimal_places=2, default=0)
+    method = models.CharField("روش ارزیابی", max_length=24, choices=Method.choices, default=Method.EXPERT)
+    source_reference = models.CharField("مرجع ارزیابی", max_length=160, blank=True)
+    note = models.TextField("توضیحات", blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="asset_valuations")
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="approved_asset_valuations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("asset_id", "-valuation_date", "-created_at")
+        constraints = [
+            models.CheckConstraint(condition=models.Q(market_value__gte=0), name="asset_market_value_nonnegative"),
+            models.CheckConstraint(condition=models.Q(insured_value__gte=0), name="asset_valuation_insured_nonnegative"),
+        ]
+        verbose_name = "ارزیابی دارایی"
+        verbose_name_plural = "سوابق ارزیابی دارایی"
+
+    def clean(self):
+        super().clean()
+        if self.market_value < 0 or self.insured_value < 0:
+            raise ValidationError("مبالغ ارزیابی نمی‌توانند منفی باشند.")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("سابقه ارزیابی ویرایش نمی‌شود؛ ارزیابی جدید ثبت کنید.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("سابقه ارزیابی حذف نمی‌شود.")
+
+    def __str__(self):
+        return f"{self.asset} — {self.valuation_date or self.created_at.date()}"
+
+
+class AssetPolicyPeriod(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "پیش‌نویس"
+        ACTIVE = "active", "فعال"
+        EXPIRED = "expired", "منقضی"
+        TERMINATED = "terminated", "فسخ‌شده"
+        SUPERSEDED = "superseded", "جایگزین‌شده"
+
+    asset = models.ForeignKey(InsuredAsset, on_delete=models.PROTECT, related_name="policy_periods")
+    insurer = models.ForeignKey("insurance.Insurer", on_delete=models.PROTECT, related_name="asset_policy_periods")
+    contract = models.ForeignKey("insurance.Contract", null=True, blank=True, on_delete=models.PROTECT, related_name="asset_policy_periods")
+    policy_number = models.CharField("شماره بیمه‌نامه", max_length=100)
+    policy_start = models.DateField("شروع پوشش", null=True, blank=True)
+    policy_end = models.DateField("پایان پوشش", null=True, blank=True)
+    status = models.CharField("وضعیت", max_length=16, choices=Status.choices, default=Status.DRAFT)
+    source_reference = models.CharField("مرجع منبع", max_length=160, blank=True)
+    note = models.TextField("توضیحات", blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="asset_policy_periods_created")
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="asset_policy_periods_approved",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("asset_id", "-policy_start", "-created_at")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(policy_end__isnull=True) | models.Q(policy_start__isnull=True) | models.Q(policy_end__gte=models.F("policy_start")),
+                name="asset_policy_period_dates",
+            ),
+        ]
+        verbose_name = "دوره بیمه‌نامه دارایی"
+        verbose_name_plural = "دوره‌های بیمه‌نامه دارایی"
+
+    def clean(self):
+        super().clean()
+        if self.policy_start and self.policy_end and self.policy_end < self.policy_start:
+            raise ValidationError({"policy_end": "پایان پوشش نمی‌تواند قبل از شروع باشد."})
+        if self.contract_id and self.contract.insurer_id != self.insurer_id:
+            raise ValidationError({"insurer": "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد."})
+        if self.contract_id and self.asset.company_id and not self.contract.companies.filter(pk=self.asset.company_id).exists():
+            raise ValidationError({"contract": "قرارداد برای شرکت مالک این دارایی تعریف نشده است."})
+        if self.contract_id and self.asset.person_id and self.asset.person.company_id and not self.contract.companies.filter(pk=self.asset.person.company_id).exists():
+            raise ValidationError({"contract": "قرارداد برای شرکت محل اشتغال مالک شخصی تعریف نشده است."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.policy_number} — {self.asset}"
+
+
+class AssetPolicyEndorsement(models.Model):
+    policy_period = models.ForeignKey(AssetPolicyPeriod, on_delete=models.PROTECT, related_name="endorsements")
+    endorsement_number = models.CharField("شماره الحاقیه", max_length=100)
+    effective_date = models.DateField("تاریخ اثر", null=True, blank=True)
+    description = models.TextField("شرح تغییر")
+    document = models.FileField("فایل الحاقیه", upload_to="asset_endorsements/")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="approved_asset_endorsements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("policy_period", "endorsement_number"), name="uniq_asset_policy_endorsement"),
+        ]
+        verbose_name = "الحاقیه بیمه‌نامه دارایی"
+        verbose_name_plural = "الحاقیه‌های بیمه‌نامه دارایی"
