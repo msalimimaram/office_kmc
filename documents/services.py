@@ -133,3 +133,47 @@ def record_document_access(*, document, version, actor, action, request=None):
         request=request,
     )
     return event
+
+
+@transaction.atomic
+def archive_document(*, document_id, actor, reason, request=None):
+    if not reason.strip():
+        raise ValidationError("دلیل بایگانی الزامی است.")
+    document = DocumentRecord.objects.select_for_update().get(pk=document_id)
+    if document.is_void:
+        raise ValidationError("سند باطل‌شده قابل بایگانی مجدد نیست.")
+    before = {"is_archived": document.is_archived}
+    from django.utils import timezone
+    document.is_archived = True
+    document.archive_reason = reason.strip()
+    document.archived_at = timezone.now()
+    document.save(update_fields=["is_archived", "archive_reason", "archived_at"])
+    record_event(
+        actor=actor, action="document_archived", obj=document,
+        summary="سند بایگانی شد.", before_data=before,
+        after_data={"is_archived": True, "archive_reason": document.archive_reason},
+        request=request,
+    )
+    return document
+
+
+@transaction.atomic
+def void_document(*, document_id, actor, reason, request=None):
+    if not reason.strip():
+        raise ValidationError("دلیل ابطال الزامی است.")
+    document = DocumentRecord.objects.select_for_update().get(pk=document_id)
+    if document.is_void:
+        raise ValidationError("سند قبلاً باطل شده است.")
+    before = {"is_void": document.is_void}
+    from django.utils import timezone
+    document.is_void = True
+    document.void_reason = reason.strip()
+    document.voided_at = timezone.now()
+    document.save(update_fields=["is_void", "void_reason", "voided_at"])
+    record_event(
+        actor=actor, action="document_voided", obj=document,
+        summary="سند باطل شد.", before_data=before,
+        after_data={"is_void": True, "void_reason": document.void_reason},
+        request=request,
+    )
+    return document
