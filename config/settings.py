@@ -58,14 +58,56 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith(("postgres://", "postgresql://")):
     import urllib.parse
+
     parsed = urllib.parse.urlparse(DATABASE_URL)
-    DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": parsed.path.lstrip("/"), "USER": parsed.username or "", "PASSWORD": parsed.password or "", "HOST": parsed.hostname or "localhost", "PORT": parsed.port or 5432, "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")}, "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60"))}}
+    database_name = parsed.path.lstrip("/").split("?", 1)[0]
+    if not database_name:
+        raise RuntimeError("DATABASE_URL must include a PostgreSQL database name")
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": database_name,
+            "USER": urllib.parse.unquote(parsed.username or ""),
+            "PASSWORD": urllib.parse.unquote(parsed.password or ""),
+            "HOST": parsed.hostname or "localhost",
+            "PORT": parsed.port or 5432,
+            "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")},
+            "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+            "CONN_HEALTH_CHECKS": True,
+        }
+    }
 elif not DATABASE_URL and DEBUG:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 elif not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must point to PostgreSQL when DJANGO_DEBUG=False")
 else:
     raise RuntimeError("DATABASE_URL must use postgres:// or postgresql://")
+
+# Login throttling is process-local only in DEBUG. Production must use a shared
+# Redis backend so counters are consistent across Gunicorn workers and servers.
+if DEBUG:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "office-kmc-local-login-throttle",
+            "TIMEOUT": 900,
+        }
+    }
+else:
+    REDIS_URL = os.getenv("REDIS_URL", "").strip()
+    if not REDIS_URL:
+        raise RuntimeError("REDIS_URL must be configured in production for shared login throttling")
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": False,
+            },
+            "TIMEOUT": 900,
+        }
+    }
 
 AUTH_USER_MODEL = "accounts.User"
 AUTH_PASSWORD_VALIDATORS = [
@@ -101,6 +143,8 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "True").lower() == "true"
+    if os.getenv("DJANGO_TRUST_PROXY_SSL_HEADER", "False").lower() == "true":
+        SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000"))
