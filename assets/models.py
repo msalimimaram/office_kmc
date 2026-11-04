@@ -98,6 +98,17 @@ class Vehicle(models.Model):
         verbose_name = "مشخصات خودرو"
         verbose_name_plural = "مشخصات خودروها"
 
+    def clean(self):
+        super().clean()
+        if self.asset_id and self.asset.asset_type != InsuredAsset.Type.VEHICLE:
+            raise ValidationError({"asset": "مشخصات خودرو فقط به دارایی از نوع خودرو متصل می‌شود."})
+        if not self.plate_number.strip():
+            raise ValidationError({"plate_number": "شماره پلاک الزامی است."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.plate_number
 
