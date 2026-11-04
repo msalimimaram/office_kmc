@@ -1,3 +1,4 @@
+from datetime import date
 from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
@@ -6,14 +7,18 @@ from accounts.models import User
 from organizations.models import Company, Person
 from claims.models import Claim, ClaimObjection
 
+NATIONAL_ID_A = "1" * 10
+NATIONAL_ID_B = "2" * 10
+NATIONAL_ID_C = "3" * 10
+
 
 class ClaimVisibilityTests(TestCase):
     def setUp(self):
         self.company_a = Company.objects.create(code="A", name="شرکت الف")
         self.company_b = Company.objects.create(code="B", name="شرکت ب")
-        self.person_a = Person.objects.create(company=self.company_a, national_id="1111111111", first_name="علی", last_name="الف")
-        self.person_b = Person.objects.create(company=self.company_b, national_id="2222222222", first_name="رضا", last_name="ب")
-        self.employee = User.objects.create_user(username="1111111111", password="StrongPass!2026", must_change_password=False, national_id="1111111111", role="employee", company=self.company_a)
+        self.person_a = Person.objects.create(company=self.company_a, national_id=NATIONAL_ID_A, first_name="علی", last_name="الف", birth_date=date(1990, 1, 1))
+        self.person_b = Person.objects.create(company=self.company_b, national_id=NATIONAL_ID_B, first_name="رضا", last_name="ب", birth_date=date(1991, 1, 1))
+        self.employee = User.objects.create_user(username=NATIONAL_ID_A, password="StrongPass!2026", must_change_password=False, national_id=NATIONAL_ID_A, role="employee", company=self.company_a)
         self.rep = User.objects.create_user(username="rep-a", password="StrongPass!2026", must_change_password=False, role="subsidiary_rep", company=self.company_a)
         self.admin = User.objects.create_user(username="head", password="StrongPass!2026", must_change_password=False, role="department_head")
         self.insurer_without_link = User.objects.create_user(username="insurer-a", password="StrongPass!2026", must_change_password=False, role="insurer")
@@ -48,10 +53,10 @@ class ClaimVisibilityTests(TestCase):
         self.assertNotContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
 
-    def test_employee_identity_match_never_crosses_company_boundary(self):
+    def test_employee_identity_is_globally_unique_across_company_records(self):
         duplicate = Person.objects.create(
-            company=self.company_b, national_id="1111111111",
-            first_name="شخص", last_name="با کد ملی تکراری",
+            company=self.company_b, national_id=NATIONAL_ID_A,
+            first_name="شخص", last_name="با شناسه متفاوت", birth_date=date(1992, 1, 1),
         )
         Claim.objects.create(
             claim_number="CL-CROSS-COMPANY", person=duplicate,
