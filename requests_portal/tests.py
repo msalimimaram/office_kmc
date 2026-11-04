@@ -1,3 +1,4 @@
+from datetime import date
 from django.test import TestCase, Client
 from django.urls import reverse
 
@@ -5,6 +6,9 @@ from accounts.models import User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from core.permissions import scoped_requests_for
+
+NATIONAL_ID_A = "1" * 10
+NATIONAL_ID_B = "2" * 10
 
 
 class ServiceRequestTests(TestCase):
@@ -173,15 +177,15 @@ class ServiceRequestTests(TestCase):
         self.assertIn("لطفاً اطلاعات تکمیلی ارائه شود", item.response)
 
     def test_employee_medical_request_must_select_self_or_insured_dependent(self):
-        self.user.national_id = "1111111111"
+        self.user.national_id = NATIONAL_ID_A
         self.user.save(update_fields=["national_id"])
         employee_person = Person.objects.create(
-            company=self.company, national_id="1111111111",
-            first_name="کارمند", last_name="آزمایشی",
+            company=self.company, national_id=NATIONAL_ID_A,
+            first_name="کارمند", last_name="آزمایشی", birth_date=date(1990, 1, 1),
         )
         dependent = Person.objects.create(
-            company=self.company, national_id="2222222222",
-            first_name="فرد", last_name="تحت تکفل",
+            company=self.company, national_id=NATIONAL_ID_B,
+            first_name="فرد", last_name="تحت تکفل", birth_date=date(2010, 1, 1),
             relationship="child", employee=employee_person,
         )
         client = Client()
@@ -198,11 +202,11 @@ class ServiceRequestTests(TestCase):
         self.assertTrue(item.is_confidential)
 
     def test_employee_cannot_link_medical_request_to_person_from_another_company(self):
-        self.user.national_id = "1111111111"
+        self.user.national_id = NATIONAL_ID_A
         self.user.save(update_fields=["national_id"])
         other_person = Person.objects.create(
-            company=self.other_company, national_id="1111111111",
-            first_name="شخص", last_name="شرکت دیگر",
+            company=self.other_company, national_id=NATIONAL_ID_B,
+            first_name="شخص", last_name="شرکت دیگر", birth_date=date(1992, 1, 1),
         )
         client = Client()
         client.force_login(self.user)
