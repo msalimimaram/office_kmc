@@ -95,17 +95,24 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("amount", models.DecimalField(decimal_places=2, max_digits=16, verbose_name="مبلغ پرداخت")),
+                ("entry_type", models.CharField(choices=[("payment", "پرداخت ثبت‌شده"), ("reversal", "برگشت/اصلاح پرداخت")], default="payment", max_length=12, verbose_name="نوع رویداد")),
                 ("paid_at", models.DateField(blank=True, null=True, verbose_name="تاریخ پرداخت")),
                 ("source_reference", models.CharField(blank=True, max_length=160, verbose_name="شماره حواله/مرجع منبع")),
                 ("note", models.TextField(blank=True, verbose_name="توضیحات")),
                 ("is_legacy_import", models.BooleanField(default=False, verbose_name="منتقل‌شده از داده قدیمی")),
                 ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="ثبت")),
                 ("claim", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="payments", to="claims.claim")),
+                ("reverses_payment", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="reversal_entries", to="claims.claimpayment")),
                 ("confirmed_by", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="confirmed_claim_payments", to=settings.AUTH_USER_MODEL)),
                 ("recorded_by", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="recorded_claim_payments", to=settings.AUTH_USER_MODEL)),
                 ("source_insurer", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="claim_payments", to="insurance.insurer")),
             ],
             options={"verbose_name": "مرحله پرداخت خسارت", "verbose_name_plural": "مراحل پرداخت خسارت", "ordering": ("claim_id", "paid_at", "created_at", "pk")},
+        ),
+        migrations.AddField(
+            model_name="claimobjection",
+            name="deadline_at",
+            field=models.DateTimeField(blank=True, null=True, verbose_name="آخرین مهلت ثبت اعتراض"),
         ),
         migrations.AddConstraint(
             model_name="claim",
@@ -117,6 +124,14 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="claimpayment",
             constraint=models.CheckConstraint(condition=models.Q(amount__gt=0), name="claim_payment_amount_positive"),
+        ),
+        migrations.AddConstraint(
+            model_name="claimpayment",
+            constraint=models.CheckConstraint(
+                condition=(models.Q(entry_type="payment", reverses_payment__isnull=True)
+                           | models.Q(entry_type="reversal", reverses_payment__isnull=False)),
+                name="claim_payment_reversal_target",
+            ),
         ),
         migrations.AddIndex(
             model_name="claim",
