@@ -71,7 +71,13 @@ def scoped_claims_for(user):
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        allowed |= Q(person__company_id__in=company_ids)
+        # New claims capture the insured's company at the time of the event.
+        # Legacy rows with no snapshot fall back to the current Person company
+        # only until historical employment data is reconciled.
+        allowed |= (
+            Q(company_snapshot_id__in=company_ids)
+            | Q(company_snapshot__isnull=True, person__company_id__in=company_ids)
+        )
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
