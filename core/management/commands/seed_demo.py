@@ -1,10 +1,11 @@
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from claims.models import Claim
 from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
@@ -41,15 +42,15 @@ class Command(BaseCommand):
 
         employee_a, _ = Person.objects.update_or_create(
             company=company_a, national_id="0012345678",
-            defaults={"personnel_code":"A-1001", "first_name":"علی", "last_name":"نمونه", "relationship":"employee", "is_insured":True, "is_active":True},
+            defaults={"personnel_code":"A-1001", "first_name":"علی", "last_name":"نمونه", "birth_date":date(1988, 5, 12), "relationship":"employee", "is_insured":True, "is_active":True},
         )
         Person.objects.update_or_create(
             company=company_a, national_id="0012345679",
-            defaults={"personnel_code":"A-1001-01", "first_name":"سارا", "last_name":"نمونه", "relationship":"spouse", "employee":employee_a, "is_insured":True, "is_active":True},
+            defaults={"personnel_code":"A-1001-01", "first_name":"سارا", "last_name":"نمونه", "birth_date":date(1990, 8, 4), "relationship":"spouse", "employee":employee_a, "is_insured":True, "is_active":True},
         )
         employee_b, _ = Person.objects.update_or_create(
             company=company_b, national_id="0098765432",
-            defaults={"personnel_code":"B-2001", "first_name":"رضا", "last_name":"آزمایشی", "relationship":"employee", "is_insured":True, "is_active":True},
+            defaults={"personnel_code":"B-2001", "first_name":"رضا", "last_name":"آزمایشی", "birth_date":date(1985, 3, 22), "relationship":"employee", "is_insured":True, "is_active":True},
         )
 
         for username, role, company, national_id, insurer_obj in [
@@ -60,8 +61,6 @@ class Command(BaseCommand):
             ("employee.a", User.Role.EMPLOYEE, company_a, employee_a.national_id, None),
             ("employee.b", User.Role.EMPLOYEE, company_b, employee_b.national_id, None),
             ("insurer.demo", User.Role.INSURER, None, "", insurer),
-            ("finance.demo", User.Role.FINANCE, None, "", None),
-            ("auditor.demo", User.Role.AUDITOR, None, "", None),
         ]:
             user, created = User.objects.get_or_create(username=username, defaults={"role":role})
             user.role = role
@@ -72,6 +71,34 @@ class Command(BaseCommand):
             user.must_change_password = False
             user.set_unusable_password()
             user.save()
+
+            assignment_role = {
+                User.Role.SYSTEM_ADMIN: RoleAssignment.Role.SYSTEM_ADMIN,
+                User.Role.DEPARTMENT_HEAD: RoleAssignment.Role.DEPARTMENT_HEAD,
+                User.Role.INSURANCE_SPECIALIST: RoleAssignment.Role.INSURANCE_SPECIALIST,
+                User.Role.SUBSIDIARY_REP: RoleAssignment.Role.SUBSIDIARY_REP,
+                User.Role.EMPLOYEE: RoleAssignment.Role.INSURED_PERSON,
+                User.Role.INSURER: RoleAssignment.Role.INSURER_REP,
+            }[role]
+            assignment_company = company if role in {User.Role.SUBSIDIARY_REP, User.Role.EMPLOYEE} else None
+            assignment_insurer = insurer_obj if role == User.Role.INSURER else None
+            assignment_line = (
+                "health" if role == User.Role.INSURANCE_SPECIALIST else
+                "*" if role in {User.Role.SUBSIDIARY_REP, User.Role.EMPLOYEE} else ""
+            )
+            RoleAssignment.objects.update_or_create(
+                user=user,
+                role=assignment_role,
+                company=assignment_company,
+                insurer=assignment_insurer,
+                line_code=assignment_line,
+                defaults={
+                    "valid_from": today.replace(month=1, day=1),
+                    "valid_until": None,
+                    "is_active": True,
+                    "reason": "انتصاب داده نمونه",
+                },
+            )
 
         Claim.objects.update_or_create(
             claim_number="DEMO-CLM-001",
