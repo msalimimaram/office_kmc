@@ -8,95 +8,116 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .models import ServiceRequest
+from accounts.access import company_ids_for, has_global_access, has_role
+from accounts.models import RoleAssignment, User
+from auditlog.services import record_event
+from core.permissions import can_process_request, can_transition_request, scoped_requests_for
 from .forms import ServiceRequestForm
-from core.permissions import scoped_requests_for, PRIVILEGED
-from auditlog.models import AuditEvent
+from .models import ServiceRequest
 
 
-TRANSITIONS = {
-    ServiceRequest.Status.SUBMITTED: {
-        ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.NEEDS_INFO,
-        ServiceRequest.Status.REFERRED, ServiceRequest.Status.REJECTED,
-    },
-    ServiceRequest.Status.IN_REVIEW: {
-        ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.REFERRED,
-        ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED,
-        ServiceRequest.Status.COMPLETED,
-    },
-    ServiceRequest.Status.NEEDS_INFO: {
-        ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.REJECTED,
-    },
-    ServiceRequest.Status.REFERRED: {
-        ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.APPROVED,
-        ServiceRequest.Status.REJECTED,
-    },
-    ServiceRequest.Status.APPROVED: {
-        ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED,
-    },
-    ServiceRequest.Status.REJECTED: {ServiceRequest.Status.CLOSED},
-    ServiceRequest.Status.COMPLETED: {ServiceRequest.Status.CLOSED},
-    ServiceRequest.Status.CLOSED: set(),
-}
+def _initial_company_id(user):
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+        return next(iter(ids)) if len(ids) == 1 else None
+    if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        person = getattr(user, "person_record", None)
+        if person and person.company_id:
+            return person.company_id
+        return getattr(user, "company_id", None)
+    return None
 
 
-def _may_process_request(user, item):
-    if user.is_superuser or user.role in PRIVILEGED:
-        return True
-    if user.role != "insurance_specialist" or item.is_confidential:
-        return False
-    return item.assigned_to_id == user.pk or item.assigned_to_id is None
+def _first_company_representative(company_id):
+    if not company_id:
+        return None
+    today = timezone.localdate()
+    return User.objects.filter(
+        role_assignments__role=RoleAssignment.Role.SUBSIDIARY_REP,
+        role_assignments__company_id=company_id,
+        role_assignments__is_active=True,
+        role_assignments__valid_from__lte=today,
+    ).filter(
+        models.Q(role_assignments__valid_until__isnull=True)
+        | models.Q(role_assignments__valid_until__gte=today)
+    ).distinct().order_by("pk").first()
 
 
 @login_required
 def request_list(request):
     qs = scoped_requests_for(request.user).order_by("-created_at", "-pk")
     page_obj = Paginator(qs, 25).get_page(request.GET.get("page"))
-    return render(request, "requests_portal/request_list.html", {"requests_list": page_obj.object_list, "page_obj": page_obj})
+    return render(request, "requests_portal/request_list.html", {
+        "requests_list": page_obj.object_list,
+        "page_obj": page_obj,
+    })
 
 
 @login_required
 def request_create(request):
-    allowed_roles = PRIVILEGED | {"subsidiary_rep", "employee"}
-    if not request.user.is_superuser and request.user.role not in allowed_roles:
+    user = request.user
+    allowed = has_global_access(user) or any(
+        has_role(user, role)
+        for role in (
+            RoleAssignment.Role.SUBSIDIARY_REP,
+            RoleAssignment.Role.INSURED_PERSON,
+        )
+    )
+    if not allowed:
         raise PermissionDenied
+
+    company_id = _initial_company_id(user)
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) and not company_id:
+        raise PermissionDenied("ابتدا شرکت فعال را انتخاب کنید.")
+
     if request.method == "POST":
-        form = ServiceRequestForm(request.POST, request.FILES, user=request.user)
+        form = ServiceRequestForm(request.POST, request.FILES, user=user)
         if form.is_valid():
             with transaction.atomic():
                 item = form.save(commit=False)
-                item.submitted_by = request.user
-                item.company = request.user.company
+                item.submitted_by = user
+                item.company_id = company_id or getattr(user, "company_id", None)
                 item.person = form.cleaned_data.get("person")
                 item.reference = "IB-" + secrets.token_hex(5).upper()
                 item.is_confidential = item.kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE
+                if has_role(user, RoleAssignment.Role.INSURED_PERSON) and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+                    item.assigned_to = _first_company_representative(item.company_id)
                 item.save()
-                AuditEvent.objects.create(
-                    actor=request.user, action="service_request_created",
-                    object_type="ServiceRequest", object_id=str(item.pk),
+                record_event(
+                    actor=user,
+                    action="service_request_created",
+                    obj=item,
                     summary=f"درخواست {item.reference} ثبت شد",
+                    after_data={
+                        "reference": item.reference,
+                        "kind": item.kind,
+                        "company_id": item.company_id,
+                        "person_id": item.person_id,
+                        "assigned_to_id": item.assigned_to_id,
+                    },
+                    request=request,
                 )
             messages.success(request, f"درخواست شما با شماره پیگیری {item.reference} ثبت شد.")
             return redirect("request_list")
     else:
-        form = ServiceRequestForm(user=request.user)
+        form = ServiceRequestForm(user=user)
     return render(request, "requests_portal/request_form.html", {"form": form})
 
 
 @login_required
 def request_detail(request, pk):
     item = get_object_or_404(scoped_requests_for(request.user), pk=pk)
+    user = request.user
+    can_process = can_process_request(user, item)
+
     if request.method == "POST":
-        if not _may_process_request(request.user, item):
+        if not can_process:
             raise PermissionDenied
         status = request.POST.get("status")
         if status not in dict(ServiceRequest.Status.choices):
             raise PermissionDenied
-        if request.user.role == "insurance_specialist" and status in {
-            ServiceRequest.Status.APPROVED, ServiceRequest.Status.REJECTED,
-            ServiceRequest.Status.COMPLETED, ServiceRequest.Status.CLOSED,
-        }:
-            raise PermissionDenied
+        if not can_transition_request(user, item, status):
+            raise PermissionDenied("این اقدام در مرحله فعلی یا برای انتصاب شما مجاز نیست.")
 
         response_text = request.POST.get("response", "").strip()[:10000]
         if status in {ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.REJECTED} and not response_text:
@@ -104,58 +125,41 @@ def request_detail(request, pk):
             return redirect("request_detail", pk=item.pk)
 
         with transaction.atomic():
-            # Re-read under a row lock so concurrent updates cannot silently overwrite
-            # each other's status or response.
             item = get_object_or_404(
-                scoped_requests_for(request.user).select_for_update(), pk=pk
+                scoped_requests_for(user).select_for_update(), pk=pk
             )
-            if not _may_process_request(request.user, item):
+            if not can_process_request(user, item) or not can_transition_request(user, item, status):
                 raise PermissionDenied
             previous_status = item.status
-            if status != previous_status and status not in TRANSITIONS.get(previous_status, set()):
-                messages.error(request, "این تغییر وضعیت با گردش کار درخواست سازگار نیست.")
-                return redirect("request_detail", pk=item.pk)
-
+            previous_assignee = item.assigned_to_id
             item.status = status
             if response_text:
                 stamp = timezone.localtime().strftime("%Y-%m-%d %H:%M")
-                actor = request.user.get_full_name() or request.user.get_username()
-                entry = f"[{stamp} | {actor} | {status}]\n{response_text}"
+                actor_name = user.get_full_name() or user.get_username()
+                entry = f"[{stamp} | {actor_name} | {status}]\n{response_text}"
                 item.response = f"{item.response.rstrip()}\n\n{entry}".strip() if item.response else entry
-
-            # Only the specialist who starts reviewing an unassigned, non-confidential
-            # request claims it. A head/admin update must not remove it from the queue.
-            if (
-                request.user.role == "insurance_specialist"
-                and item.assigned_to_id is None
-                and status == ServiceRequest.Status.IN_REVIEW
-            ):
-                item.assigned_to = request.user
-            item.save(update_fields=["status", "response", "assigned_to", "updated_at"])
-            AuditEvent.objects.create(
-                actor=request.user, action="service_request_updated",
-                object_type="ServiceRequest", object_id=str(item.pk),
+            item.save(update_fields=["status", "response", "updated_at"])
+            record_event(
+                actor=user,
+                action="service_request_updated",
+                obj=item,
                 summary=f"وضعیت درخواست از {previous_status} به {status} تغییر کرد",
+                before_data={"status": previous_status, "assigned_to_id": previous_assignee},
+                after_data={"status": status, "assigned_to_id": item.assigned_to_id},
+                request=request,
             )
         messages.success(request, "درخواست به‌روزرسانی شد.")
         return redirect("request_detail", pk=item.pk)
 
-    can_process = _may_process_request(request.user, item)
     allowed_statuses = [(item.status, item.get_status_display())]
     if can_process:
-        next_statuses = set(TRANSITIONS.get(item.status, set()))
-        if request.user.role == "insurance_specialist":
-            next_statuses -= {
-                ServiceRequest.Status.APPROVED,
-                ServiceRequest.Status.REJECTED,
-                ServiceRequest.Status.COMPLETED,
-                ServiceRequest.Status.CLOSED,
-            }
         allowed_statuses.extend(
-            (key, label) for key, label in ServiceRequest.Status.choices
-            if key in next_statuses
+            (key, label)
+            for key, label in ServiceRequest.Status.choices
+            if key != item.status and can_transition_request(user, item, key)
         )
     return render(request, "requests_portal/request_detail.html", {
-        "item": item, "statuses": allowed_statuses,
+        "item": item,
+        "statuses": allowed_statuses,
         "can_process": can_process,
     })
