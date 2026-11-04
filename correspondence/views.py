@@ -50,8 +50,12 @@ def _scope(user):
 def _active_company_id(request, user):
     ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     selected = request.session.get("active_company_id")
-    if selected and int(selected) in ids:
-        return int(selected)
+    try:
+        selected_id = int(selected) if selected is not None else None
+    except (TypeError, ValueError):
+        selected_id = None
+    if selected_id and selected_id in ids:
+        return selected_id
     if len(ids) == 1:
         return next(iter(ids))
     return None
