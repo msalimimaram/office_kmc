@@ -64,7 +64,7 @@ class Migration(migrations.Migration):
             name="CorrespondenceEvent",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("event_type", models.CharField(choices=[("created", "ثبت مکاتبه"), ("referred", "ارجاع"), ("follow_up", "پیگیری"), ("response", "دریافت پاسخ"), ("status_changed", "تغییر وضعیت"), ("archived", "بایگانی")], max_length=20)),
+                ("event_type", models.CharField(choices=[("created", "ثبت مکاتبه"), ("referred", "ارجاع"), ("follow_up", "پیگیری"), ("response", "دریافت پاسخ"), ("status_changed", "تغییر وضعیت"), ("archived", "بایگانی"), ("attachment_downloaded", "دریافت پیوست")], max_length=24)),
                 ("summary", models.TextField(blank=True, verbose_name="شرح اقدام")),
                 ("metadata", models.JSONField(blank=True, default=dict)),
                 ("occurred_at", models.DateTimeField(default=timezone.now)),
