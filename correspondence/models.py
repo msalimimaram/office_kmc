@@ -110,10 +110,11 @@ class CorrespondenceEvent(models.Model):
         RESPONSE = "response", "دریافت پاسخ"
         STATUS_CHANGED = "status_changed", "تغییر وضعیت"
         ARCHIVED = "archived", "بایگانی"
+        ATTACHMENT_DOWNLOADED = "attachment_downloaded", "دریافت پیوست"
 
     correspondence = models.ForeignKey(Correspondence, on_delete=models.PROTECT, related_name="events")
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    event_type = models.CharField(max_length=20, choices=EventType.choices)
+    event_type = models.CharField(max_length=24, choices=EventType.choices)
     summary = models.TextField("شرح اقدام", blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     occurred_at = models.DateTimeField(default=timezone.now)
