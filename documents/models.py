@@ -139,6 +139,14 @@ class DocumentLink(models.Model):
         verbose_name_plural = "ارتباط‌های سند"
 
 
+class ImmutableDocumentAccessQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("رویداد دسترسی سند قابل ویرایش نیست.")
+
+    def delete(self):
+        raise ValidationError("رویداد دسترسی سند قابل حذف نیست.")
+
+
 class DocumentAccessEvent(models.Model):
     class Action(models.TextChoices):
         VIEW = "view", "مشاهده"
@@ -159,3 +167,13 @@ class DocumentAccessEvent(models.Model):
         ordering = ("-occurred_at", "-pk")
         verbose_name = "رویداد دسترسی سند"
         verbose_name_plural = "رویدادهای دسترسی اسناد"
+
+    objects = ImmutableDocumentAccessQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("رویداد دسترسی سند قابل ویرایش نیست.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("رویداد دسترسی سند قابل حذف نیست.")
