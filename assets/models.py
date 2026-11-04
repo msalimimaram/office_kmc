@@ -13,7 +13,15 @@ class InsuredAsset(models.Model):
     asset_code = models.CharField("کد دارایی", max_length=80, unique=True)
     name = models.CharField("عنوان دارایی", max_length=250)
     asset_type = models.CharField("نوع دارایی", max_length=20, choices=Type.choices)
-    company = models.ForeignKey("organizations.Company", on_delete=models.PROTECT, related_name="insured_assets")
+    company = models.ForeignKey(
+        "organizations.Company", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="insured_assets",
+    )
+    person = models.ForeignKey(
+        "organizations.Person", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="insured_assets",
+        help_text="برای دارایی شخصی؛ برای دارایی شرکتی خالی باشد.",
+    )
     identifier = models.CharField("شناسه ثبتی/داخلی", max_length=120, blank=True)
     location = models.CharField("محل استقرار", max_length=250, blank=True)
     insured_value = models.DecimalField("ارزش بیمه‌شده", max_digits=18, decimal_places=2, default=0)
@@ -35,6 +43,13 @@ class InsuredAsset(models.Model):
         constraints = [
             models.CheckConstraint(condition=models.Q(insured_value__gte=0), name="insured_asset_value_nonnegative"),
             models.CheckConstraint(
+                condition=(
+                    models.Q(company__isnull=False, person__isnull=True)
+                    | models.Q(company__isnull=True, person__isnull=False)
+                ),
+                name="insured_asset_single_owner",
+            ),
+            models.CheckConstraint(
                 condition=models.Q(policy_end__isnull=True) | models.Q(policy_start__isnull=True) | models.Q(policy_end__gte=models.F("policy_start")),
                 name="insured_asset_policy_dates_ordered",
             ),
@@ -47,6 +62,8 @@ class InsuredAsset(models.Model):
             errors["insured_value"] = "ارزش بیمه‌شده نمی‌تواند منفی باشد."
         if self.policy_start and self.policy_end and self.policy_end < self.policy_start:
             errors["policy_end"] = "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد."
+        if bool(self.company_id) == bool(self.person_id):
+            errors["company"] = "دارایی باید دقیقاً یک مالک داشته باشد: شرکت یا شخص."
         if self.contract_id:
             contract = self.contract
             if not self.insurer_id:
@@ -55,6 +72,8 @@ class InsuredAsset(models.Model):
                 errors["insurer"] = "بیمه‌گر دارایی باید با بیمه‌گر قرارداد یکسان باشد."
             if self.company_id and not contract.companies.filter(pk=self.company_id).exists():
                 errors["contract"] = "قرارداد انتخاب‌شده برای شرکت این دارایی تعریف نشده است."
+            if self.person_id and self.person.company_id and not contract.companies.filter(pk=self.person.company_id).exists():
+                errors["contract"] = "قرارداد انتخاب‌شده برای شرکت محل اشتغال شخص تعریف نشده است."
         if errors:
             raise ValidationError(errors)
 
