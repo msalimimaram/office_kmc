@@ -84,6 +84,8 @@ class Person(models.Model):
             errors["employee"] = "یک شخص نمی‌تواند کارمند اصلی خودش باشد."
         if self.employee_id and self.relationship == self.Relationship.EMPLOYEE:
             errors["relationship"] = "شخص دارای کارمند اصلی باید نسبت تحت تکفل داشته باشد."
+        if self._state.adding and not self.birth_date:
+            errors["birth_date"] = "تاریخ تولد برای ثبت شخص الزامی است."
         if self.relationship == self.Relationship.EMPLOYEE and self.employee_id:
             errors["employee"] = "بیمه‌شده اصلی نباید به فرد دیگری وابسته باشد."
         if self.national_id:
