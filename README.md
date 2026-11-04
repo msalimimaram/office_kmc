@@ -1,48 +1,39 @@
 # Office KMC — Insurance Operations
 
-Office KMC is a Django project I'm developing for insurance-office workflows. It brings together areas such as organizational records, insurance policies, claims, requests, tasks, documents and bulk imports in a Persian, right-to-left web interface.
+Office KMC is a Django project for internal insurance-office workflows. It is intended to become a multi-organization operational portal for insured employees, subsidiary-company representatives, insurer representatives and the insurance department.
 
-**Built with:** Python, Django, Django ORM and server-rendered templates. SQLite is used for local development; PostgreSQL is the intended database for non-development environments.
+**Built with:** Python, Django, Django ORM and server-rendered Persian RTL templates. SQLite is used for local development; PostgreSQL is the intended production database.
 
-**Status:** Still under development. Use synthetic data for testing only. Do not enter real employee, customer or insured-person information until the remaining security, access-control and deployment work has been completed and checked.
+**Status:** Under development. Use synthetic data only until the access-control redesign, migrations, security controls, backup/restore process and acceptance tests are completed. The approved business rules describe the target system and do not imply every target capability is already implemented.
 
 **[View the source code and technical notes](https://github.com/msalimimaram/office_kmc)**
 
 ---
 
-# اداره بیمه | سامانه سازمانی مدیریت بیمه
+# اداره بیمه | پورتال عملیاتی مدیریت بیمه
 
-سامانه وب فارسی و راست‌چین برای ثبت و پیگیری اطلاعات بیمه‌ای، قراردادها، خسارت‌ها، درخواست‌ها، دارایی‌های بیمه‌شده و مکاتبات اداره بیمه. این پروژه مستقل از GAMva است.
+سامانه وب فارسی و راست‌چین برای مدیریت کارکنان و بیمه‌شدگان، قراردادها و بیمه‌نامه‌ها، پوشش‌ها، خسارت‌ها، درخواست‌ها، دارایی‌ها، مکاتبات، اسناد، ارجاع‌ها، SLA و گزارش‌های مدیریتی. این پروژه مستقل از هر سامانه دیگری است.
 
-> **وضعیت انتشار:** نسخه در حال توسعه و آماده بررسی کنترل‌شده با داده ساختگی است؛ تا تکمیل موارد امنیتی و استقرار، برای داده واقعی کارکنان یا بیمه‌شدگان استفاده نشود.
+> **وضعیت انتشار:** در حال توسعه و مناسب بررسی کنترل‌شده با داده ساختگی است. تا تکمیل بازطراحی هویت و مجوزهای چندنقشی، مهاجرت‌ها، امنیت فایل‌ها و آزمون‌های پذیرش، برای داده واقعی کارکنان یا بیمه‌شدگان استفاده نشود.
 
-## نمای کلی
+## اسناد مرجع
+
+- [مشخصات محصول](PRODUCT_SPEC.md)
+- [قواعد کسب‌وکار و گردش‌کارها](docs/BUSINESS_RULES_AND_WORKFLOWS.md)
+- [ماتریس دسترسی](docs/ACCESS_CONTROL_MATRIX.md)
+- [کاتالوگ چرخه‌های عملیاتی](docs/WORKFLOW_CATALOG.md)
+- [طرح معماری و مهاجرت چندنقشی](docs/MULTI_ROLE_IMPLEMENTATION_PLAN.md)
+- [فهرست سایر مستندات](docs/README.md)
+
+قواعد تأییدشده در اسناد کسب‌وکار و ماتریس دسترسی، مرجع طراحی محصول هستند. کد فعلی در همه بخش‌ها هنوز با این مدل هدف هم‌راستا نشده است.
+
+## نمای کلی فنی
 
 - **فناوری:** Python، Django، Django ORM و قالب‌های سمت سرور؛ رابط فارسی/RTL و CSS واکنش‌گرا.
-- **پایگاه داده:** SQLite برای توسعه محلی؛ PostgreSQL برای استقرار غیرتوسعه‌ای.
-- **هویت و دسترسی:** مدل کاربر سفارشی، نقش‌های سازمانی و فیلترهای محدوده داده در بخش‌هایی از برنامه.
-- **آزمون و CI:** workflow گیت‌هاب برای بررسی سیستمی و اجرای تست‌ها در Python 3.11 و 3.12.
+- **پایگاه داده:** SQLite برای توسعه محلی؛ PostgreSQL برای محیط غیرتوسعه‌ای.
+- **هویت و دسترسی هدف:** یک شخص با کد ملی یکتای سراسری، چند انتصاب زمان‌دار، محدوده شرکت و رشته، و مجوزهای متمرکز.
+- **ساختار برنامه فعلی:** ماژول‌های accounts, organizations, insurance, claims, requests_portal, tasks, documents, imports, auditlog, assets, announcements, correspondence, dashboard و core.
 - **استقرار هدف:** زیرساخت داخلی سازمان، پشت HTTPS و با پایگاه داده و فضای فایل خصوصی.
-
-## قابلیت‌ها و اپ‌ها
-
-| اپ | مسئولیت اصلی | راهنمای فنی |
-|---|---|---|
-| `accounts` | کاربران، نقش‌ها، تغییر اجباری رمز | [راهنما](accounts/README.md) |
-| `organizations` | شرکت‌ها، کارکنان و افراد تحت تکفل | [راهنما](organizations/README.md) |
-| `insurance` | بیمه‌گران، رشته‌ها، قراردادها و اصلاحیه‌ها | [راهنما](insurance/README.md) |
-| `claims` | ثبت و پیگیری خسارت و مبالغ اعلام‌شده | [راهنما](claims/README.md) |
-| `requests_portal` | درخواست‌های بیمه‌شدگان و گردش وضعیت | [راهنما](requests_portal/README.md) |
-| `tasks` | وظایف داخلی و مهلت‌ها | [راهنما](tasks/README.md) |
-| `documents` | اسناد اداری و دسترسی به فایل‌ها | [راهنما](documents/README.md) |
-| `imports` | عملیات ورود گروهی Excel | [راهنما](imports/README.md) |
-| `auditlog` | رویدادهای حسابرسی | [راهنما](auditlog/README.md) |
-| `assets` | دارایی‌های بیمه‌شده | [راهنما](assets/README.md) |
-| `announcements` | اطلاعیه‌ها و بخشنامه‌ها | [راهنما](announcements/README.md) |
-| `correspondence` | مکاتبات و پیگیری‌ها | [راهنما](correspondence/README.md) |
-| `dashboard` | صفحه اصلی و نمای کلی | [راهنما](dashboard/README.md) |
-| `core` | مجوزهای مشترک و اعتبارسنجی فایل | [راهنما](core/README.md) |
-| `config` | تنظیمات، URLهای ریشه و نقاط ورود WSGI/ASGI | [راهنما](config/README.md) |
 
 ## شروع سریع در Windows PowerShell
 
@@ -59,7 +50,6 @@ Copy-Item .env.example .env
 برای توسعه محلی، در فایل `.env` مقدار `DJANGO_DEBUG=True` را فقط روی دستگاه توسعه قرار دهید. سپس:
 
 ```powershell
-python manage.py makemigrations accounts organizations insurance claims requests_portal tasks documents imports auditlog assets announcements correspondence
 python manage.py migrate
 python manage.py check
 python manage.py test
@@ -67,27 +57,31 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-برنامه محلی به‌صورت پیش‌فرض روی `http://127.0.0.1:8000/` در دسترس است. از داده ساختگی استفاده کنید.
+از داده ساختگی استفاده کنید. پیش از تولید migration جدید، وضعیت migrationها را بررسی و فایل‌های migration را بازبینی و نسخه‌بندی کنید.
 
 ## تنظیمات محیط
 
 متغیرهای اصلی در `.env.example` آمده‌اند. در محیط غیرتوسعه‌ای، `DJANGO_DEBUG=False`، کلید محرمانه قوی، میزبان‌های مجاز صریح و `DATABASE_URL` معتبر PostgreSQL الزامی است. متغیرهای واقعی محیط بر مقادیر فایل محلی اولویت دارند. فایل `.env` را commit نکنید.
 
-راهنمای کامل: [پیکربندی و استقرار](docs/DEPLOYMENT.md)، [معماری](docs/ARCHITECTURE.md)، [آزمون](docs/TESTING.md)، [بازبینی امنیتی](docs/SECURITY_REVIEW.md)، [چک‌لیست انتشار](docs/RELEASE_CHECKLIST.md)، [مشارکت در توسعه](CONTRIBUTING.md)، [گزارش تغییرات](CHANGELOG.md)، [سیاست امنیت](SECURITY.md) و [مشخصات محصول](PRODUCT_SPEC.md).
+راهنماها: [پیکربندی و استقرار](docs/DEPLOYMENT.md)، [معماری](docs/ARCHITECTURE.md)، [آزمون](docs/TESTING.md)، [بازبینی امنیتی](docs/SECURITY_REVIEW.md)، [چک‌لیست انتشار](docs/RELEASE_CHECKLIST.md)، [مشارکت در توسعه](CONTRIBUTING.md)، [گزارش تغییرات](CHANGELOG.md)، [سیاست امنیت](SECURITY.md).
 
-## قرارداد ورود Excel خسارت
+## ورود Excel
 
-سرستون‌های الزامی: `claim_number`، `national_id` و `service_type`. سرستون‌های اختیاری: `service_date`، `registered_date`، `requested_amount`، `assessed_amount`، `payable_amount`، `paid_amount` و `payment_date`. قالب تاریخ `YYYY-MM-DD` است. جزئیات و محدودیت‌های پردازش در [راهنمای imports](imports/README.md) آمده است.
+هدف محصول، قالب‌های Excel تعریف‌پذیر و نسخه‌دار است. مدیر سامانه فیلدهای اصلی و گزینه‌ها را تعریف می‌کند؛ کارشناس رشته قالب و ترتیب ستون‌ها را مشخص می‌کند؛ سیستم نمونه Excel تولید می‌کند؛ و پیش‌نمایش، اعتبارسنجی ردیف/ستون و تصمیم‌های ثبت/نادیده‌گرفتن/ادغام/جایگزینی قبل از اعمال نهایی انجام می‌شود. مستندات محصول، مرجع رفتار هدف هستند؛ پیاده‌سازی موجود هنوز لزوماً این چرخه کامل را فراهم نمی‌کند.
 
-## وضعیت آمادگی و محدودیت‌های شناخته‌شده
+## داده پزشکی و اسناد محرمانه
 
-موفقیت CI به معنی تأیید کامل محصول، آزمون مرورگر موبایل یا ممیزی امنیتی نیست. قبل از بهره‌برداری عملیاتی:
-1. migrationهای واقعی را تولید، بازبینی و commit کنید؛ CI نباید جایگزین migrationهای نسخه‌بندی‌شده شود.
-2. مجوزهای تمام مسیرها، فایل‌ها، خروجی‌ها و پنل مدیریت را با حساب‌های هر نقش آزمایش کنید.
-3. احراز هویت چندمرحله‌ای واقعی، محدودسازی تلاش ورود و بازیابی امن حساب را تکمیل کنید؛ فیلد `mfa_enabled` به‌تنهایی MFA نیست.
-4. اسکن بدافزار، ذخیره‌سازی خصوصی و سیاست نگهداری فایل‌ها را پیاده‌سازی و آزمون کنید.
-5. HTTPS، پایگاه داده پشتیبانی‌شده، پشتیبان رمزگذاری‌شده، بازیابی آزمایشی، پایش و آزمون بار را آماده کنید.
-6. رابط را در عرض‌های 360، 390 و 430 پیکسل و مرورگرهای هدف بررسی کنید.
-7. گردش‌کارها و ماتریس رسمی دسترسی را با مالک کسب‌وکار تأیید کنید.
+در محصول هدف، بعضی فایل‌های پزشکی در موارد لازم ذخیره می‌شوند؛ دسترسی به اصل آن‌ها فقط برای رئیس اداره بیمه و مدیر سامانه مجاز است. گیرنده ارجاع فقط اطلاعات حداقلی موردنیاز را می‌بیند. تمام فایل‌ها باید خصوصی باشند و مشاهده، دانلود، چاپ و خروجی آن‌ها جداگانه مجوزدهی و ممیزی شود.
 
-سامانه پرداخت بانکی انجام نمی‌دهد. مبالغ پرداخت‌شده فقط به‌عنوان اطلاعات اعلام‌شده از منبع معتبر ثبت می‌شوند. تصویر مدارک پزشکی نباید بارگذاری شود.
+## وضعیت آمادگی
+
+موفقیت یک تست یا بررسی ایستا به معنی آماده بودن محصول برای داده واقعی نیست. قبل از بهره‌برداری:
+1. مدل چندنقشی و انتصاب‌های زمان‌دار پیاده‌سازی و داده‌ها با مسیر مهاجرت امن منتقل شوند.
+2. تمام viewها، فرم‌ها، داشبوردها، پنل مدیریت، فایل‌ها و خروجی‌ها از سیاست مرکزی دسترسی استفاده کنند.
+3. احراز هویت چندمرحله‌ای، محدودسازی تلاش ورود و بازیابی امن حساب تکمیل و آزمایش شوند.
+4. اسکن بدافزار، ذخیره‌سازی خصوصی، نسخه‌بندی و سیاست نگهداری فایل‌ها پیاده‌سازی شوند.
+5. قرارداد/بیمه‌نامه، پوشش، خسارت، پرداخت مرحله‌ای و گردش‌های تأیید کامل شوند.
+6. گردش‌کار نسخه‌دار، ثبت رویدادهای زمانی، تقویم شمسی و SLA غیرقابل توقف پیاده‌سازی شوند.
+7. آزمون مهاجرت روی پایگاه داده خالی و نسخه دارای داده، آزمون دسترسی منفی، هم‌زمانی، بار، backup و restore اجرا شود.
+
+سامانه پرداخت بانکی انجام نمی‌دهد. مبالغ پرداخت‌شده فقط به‌عنوان اطلاعات اعلام‌شده از منبع معتبر ثبت می‌شوند.
