@@ -6,33 +6,55 @@ from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils.text import get_valid_filename
-from django.db.models import Q
+from django.db import models
 from django.core.paginator import Paginator
 
-from auditlog.models import AuditEvent
-from core.permissions import PRIVILEGED
+from accounts.access import (
+    company_ids_for,
+    has_global_access,
+    has_role,
+    insurer_ids_for,
+    line_codes_for,
+)
+from accounts.models import RoleAssignment
+from auditlog.services import record_event
 from .forms import CorrespondenceForm
 from .models import Correspondence
-
-STAFF_ROLES = PRIVILEGED | {"insurance_specialist", "auditor"}
-CREATE_ROLES = PRIVILEGED | {"insurance_specialist"}
+from .services import create_correspondence, add_correspondence_event
 
 
 def _scope(user):
-    qs = Correspondence.objects.select_related("company", "insurer", "contract", "assigned_to", "created_by")
-    if user.is_superuser or user.role in PRIVILEGED:
+    qs = Correspondence.objects.select_related(
+        "company", "insurer", "contract", "assigned_to", "created_by"
+    )
+    if has_global_access(user):
         return qs
-    if user.role == "insurance_specialist":
-        return qs.filter(is_confidential=False)
-    if user.role == "auditor":
-        return qs.filter(is_confidential=False)
-    if user.role == "insurer":
-        return qs.filter(insurer_id=user.insurer_id, is_confidential=False) if user.insurer_id else qs.none()
-    if user.role == "subsidiary_rep":
-        return qs.filter(company_id=user.company_id, is_confidential=False) if user.company_id else qs.none()
-    if user.role in {"finance", "legal"} and user.company_id:
-        return qs.filter(company_id=user.company_id, is_confidential=False)
-    return qs.none()
+
+    allowed = models.Q(pk__in=[])
+
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        allowed |= models.Q(contract__line__in=lines) | models.Q(assigned_to=user)
+
+    company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+    if company_ids:
+        allowed |= models.Q(company_id__in=company_ids, is_confidential=False)
+
+    insurer_ids = insurer_ids_for(user)
+    if insurer_ids:
+        allowed |= models.Q(insurer_id__in=insurer_ids, is_confidential=False)
+
+    return qs.filter(allowed).distinct()
+
+
+def _active_company_id(request, user):
+    ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+    selected = request.session.get("active_company_id")
+    if selected and int(selected) in ids:
+        return int(selected)
+    if len(ids) == 1:
+        return next(iter(ids))
+    return None
 
 
 @login_required
@@ -42,51 +64,94 @@ def correspondence_list(request):
     follow_up = request.GET.get("follow_up", "").strip()
     if query:
         items = items.filter(
-            Q(subject__icontains=query) | Q(summary__icontains=query) |
-            Q(external_reference__icontains=query) | Q(company__name__icontains=query) |
-            Q(insurer__name__icontains=query)
+            models.Q(internal_number__icontains=query)
+            | models.Q(subject__icontains=query)
+            | models.Q(summary__icontains=query)
+            | models.Q(external_reference__icontains=query)
+            | models.Q(company__name__icontains=query)
+            | models.Q(insurer__name__icontains=query)
         )
     if follow_up in dict(Correspondence.FollowUp.choices):
         items = items.filter(follow_up_status=follow_up)
-    page_obj = Paginator(items.distinct().order_by("-occurred_at", "-pk"), 25).get_page(request.GET.get("page"))
+    page_obj = Paginator(
+        items.distinct().order_by("-occurred_at", "-pk"), 25
+    ).get_page(request.GET.get("page"))
+    allowed_create = has_global_access(request.user) or any(
+        has_role(request.user, role)
+        for role in (
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            RoleAssignment.Role.SUBSIDIARY_REP,
+            RoleAssignment.Role.INSURER_REP,
+        )
+    )
     return render(request, "correspondence/correspondence_list.html", {
-        "items": page_obj.object_list, "page_obj": page_obj, "search_query": query, "selected_follow_up": follow_up,
+        "items": page_obj.object_list,
+        "page_obj": page_obj,
+        "search_query": query,
+        "selected_follow_up": follow_up,
         "follow_up_choices": Correspondence.FollowUp.choices,
-        "can_create": request.user.is_superuser or request.user.role in CREATE_ROLES | {"subsidiary_rep"} or request.user.role == "insurer" and bool(request.user.insurer_id),
+        "can_create": allowed_create,
     })
 
 
 @login_required
 def correspondence_create(request):
-    allowed = request.user.is_superuser or request.user.role in CREATE_ROLES | {"subsidiary_rep"} or request.user.role == "insurer" and bool(request.user.insurer_id)
+    user = request.user
+    allowed = has_global_access(user) or any(
+        has_role(user, role)
+        for role in (
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            RoleAssignment.Role.SUBSIDIARY_REP,
+            RoleAssignment.Role.INSURER_REP,
+        )
+    )
     if not allowed:
         raise PermissionDenied
-    if request.user.role == "subsidiary_rep" and not request.user.company_id:
-        raise PermissionDenied
+
+    active_company = None
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        active_company = _active_company_id(request, user)
+        if not active_company:
+            raise PermissionDenied("شرکت فعال را انتخاب کنید.")
+    insurer_ids = insurer_ids_for(user)
+    if has_role(user, RoleAssignment.Role.INSURER_REP) and len(insurer_ids) != 1:
+        raise PermissionDenied("حساب نماینده بیمه‌گر باید دقیقاً به یک بیمه‌گر متصل باشد.")
+
     if request.method == "POST":
-        form = CorrespondenceForm(request.POST, request.FILES, user=request.user)
+        form = CorrespondenceForm(
+            request.POST,
+            request.FILES,
+            user=user,
+            active_company_id=active_company,
+        )
         if form.is_valid():
             item = form.save(commit=False)
-            item.created_by = request.user
-            if request.user.role == "subsidiary_rep":
-                item.company = request.user.company
+            if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+                from organizations.models import Company
+                item.company = Company.objects.get(pk=active_company)
+                item.is_confidential = False
+            if has_role(user, RoleAssignment.Role.INSURER_REP):
+                from insurance.models import Insurer
+                item.insurer = Insurer.objects.get(pk=next(iter(insurer_ids)))
                 item.is_confidential = False
                 item.assigned_to = None
-            if request.user.role == "insurer":
-                item.insurer = request.user.insurer
+            if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(user):
                 item.is_confidential = False
-                item.assigned_to = None
-            if request.user.role == "insurance_specialist":
-                item.is_confidential = False
-            item.save()
-            AuditEvent.objects.create(
-                actor=request.user, action="correspondence_created", object_type="Correspondence",
-                object_id=str(item.pk), summary=f"مکاتبه ثبت شد: {item.subject}",
-            )
-            messages.success(request, "مکاتبه ثبت شد.")
+            # Rebuild the form with the final server-owned scopes and use the
+            # transactional numbering service; internal_number is never client-controlled.
+            item.internal_number = ""
+            form.instance = item
+            try:
+                item = create_correspondence(form=form, actor=user, request=request)
+            except Exception:
+                raise
+            messages.success(request, f"مکاتبه با شماره {item.internal_number} ثبت شد.")
             return redirect("correspondence_list")
     else:
-        form = CorrespondenceForm(user=request.user)
+        form = CorrespondenceForm(
+            user=user,
+            active_company_id=active_company,
+        )
     return render(request, "correspondence/correspondence_form.html", {"form": form})
 
 
@@ -100,8 +165,19 @@ def correspondence_download(request, pk):
     except (OSError, ValueError):
         raise Http404("فایل در دسترس نیست.")
     filename = get_valid_filename(Path(item.attachment.name).name) or f"correspondence-{item.pk}"
-    AuditEvent.objects.create(
-        actor=request.user, action="correspondence_attachment_downloaded",
-        object_type="Correspondence", object_id=str(item.pk), summary=f"دریافت پیوست مکاتبه: {item.subject}",
+    record_event(
+        actor=request.user,
+        action="correspondence_attachment_downloaded",
+        obj=item,
+        summary=f"دریافت پیوست مکاتبه: {item.internal_number}",
+        request=request,
+    )
+    add_correspondence_event(
+        correspondence=item,
+        actor=request.user,
+        event_type=Correspondence.EventType.CREATED if hasattr(Correspondence, "EventType") else "follow_up",
+        summary="پیوست مکاتبه دریافت شد.",
+        metadata={"action": "download"},
+        request=request,
     )
     return FileResponse(handle, as_attachment=True, filename=filename)
