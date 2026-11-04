@@ -1,6 +1,8 @@
 from django import forms
 from insurance.models import Contract, Insurer
-from organizations.models import Company
+from organizations.models import Company, Person
+from accounts.access import line_codes_for
+from accounts.models import RoleAssignment
 from .models import InsuredAsset
 
 
@@ -15,9 +17,9 @@ class InsuredAssetForm(forms.ModelForm):
     class Meta:
         model = InsuredAsset
         fields = [
-            "asset_code", "name", "asset_type", "company", "identifier", "location",
-            "insured_value", "insurer", "contract", "policy_number", "policy_start",
-            "policy_end", "is_active", "notes",
+            "asset_code", "name", "asset_type", "company", "person", "identifier",
+            "location", "insured_value", "insurer", "contract", "policy_number",
+            "policy_start", "policy_end", "is_active", "notes",
         ]
         widgets = {
             "policy_start": forms.DateInput(attrs={"type": "date"}),
@@ -28,25 +30,26 @@ class InsuredAssetForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        if user.role == "subsidiary_rep" and user.company_id:
-            self.fields.pop("company")
-            self.fields["contract"].queryset = Contract.objects.filter(companies=user.company, is_active=True)
-            self.fields["insurer"].queryset = Insurer.objects.filter(
-                contracts__companies=user.company, is_active=True
-            ).distinct()
-        if "company" in self.fields:
-            self.fields["company"].queryset = Company.objects.filter(is_active=True)
-        if "contract" in self.fields:
-            self.fields["contract"].queryset = self.fields["contract"].queryset.select_related("insurer")
+        self.fields["company"].queryset = Company.objects.filter(is_active=True)
+        self.fields["person"].queryset = Person.objects.filter(is_active=True)
+        self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
+        self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
+        self.line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
 
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get("asset_type") == InsuredAsset.Type.VEHICLE and not cleaned.get("plate_number"):
-            self.add_error("plate_number", "برای دارایی از نوع خودرو، شماره پلاک الزامی است.")
+        asset_type = cleaned.get("asset_type")
+        if asset_type == InsuredAsset.Type.VEHICLE and not cleaned.get("plate_number"):
+            self.add_error("plate_number", "برای خودرو، شماره پلاک الزامی است.")
         if cleaned.get("policy_start") and cleaned.get("policy_end") and cleaned["policy_end"] < cleaned["policy_start"]:
             self.add_error("policy_end", "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد.")
+
+        company = cleaned.get("company")
+        person = cleaned.get("person")
+        if bool(company) == bool(person):
+            self.add_error("company", "مالک دارایی را دقیقاً یک مورد از شرکت یا شخص انتخاب کنید.")
+
         contract = cleaned.get("contract")
-        company = cleaned.get("company") or self.user.company
         insurer = cleaned.get("insurer")
         if contract and not insurer:
             cleaned["insurer"] = contract.insurer
@@ -54,4 +57,11 @@ class InsuredAssetForm(forms.ModelForm):
             self.add_error("insurer", "بیمه‌گر انتخاب‌شده با بیمه‌گر قرارداد یکسان نیست.")
         if contract and company and not contract.companies.filter(pk=company.pk).exists():
             self.add_error("contract", "این قرارداد برای شرکت انتخاب‌شده تعریف نشده است.")
+        if contract and person and person.company_id and not contract.companies.filter(pk=person.company_id).exists():
+            self.add_error("contract", "این قرارداد برای شرکت محل اشتغال شخص تعریف نشده است.")
+
+        if asset_type == InsuredAsset.Type.VEHICLE and self.line_codes and not (
+            "*" in self.line_codes or self.line_codes.intersection({"third_party", "body", "vehicle"})
+        ):
+            self.add_error("asset_type", "انتصاب شما اجازه ثبت دارایی خودرو را نمی‌دهد.")
         return cleaned
