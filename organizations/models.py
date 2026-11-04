@@ -63,7 +63,7 @@ class Person(models.Model):
     national_id = models.CharField("کد ملی", max_length=10, unique=True, db_index=True)
     first_name = models.CharField("نام", max_length=100)
     last_name = models.CharField("نام خانوادگی", max_length=100)
-    birth_date = models.DateField("تاریخ تولد")
+    birth_date = models.DateField("تاریخ تولد", null=True, blank=True)
     relationship = models.CharField("نسبت", max_length=20, choices=Relationship.choices, default=Relationship.EMPLOYEE)
     employee = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="dependents")
     mobile = models.CharField("همراه", max_length=20, blank=True)
@@ -88,12 +88,13 @@ class Person(models.Model):
             errors["employee"] = "بیمه‌شده اصلی نباید به فرد دیگری وابسته باشد."
         if self.national_id:
             normalized = normalize_national_id(self.national_id)
-            if normalized != self.national_id:
-                errors["national_id"] = "کد ملی باید به صورت ۱۰ رقم استاندارد ثبت شود."
+            if len(normalized) != 10:
+                errors["national_id"] = "کد ملی باید دقیقاً ۱۰ رقم باشد."
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        self.national_id = normalize_national_id(self.national_id)
         self.full_clean()
         return super().save(*args, **kwargs)
 
