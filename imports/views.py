@@ -43,7 +43,10 @@ def _parse_amount(value, line, key):
     if value in (None, ""):
         return Decimal("0")
     try:
-        amount = Decimal(str(value).replace(",", "").strip())
+        normalized = str(value).translate(
+            str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+        ).replace(",", "").replace("٬", "").replace("٫", ".").strip()
+        amount = Decimal(normalized)
     except (InvalidOperation, ValueError):
         raise ValueError(f"ردیف {line}: ستون {key} باید عددی باشد.")
     if not amount.is_finite() or amount < 0:
