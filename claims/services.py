@@ -128,7 +128,7 @@ def reverse_payment(
     if not authorized(actor) or not authorized(confirmed_by):
         raise ValidationError("ثبت و تأیید برگشت فقط برای رئیس اداره، مدیر سامانه یا کارشناس مجاز همین رشته امکان‌پذیر است.")
     amount = _positive_amount(amount, "مبلغ برگشتی باید عددی معتبر و بزرگ‌تر از صفر باشد.")
-    if not reason.strip():
+    if not isinstance(reason, str) or not reason.strip():
         raise ValidationError("علت برگشت پرداخت الزامی است.")
 
     already_reversed = ClaimPayment.objects.filter(
