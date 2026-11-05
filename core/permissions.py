@@ -157,10 +157,8 @@ def can_process_request(user, item):
 def can_edit_claim(user, claim):
     if has_global_access(user):
         return True
-    return can_view_claim(user, claim) and (
-        has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
-        or has_role(user, RoleAssignment.Role.INSURER_REP)
-    )
+    # Insurer representatives submit source data; accepted claim changes require staff approval.
+    return can_view_claim(user, claim) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
 
 
 def can_decide_claim(user, claim):
