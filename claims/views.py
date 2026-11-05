@@ -9,7 +9,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from accounts.access import has_role
+from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
 from core.permissions import scoped_claims_for
@@ -49,9 +49,12 @@ def claim_detail(request, pk):
     user = request.user
     can_submit_objection = (
         has_role(user, RoleAssignment.Role.INSURED_PERSON)
-        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.person.company_id)
+        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.company_snapshot_id or claim.person.company_id)
     )
-    objections = claim.objections.select_related("submitted_by").all()
+    if has_global_access(user):
+        objections = claim.objections.select_related("submitted_by").all()
+    else:
+        objections = claim.objections.filter(submitted_by=user).select_related("submitted_by")
 
     if request.method == "POST":
         if not can_submit_objection:
