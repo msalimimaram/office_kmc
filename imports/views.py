@@ -162,11 +162,15 @@ def claim_import(request):
                     primary_insured = person.employee if person.employee_id else person
                     employment_history = PersonEmployment.objects.filter(person=primary_insured)
                     if dates["service_date"]:
-                        employment = employment_history.filter(
+                        matching_employments = employment_history.filter(
                             valid_from__lte=dates["service_date"],
                         ).filter(
                             models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=dates["service_date"])
-                        ).order_by("-valid_from", "-pk").first()
+                        ).order_by("-valid_from", "-pk")
+                        if matching_employments.count() > 1:
+                            errors.append(f"ردیف {line}: سوابق اشتغال در تاریخ خدمت هم‌پوشانی دارند؛ شرکت تاریخی باید اصلاح شود.")
+                            continue
+                        employment = matching_employments.first()
                     else:
                         employment = employment_history.filter(
                             status=PersonEmployment.Status.ACTIVE,
