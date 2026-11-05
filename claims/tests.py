@@ -80,6 +80,27 @@ class ClaimVisibilityTests(TestCase):
         response = client.get(reverse("claim_list"))
         self.assertContains(response, "CL-HISTORICAL")
 
+    def test_claim_does_not_guess_current_company_when_employment_history_has_no_date_match(self):
+        PersonEmployment.objects.create(
+            person=self.person_a,
+            company=self.company_b,
+            valid_from=date(2010, 1, 1),
+            valid_until=date(2020, 12, 31),
+            status=PersonEmployment.Status.TRANSFERRED,
+        )
+        claim = Claim.objects.create(
+            claim_number="CL-UNKNOWN-COMPANY",
+            person=self.person_a,
+            service_date=date(2026, 1, 1),
+            service_type="خدمت با شرکت تاریخی نامشخص",
+            requested_amount=150,
+        )
+        self.assertIsNone(claim.company_snapshot_id)
+        client = Client()
+        client.force_login(self.rep)
+        response = client.get(reverse("claim_list"))
+        self.assertNotContains(response, "CL-UNKNOWN-COMPANY")
+
     def test_national_id_is_globally_unique_across_company_records(self):
         with self.assertRaises(ValidationError):
             Person.objects.create(
