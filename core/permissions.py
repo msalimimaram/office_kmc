@@ -13,6 +13,7 @@ from accounts.access import (
     line_codes_for,
 )
 from accounts.models import RoleAssignment
+from django.utils import timezone
 
 
 PRIVILEGED = {"system_admin", "department_head"}
@@ -71,12 +72,31 @@ def scoped_claims_for(user):
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        # New claims capture the insured's company at the time of the event.
-        # Legacy rows with no snapshot fall back to the current Person company
-        # only until historical employment data is reconciled.
+        # Historical claims remain visible to the company recorded at service
+        # time. The person's current company also receives permitted history.
+        today = timezone.localdate()
+        current_employment_people = (
+            __import__("organizations.models", fromlist=["PersonEmployment"]).PersonEmployment.objects.filter(
+                company_id__in=company_ids,
+                status="active",
+            )
+            .filter(Q(valid_from__isnull=True) | Q(valid_from__lte=today))
+            .filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+            .values_list("person_id", flat=True)
+        )
+        legacy_people = (
+            __import__("organizations.models", fromlist=["Person"]).Person.objects.filter(
+                company_id__in=company_ids,
+                employments__isnull=True,
+            ).values_list("pk", flat=True)
+        )
         allowed |= (
             Q(company_snapshot_id__in=company_ids)
             | Q(company_snapshot__isnull=True, person__company_id__in=company_ids)
+            | Q(person_id__in=current_employment_people)
+            | Q(primary_insured_id__in=current_employment_people)
+            | Q(person_id__in=legacy_people)
+            | Q(primary_insured_id__in=legacy_people)
         )
 
     insurer_ids = insurer_ids_for(user)
