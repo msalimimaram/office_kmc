@@ -173,13 +173,30 @@ def claim_import(request):
                     company_snapshot_id = employment.company_id if employment else None
                     if not company_snapshot_id and not employment_history.exists():
                         company_snapshot_id = primary_insured.company_id or person.company_id
+                    matched_contract = None
+                    source_contract_number = str(val("contract_number") or "").strip()[:120]
                     if is_insurer:
-                        if not company_snapshot_id or not Contract.objects.filter(
-                            insurer_id=insurer_id, is_active=True,
-                            companies__id=company_snapshot_id,
-                        ).exists():
-                            errors.append(f"ردیف {line}: شخص در تاریخ خدمت تحت قرارداد فعال این بیمه‌گر در شرکت مربوط قرار ندارد.")
+                        if not company_snapshot_id or not dates["service_date"]:
+                            errors.append(f"ردیف {line}: برای اعتبارسنجی بیمه‌نامه، شرکت تاریخی و تاریخ خدمت الزامی است.")
                             continue
+                        contract_candidates = Contract.objects.filter(
+                            insurer_id=insurer_id,
+                            is_active=True,
+                            line="health",
+                            companies__id=company_snapshot_id,
+                            start_date__lte=dates["service_date"],
+                            end_date__gte=dates["service_date"],
+                        ).distinct()
+                        if source_contract_number:
+                            contract_candidates = contract_candidates.filter(code=source_contract_number)
+                        if contract_candidates.count() != 1:
+                            errors.append(
+                                f"ردیف {line}: قرارداد یکتای فعال این بیمه‌گر برای شرکت و تاریخ خدمت پیدا نشد؛ "
+                                "شماره قرارداد را بررسی کنید یا ابهام قراردادها را رفع کنید."
+                            )
+                            continue
+                        matched_contract = contract_candidates.first()
+                        source_contract_number = source_contract_number or matched_contract.code
                     duplicate_flag = str(val("source_duplicate_status") or "").strip().lower()
                     if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} and not (is_insurer and insurer_id):
                         errors.append(f"ردیف {line}: اعلام تکراری بودن فقط از فایل بیمه‌گر احراز‌شده پذیرفته می‌شود.")
@@ -192,7 +209,8 @@ def claim_import(request):
                         "company_snapshot_id": company_snapshot_id, "national_id": nid,
                         "service_type": service[:120],
                         "source_registered_date": dates["source_registered_date"].isoformat() if dates["source_registered_date"] else None,
-                        "contract_number_snapshot": str(val("contract_number") or "").strip()[:120],
+                        "contract_id": matched_contract.pk if matched_contract else None,
+                        "contract_number_snapshot": source_contract_number,
                         "source_duplicate_status": Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} else Claim.DuplicateStatus.NOT_DECLARED,
                         "source_duplicate_reference": str(val("source_duplicate_reference") or "").strip()[:120],
                         "source_duplicate_note": str(val("source_duplicate_note") or "").strip()[:4000],
