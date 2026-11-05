@@ -157,6 +157,11 @@ def document_upload(request):
             errors.append("دسته‌بندی سند الزامی است.")
         if security_level not in dict(DocumentRecord.SecurityLevel.choices):
             errors.append("سطح محرمانگی انتخاب‌شده معتبر نیست.")
+        is_confidential = request.POST.get("is_confidential") == "on"
+        if is_confidential and security_level == DocumentRecord.SecurityLevel.NORMAL:
+            security_level = DocumentRecord.SecurityLevel.CONFIDENTIAL
+        if is_medical:
+            security_level = DocumentRecord.SecurityLevel.VERY_CONFIDENTIAL
         if is_medical and not has_global_access(user):
             errors.append("بارگذاری مدرک پزشکی فقط برای رئیس اداره و مدیر سامانه مجاز است.")
         if upload:
@@ -168,17 +173,22 @@ def document_upload(request):
 
         company = None
         if company_id:
+            if not has_global_access(user):
+                raise PermissionDenied("اتصال سند به یک شرکت مشخص فقط برای رئیس اداره یا مدیر سامانه مجاز است.")
             company = get_object_or_404(Company, pk=company_id, is_active=True)
         if errors:
             for error in errors:
                 messages.error(request, error)
             return render(request, "documents/document_upload.html", {
-                "companies": Company.objects.filter(is_active=True),
+                "companies": Company.objects.filter(is_active=True) if has_global_access(user) else Company.objects.none(),
+                "security_levels": DocumentRecord.SecurityLevel.choices,
+                "can_upload_medical": has_global_access(user),
                 "title": title,
                 "category": category,
                 "selected_company": company_id,
                 "security_level": security_level,
                 "is_medical": is_medical,
+                "is_confidential": is_confidential,
             })
 
         record = create_document(
@@ -195,8 +205,9 @@ def document_upload(request):
         return redirect("document_list")
 
     return render(request, "documents/document_upload.html", {
-        "companies": Company.objects.filter(is_active=True),
+        "companies": Company.objects.filter(is_active=True) if has_global_access(user) else Company.objects.none(),
         "security_levels": DocumentRecord.SecurityLevel.choices,
+        "can_upload_medical": has_global_access(user),
     })
 
 
