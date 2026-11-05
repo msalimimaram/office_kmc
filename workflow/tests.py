@@ -7,6 +7,7 @@ from django.test import TestCase
 
 from accounts.models import RoleAssignment
 from organizations.models import Company
+from requests_portal.models import ServiceRequest
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
@@ -29,6 +30,15 @@ class WorkflowEngineTests(TestCase):
             role=RoleAssignment.Role.INSURANCE_SPECIALIST,
             line_code="health",
             reason="test assignment",
+        )
+        self.company = Company.objects.create(code="WF-TEST", name="شرکت آزمون گردش کار")
+        self.request = ServiceRequest.objects.create(
+            reference="WF-TEST-REQUEST",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.specialist,
+            company=self.company,
+            title="درخواست آزمایشی گردش کار",
+            description="شرح درخواست آزمایشی",
         )
         BusinessCalendar.objects.get_or_create(code="iran-default", defaults={"title": "تقویم پیش‌فرض آزمون", "timezone_name": "Asia/Tehran", "working_weekdays": [5, 6, 0, 1, 2, 3], "start_time": "08:00", "end_time": "16:00"})
         self.definition = WorkflowDefinition.objects.create(
@@ -70,7 +80,7 @@ class WorkflowEngineTests(TestCase):
 
     def test_workflow_start_and_routing_record_every_transition(self):
         case = start_workflow(
-            obj=self.specialist,
+            obj=self.request,
             code="test-request",
             actor=self.admin,
             assignee=self.specialist,
@@ -90,7 +100,7 @@ class WorkflowEngineTests(TestCase):
 
     def test_transition_requires_note_when_configured(self):
         case = start_workflow(
-            obj=self.specialist,
+            obj=self.request,
             code="test-request",
             actor=self.admin,
             assignee=self.specialist,
@@ -120,7 +130,7 @@ class WorkflowEngineTests(TestCase):
 
     def test_workflow_events_are_append_only(self):
         case = start_workflow(
-            obj=self.specialist,
+            obj=self.request,
             code="test-request",
             actor=self.admin,
             assignee=self.specialist,
@@ -149,7 +159,7 @@ class WorkflowEngineTests(TestCase):
 
     def test_workflow_events_reject_queryset_mutation(self):
         case = start_workflow(
-            obj=self.specialist,
+            obj=self.request,
             code="test-request",
             actor=self.admin,
             assignee=self.specialist,
