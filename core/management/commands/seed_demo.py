@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from accounts.models import RoleAssignment, User
-from claims.models import Claim
+from claims.models import Claim, ClaimPayment
 from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
@@ -111,7 +111,7 @@ class Command(BaseCommand):
                 "source_reference":"DEMO", "assessment_note":"داده آزمایشی",
             },
         )
-        Claim.objects.update_or_create(
+        claim_b, _ = Claim.objects.update_or_create(
             claim_number="DEMO-CLM-002",
             defaults={
                 "person": employee_b, "contract": contract, "insurer": insurer,
@@ -120,6 +120,23 @@ class Command(BaseCommand):
                 "assessed_amount":Decimal("5000000"), "payable_amount":Decimal("5000000"),
                 "paid_amount":Decimal("5000000"), "payment_date":today,
                 "status":Claim.Status.PAID, "source_reference":"DEMO",
+            },
+        )
+
+        insurer_user = User.objects.get(username="insurer.demo")
+        head_user = User.objects.get(username="head.demo")
+        ClaimPayment.objects.get_or_create(
+            claim=claim_b,
+            is_legacy_import=True,
+            defaults={
+                "entry_type": ClaimPayment.EntryType.PAYMENT,
+                "amount": Decimal("5000000"),
+                "paid_at": today,
+                "source_reference": "DEMO-VOUCHER-002",
+                "source_insurer": insurer,
+                "recorded_by": insurer_user,
+                "confirmed_by": head_user,
+                "note": "پرداخت نمونه منتقل‌شده از منبع؛ صرفاً سابقه اطلاعاتی و بدون انتقال وجه.",
             },
         )
 
