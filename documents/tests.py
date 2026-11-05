@@ -5,7 +5,7 @@ from django.urls import reverse
 from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from documents.models import DocumentRecord
-from documents.services import create_document
+from documents.services import add_document_version, create_document
 
 
 class DocumentUploadAuthorizationTests(TestCase):
@@ -82,3 +82,31 @@ class DocumentUploadAuthorizationTests(TestCase):
         response = client.get(reverse("document_download", args=[document.pk]))
         self.assertEqual(response.status_code, 200)
         response.close()
+
+    def test_document_records_and_versions_are_append_only(self):
+        document = create_document(
+            title="سند نسخه‌دار",
+            category="general",
+            upload=SimpleUploadedFile("version-1.pdf", b"%PDF-1.7\\nversion1"),
+            uploaded_by=self.specialist,
+        )
+        first_version = document.current_version
+        with self.assertRaises(Exception):
+            DocumentRecord.objects.filter(pk=document.pk).update(title="تغییر مستقیم")
+        with self.assertRaises(Exception):
+            DocumentRecord.objects.filter(pk=document.pk).delete()
+        with self.assertRaises(Exception):
+            document.versions.filter(pk=first_version.pk).update(change_reason="تغییر مستقیم")
+        with self.assertRaises(Exception):
+            document.versions.filter(pk=first_version.pk).delete()
+
+        second_version = add_document_version(
+            document_id=document.pk,
+            upload=SimpleUploadedFile("version-2.pdf", b"%PDF-1.7\\nversion2"),
+            uploaded_by=self.specialist,
+            change_reason="اصلاح نسخه آزمایشی",
+        )
+        first_version.refresh_from_db()
+        self.assertFalse(first_version.is_current)
+        self.assertTrue(second_version.is_current)
+        self.assertEqual(document.versions.count(), 2)
