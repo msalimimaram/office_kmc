@@ -3,6 +3,7 @@ from accounts.models import User
 from organizations.models import Company
 from insurance.models import Insurer
 from correspondence.models import Correspondence
+from correspondence.services import next_internal_number
 from correspondence.views import _scope
 
 
@@ -13,9 +14,13 @@ class CorrespondenceScopeTests(TestCase):
         self.insurer = Insurer.objects.create(name="بیمه‌گر الف")
         self.rep = User.objects.create_user(username="cor-rep", password="StrongPass!2026", must_change_password=False, role="subsidiary_rep", company=self.company_a)
         self.insurer_user = User.objects.create_user(username="cor-ins", password="StrongPass!2026", must_change_password=False, role="insurer", insurer=self.insurer)
-        Correspondence.objects.create(subject="مکاتبه الف", channel="email", direction="inbound", company=self.company_a, insurer=self.insurer, summary="شرح", created_by=self.rep)
-        Correspondence.objects.create(subject="مکاتبه ب", channel="email", direction="inbound", company=self.company_b, insurer=self.insurer, summary="شرح", created_by=self.rep)
-        Correspondence.objects.create(subject="محرمانه", channel="phone", direction="internal", company=self.company_a, summary="شرح", is_confidential=True, created_by=self.rep)
+        self._create_correspondence(subject="مکاتبه الف", channel="email", direction="inbound", company=self.company_a, insurer=self.insurer, summary="شرح", created_by=self.rep)
+        self._create_correspondence(subject="مکاتبه ب", channel="email", direction="inbound", company=self.company_b, insurer=self.insurer, summary="شرح", created_by=self.rep)
+        self._create_correspondence(subject="محرمانه", channel="phone", direction="internal", company=self.company_a, summary="شرح", is_confidential=True, created_by=self.rep)
+
+    def _create_correspondence(self, **kwargs):
+        kwargs["internal_number"] = next_internal_number()
+        return Correspondence.objects.create(**kwargs)
 
     def test_subsidiary_representative_sees_only_nonconfidential_company_records(self):
         subjects = set(_scope(self.rep).values_list("subject", flat=True))
