@@ -4,6 +4,11 @@ from django.db import models
 from django.utils import timezone
 
 
+def default_working_weekdays():
+    # Iran's standard workweek: Saturday through Thursday.
+    return [5, 6, 0, 1, 2, 3]
+
+
 class WorkflowDefinition(models.Model):
     code = models.SlugField("کد گردش کار", max_length=80)
     title = models.CharField("عنوان", max_length=180)
@@ -183,7 +188,7 @@ class BusinessCalendar(models.Model):
     code = models.SlugField("کد تقویم", unique=True, default="iran-default")
     title = models.CharField("عنوان تقویم", max_length=120, default="تقویم کاری مجموعه")
     timezone_name = models.CharField(max_length=64, default="Asia/Tehran")
-    working_weekdays = models.JSONField(default=lambda: [5, 6, 0, 1, 2, 3], help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")
+    working_weekdays = models.JSONField(default=default_working_weekdays, help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")
     start_time = models.TimeField(default="08:00")
     end_time = models.TimeField(default="16:00")
     is_active = models.BooleanField(default=True)
