@@ -151,8 +151,6 @@ class WorkflowTransition(models.Model):
             raise ValidationError({"target_step": "مسیر بستن پرونده نباید مرحله مقصد داشته باشد."})
         if not self.closes_case and not self.target_step_id:
             raise ValidationError({"target_step": "برای مسیر غیرنهایی تعیین مرحله مقصد الزامی است."})
-        if self.target_step_id and self.target_step.is_terminal and not self.closes_case:
-            raise ValidationError({"closes_case": "انتقال به مرحله پایانی باید پرونده را ببندد."})
         _validate_role_list(self.allowed_roles, "allowed_roles")
         _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
 
