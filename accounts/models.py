@@ -217,7 +217,13 @@ class RoleAssignment(models.Model):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        if self.role in {self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}:
+            today = timezone.localdate()
+            active_global = RoleAssignment.objects.filter(user_id=self.user_id, role__in={self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}, is_active=True, valid_from__lte=today).filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)).exists()
+            if active_global:
+                User.objects.filter(pk=self.user_id, is_staff=False).update(is_staff=True)
+        return result
 
     def is_valid_on(self, on_date=None):
         on_date = on_date or timezone.localdate()
