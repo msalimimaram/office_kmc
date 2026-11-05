@@ -6,10 +6,11 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from accounts.models import RoleAssignment
+from organizations.models import Company
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
-from .services import add_business_minutes, start_workflow, transition_case
+from .services import _has_any_role, add_business_minutes, start_workflow, transition_case
 
 
 User = get_user_model()
@@ -164,3 +165,27 @@ class WorkflowEngineTests(TestCase):
                         title="تقویم نامعتبر",
                         **values,
                     )
+
+    def test_representative_role_is_scoped_to_company_and_insurance_line(self):
+        company_a = Company.objects.create(code="WF-A", name="شرکت گردش کار الف")
+        company_b = Company.objects.create(code="WF-B", name="شرکت گردش کار ب")
+        representative = User.objects.create_user(
+            username="workflow-rep", password="StrongPass!123"
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company_a,
+            line_code="health",
+            reason="test company and line scope",
+        )
+        roles = [RoleAssignment.Role.SUBSIDIARY_REP]
+        self.assertTrue(_has_any_role(
+            representative, roles, company_id=company_a.pk, line_code="health"
+        ))
+        self.assertFalse(_has_any_role(
+            representative, roles, company_id=company_b.pk, line_code="health"
+        ))
+        self.assertFalse(_has_any_role(
+            representative, roles, company_id=company_a.pk, line_code="motor"
+        ))
