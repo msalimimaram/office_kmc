@@ -28,4 +28,5 @@ urlpatterns = [
     path("assets/", include("assets.urls")),
     path("announcements/", include("announcements.urls")),
     path("correspondence/", include("correspondence.urls")),
+    path("workflow/", include("workflow.urls")),
 ]
