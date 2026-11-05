@@ -2,14 +2,18 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
+from django.db.models import Q
+from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
 
-from .models import InternalTask
-from .forms import InternalTaskForm
+from accounts.access import has_global_access
+from accounts.models import PositionAssignment
 from auditlog.models import AuditEvent
+from .forms import InternalTaskForm
+from .models import InternalTask, TaskEvent
 
-MANAGERS = {"system_admin", "department_head", "insurance_specialist"}
+
 TASK_TRANSITIONS = {
     InternalTask.Status.OPEN: {InternalTask.Status.IN_PROGRESS, InternalTask.Status.CANCELLED},
     InternalTask.Status.IN_PROGRESS: {InternalTask.Status.WAITING, InternalTask.Status.DONE, InternalTask.Status.CANCELLED},
@@ -19,22 +23,44 @@ TASK_TRANSITIONS = {
 }
 
 
+def _active_positions(user):
+    today = timezone.localdate()
+    return PositionAssignment.objects.filter(
+        user=user, is_active=True, valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).select_related("position", "unit")
+
+
+def _can_manage_tasks(user):
+    if has_global_access(user):
+        return True
+    return _active_positions(user).filter(
+        position__level__in=[
+            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
+            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+        ]
+    ).exists()
+
+
+def _visible_tasks(user):
+    qs = InternalTask.objects.select_related("created_by", "related_request").prefetch_related("assignees")
+    if has_global_access(user):
+        return qs
+    return qs.filter(Q(assignees=user) | Q(created_by=user)).exclude(related_request__is_confidential=True)
+
+
 @login_required
 def task_list(request):
-    if request.user.is_superuser or request.user.role in {"system_admin", "department_head"}:
-        tasks = InternalTask.objects.all()
-    else:
-        tasks = InternalTask.objects.filter(assignees=request.user) | InternalTask.objects.filter(created_by=request.user)
-    if not (request.user.is_superuser or request.user.role in {"system_admin", "department_head"}):
-        tasks = tasks.exclude(related_request__is_confidential=True)
-    tasks = tasks.distinct().select_related("created_by", "related_request").prefetch_related("assignees").order_by("-due_at", "-pk")
-    page_obj = Paginator(tasks, 25).get_page(request.GET.get("page"))
-    return render(request, "tasks/task_list.html", {"tasks": page_obj.object_list, "page_obj": page_obj})
+    page_obj = Paginator(_visible_tasks(request.user).distinct().order_by("-due_at", "-pk"), 25).get_page(request.GET.get("page"))
+    return render(request, "tasks/task_list.html", {
+        "tasks": page_obj.object_list,
+        "page_obj": page_obj,
+        "can_create": _can_manage_tasks(request.user),
+    })
 
 
 @login_required
 def task_create(request):
-    if request.user.role not in MANAGERS and not request.user.is_superuser:
+    if not _can_manage_tasks(request.user):
         raise PermissionDenied
     if request.method == "POST":
         form = InternalTaskForm(request.POST, user=request.user)
@@ -44,6 +70,15 @@ def task_create(request):
                 task.created_by = request.user
                 task.save()
                 form.save_m2m()
+                TaskEvent.objects.create(
+                    task=task, actor=request.user, event_type=TaskEvent.EventType.CREATED,
+                    to_value=task.status, note="وظیفه ایجاد شد.",
+                )
+                TaskEvent.objects.create(
+                    task=task, actor=request.user, event_type=TaskEvent.EventType.ASSIGNED,
+                    to_value=",".join(str(pk) for pk in task.assignees.values_list("pk", flat=True)),
+                    note="مسئولان اولیه وظیفه تعیین شدند.",
+                )
                 AuditEvent.objects.create(
                     actor=request.user, action="internal_task_created", object_type="InternalTask",
                     object_id=str(task.pk), summary=task.title,
@@ -57,28 +92,43 @@ def task_create(request):
 
 @login_required
 def task_update(request, pk):
-    task_scope = InternalTask.objects.select_related("created_by", "related_request")
-    if not (request.user.is_superuser or request.user.role in {"system_admin", "department_head"}):
-        task_scope = task_scope.exclude(related_request__is_confidential=True)
-    task = get_object_or_404(task_scope, pk=pk)
-    is_manager = request.user.is_superuser or request.user.role in {"system_admin", "department_head"}
+    task = get_object_or_404(_visible_tasks(request.user), pk=pk)
+    is_manager = _can_manage_tasks(request.user)
     if not is_manager and not task.assignees.filter(pk=request.user.pk).exists():
         raise PermissionDenied
+
     if request.method == "POST":
         status = request.POST.get("status")
+        note = request.POST.get("note", "").strip()[:4000]
         if status not in dict(InternalTask.Status.choices):
             raise PermissionDenied
-        if status != task.status and status not in TASK_TRANSITIONS.get(task.status, set()):
-            messages.error(request, "این تغییر وضعیت با گردش کار وظیفه سازگار نیست.")
-            return redirect("task_update", pk=task.pk)
         with transaction.atomic():
-            previous = task.status
-            task.status = status
-            task.save(update_fields=["status", "updated_at"])
-            AuditEvent.objects.create(
-                actor=request.user, action="internal_task_status_updated", object_type="InternalTask",
-                object_id=str(task.pk), summary=f"وضعیت از {previous} به {status} تغییر کرد",
-            )
-        messages.success(request, "وضعیت وظیفه تغییر کرد.")
+            locked = InternalTask.objects.select_for_update().get(pk=task.pk)
+            if not is_manager and not locked.assignees.filter(pk=request.user.pk).exists():
+                raise PermissionDenied
+            previous = locked.status
+            if status != previous and status not in TASK_TRANSITIONS.get(previous, set()):
+                messages.error(request, "این تغییر وضعیت با گردش کار وظیفه سازگار نیست.")
+                return redirect("task_update", pk=locked.pk)
+            if status != previous:
+                locked.status = status
+                locked.save(update_fields=["status", "updated_at"])
+                TaskEvent.objects.create(
+                    task=locked, actor=request.user, event_type=TaskEvent.EventType.STATUS,
+                    from_value=previous, to_value=status, note=note,
+                )
+                AuditEvent.objects.create(
+                    actor=request.user, action="internal_task_status_updated", object_type="InternalTask",
+                    object_id=str(locked.pk), summary=f"وضعیت از {previous} به {status} تغییر کرد",
+                )
+            elif note:
+                TaskEvent.objects.create(
+                    task=locked, actor=request.user, event_type=TaskEvent.EventType.COMMENT, note=note,
+                )
+        messages.success(request, "اقدام وظیفه ثبت شد.")
         return redirect("task_list")
-    return render(request, "tasks/task_update.html", {"task": task})
+
+    return render(request, "tasks/task_update.html", {
+        "task": task,
+        "events": task.events.select_related("actor"),
+    })
