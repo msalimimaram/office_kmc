@@ -216,7 +216,13 @@ def claim_import_confirm(request, batch_id):
             pk=batch_id, status=ImportBatch.Status.VALIDATED
         )
         # A concurrent confirmation cannot process the same batch twice.
+        if batch.uploaded_by_id == request.user.pk:
+            raise PermissionDenied("ثبت‌کننده فایل اجازه تأیید نهایی همان فایل را ندارد.")
+        if not isinstance(batch.preview_data, list) or len(batch.preview_data) != batch.valid_rows:
+            raise PermissionDenied("داده پیش‌نمایش فایل معتبر نیست؛ تأیید متوقف شد.")
         for row in batch.preview_data:
+            if not isinstance(row, dict):
+                raise PermissionDenied("ساختار یکی از ردیف‌های پیش‌نمایش معتبر نیست.")
             item = dict(row)
             item.pop("national_id", None)
             for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
