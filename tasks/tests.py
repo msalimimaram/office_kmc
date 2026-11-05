@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from requests_portal.models import ServiceRequest
 from tasks.forms import InternalTaskForm
@@ -21,9 +21,16 @@ class InternalTaskFormScopeTests(TestCase):
             username="task-specialist", password="StrongPass!2026",
             role="insurance_specialist", must_change_password=False,
         )
+        RoleAssignment.objects.create(user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD)
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="*",
+        )
         self.public_request = ServiceRequest.objects.create(
             reference="IB-TASK-PUBLIC", kind=ServiceRequest.Kind.OTHER,
             submitted_by=self.employee, company=self.company,
+            assigned_to=self.specialist,
             title="درخواست عمومی", description="شرح",
         )
         self.confidential_request = ServiceRequest.objects.create(
