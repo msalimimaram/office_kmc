@@ -5,7 +5,7 @@ from django.urls import reverse
 from accounts.models import User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
-from core.permissions import scoped_requests_for
+from core.permissions import can_transition_request, scoped_requests_for
 
 NATIONAL_ID_A = "1" * 10
 NATIONAL_ID_B = "2" * 10
@@ -230,6 +230,65 @@ class ServiceRequestTests(TestCase):
                 client.force_login(user)
                 response = client.get(reverse("request_create"))
                 self.assertEqual(response.status_code, 403)
+
+
+
+class LegacyRequestTransitionPermissionTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="TRANSITION", name="شرکت گردش کار")
+        self.employee = User.objects.create_user(
+            username="transition-employee",
+            password="StrongPass!2026",
+            role="employee",
+            company=self.company,
+            must_change_password=False,
+        )
+        self.specialist = User.objects.create_user(
+            username="transition-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        self.item = ServiceRequest.objects.create(
+            reference="IB-TRANSITION-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.employee,
+            company=self.company,
+            assigned_to=self.specialist,
+            title="درخواست گردش کار",
+            description="شرح",
+        )
+
+    def test_assigned_specialist_can_start_review_but_cannot_make_decision(self):
+        self.assertTrue(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.IN_REVIEW
+            )
+        )
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.APPROVED
+            )
+        )
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.REJECTED
+            )
+        )
+
+    def test_requester_cannot_change_own_request_status(self):
+        self.assertFalse(
+            can_transition_request(
+                self.employee, self.item, ServiceRequest.Status.IN_REVIEW
+            )
+        )
+
+    def test_legacy_transition_graph_rejects_invalid_jump(self):
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.CLOSED
+            )
+        )
 
 
 
