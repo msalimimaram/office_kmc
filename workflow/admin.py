@@ -16,7 +16,7 @@ class WorkflowStepInline(admin.TabularInline):
     extra = 0
 
     def has_add_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and obj.published_at)
 
     def has_change_permission(self, request, obj=None):
         return can_configure(request) and not (obj and obj.is_active)
