@@ -57,8 +57,9 @@ class DocumentRecord(models.Model):
 
     def clean(self):
         super().clean()
-        if self.is_medical and self.security_level != self.SecurityLevel.VERY_CONFIDENTIAL:
+        if self.is_medical:
             self.security_level = self.SecurityLevel.VERY_CONFIDENTIAL
+            self.is_confidential = True
         if self.is_confidential and self.security_level == self.SecurityLevel.NORMAL:
             self.security_level = self.SecurityLevel.CONFIDENTIAL
         if self.is_archived and not self.archive_reason.strip():
