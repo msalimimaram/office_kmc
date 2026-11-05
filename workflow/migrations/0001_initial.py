@@ -1,3 +1,4 @@
+import workflow.models
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -20,7 +21,7 @@ class Migration(migrations.Migration):
                 ("code", models.SlugField(default="iran-default", max_length=50, unique=True, verbose_name="کد تقویم")),
                 ("title", models.CharField(default="تقویم کاری مجموعه", max_length=120, verbose_name="عنوان تقویم")),
                 ("timezone_name", models.CharField(default="Asia/Tehran", max_length=64)),
-                ("working_weekdays", models.JSONField(default=lambda: [5, 6, 0, 1, 2, 3], help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")),
+                ("working_weekdays", models.JSONField(default=workflow.models.default_working_weekdays, help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")),
                 ("start_time", models.TimeField(default="08:00")),
                 ("end_time", models.TimeField(default="16:00")),
                 ("is_active", models.BooleanField(default=True)),
