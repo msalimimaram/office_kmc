@@ -108,13 +108,13 @@ class WorkflowStep(models.Model):
             raise ValidationError({"allow_return": "مرحله پایانی نباید امکان بازگشت داشته باشد."})
 
     def save(self, *args, **kwargs):
-        if self.definition_id and self.definition.is_active:
+        if self.definition_id and self.definition.published_at:
             raise ValidationError("Published workflow steps are immutable; create a new version.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.definition.is_active:
+        if self.definition.published_at:
             raise ValidationError("Published workflow steps cannot be deleted.")
         return super().delete(*args, **kwargs)
 
@@ -155,13 +155,13 @@ class WorkflowTransition(models.Model):
         _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
 
     def save(self, *args, **kwargs):
-        if self.definition_id and self.definition.is_active:
+        if self.definition_id and self.definition.published_at:
             raise ValidationError("Published workflow transitions are immutable; create a new version.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.definition.is_active:
+        if self.definition.published_at:
             raise ValidationError("Published workflow transitions cannot be deleted.")
         return super().delete(*args, **kwargs)
 
@@ -207,7 +207,20 @@ class WorkflowCase(models.Model):
         return f"{self.definition.code} — {self.object_id}"
 
 
+class ImmutableWorkflowEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("رویداد گردش کار قابل ویرایش نیست.")
+
+    def delete(self):
+        raise ValidationError("رویداد گردش کار قابل حذف نیست.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی رویداد گردش کار مجاز نیست.")
+
+
 class WorkflowEvent(models.Model):
+    objects = ImmutableWorkflowEventQuerySet.as_manager()
+
     class EventType(models.TextChoices):
         STARTED = "started", "شروع"
         OPENED = "opened", "مشاهده صفحه"
