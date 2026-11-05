@@ -10,7 +10,6 @@ class Announcement(models.Model):
         SUBSIDIARY = "subsidiary", "نمایندگان شرکت‌ها"
         EMPLOYEES = "employees", "کارکنان و بیمه‌شدگان"
         INSURERS = "insurers", "شرکت‌های بیمه‌گر"
-        FINANCE_LEGAL = "finance_legal", "مالی و حقوقی"
 
     title = models.CharField("عنوان", max_length=250)
     body = models.TextField("متن اطلاعیه")
