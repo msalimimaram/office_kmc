@@ -60,8 +60,14 @@ class InsuredAssetForm(forms.ModelForm):
         if contract and person and person.company_id and not contract.companies.filter(pk=person.company_id).exists():
             self.add_error("contract", "این قرارداد برای شرکت محل اشتغال شخص تعریف نشده است.")
 
-        if asset_type == InsuredAsset.Type.VEHICLE and self.line_codes and not (
-            "*" in self.line_codes or self.line_codes.intersection({"third_party", "body", "vehicle"})
-        ):
-            self.add_error("asset_type", "انتصاب شما اجازه ثبت دارایی خودرو را نمی‌دهد.")
+        if "*" not in self.line_codes:
+            allowed = {
+                InsuredAsset.Type.VEHICLE: {"third_party", "body", "vehicle"},
+                InsuredAsset.Type.PROPERTY: {"fire", "property", "liability"},
+                InsuredAsset.Type.EQUIPMENT: {"fire", "equipment", "liability"},
+                InsuredAsset.Type.OTHER: {"other"},
+            }
+            permitted_lines = allowed.get(asset_type, set())
+            if not self.line_codes or not self.line_codes.intersection(permitted_lines):
+                self.add_error("asset_type", "Your active insurance-line assignment does not allow this asset type.")
         return cleaned
