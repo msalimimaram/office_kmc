@@ -173,23 +173,23 @@ def claim_import(request):
                         company_snapshot_id = primary_insured.company_id or person.company_id
                     matched_contract = None
                     source_contract_number = str(val("contract_number") or "").strip()[:120]
-                    if is_insurer:
+                    if is_insurer or source_contract_number:
                         if not company_snapshot_id or not dates["service_date"]:
-                            errors.append(f"ردیف {line}: برای اعتبارسنجی بیمه‌نامه، شرکت تاریخی و تاریخ خدمت الزامی است.")
+                            errors.append(f"ردیف {line}: برای اتصال خسارت به قرارداد، شرکت تاریخی و تاریخ خدمت الزامی است.")
                             continue
                         contract_candidates = Contract.objects.filter(
-                            insurer_id=insurer_id,
-                            is_active=True,
                             line="health",
                             companies__id=company_snapshot_id,
                             start_date__lte=dates["service_date"],
                             end_date__gte=dates["service_date"],
                         ).distinct()
+                        if is_insurer:
+                            contract_candidates = contract_candidates.filter(insurer_id=insurer_id)
                         if source_contract_number:
                             contract_candidates = contract_candidates.filter(code=source_contract_number)
                         if contract_candidates.count() != 1:
                             errors.append(
-                                f"ردیف {line}: قرارداد یکتای فعال این بیمه‌گر برای شرکت و تاریخ خدمت پیدا نشد؛ "
+                                f"ردیف {line}: قرارداد یکتای منطبق با شرکت و تاریخ خدمت پیدا نشد؛ "
                                 "شماره قرارداد را بررسی کنید یا ابهام قراردادها را رفع کنید."
                             )
                             continue
@@ -216,7 +216,7 @@ def claim_import(request):
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
-                        "insurer_id": insurer_id if is_insurer else None,
+                        "insurer_id": matched_contract.insurer_id if matched_contract else (insurer_id if is_insurer else None),
                     })
                 batch = ImportBatch.objects.create(
                     batch_number="IMP-" + secrets.token_hex(5).upper(),
