@@ -5,6 +5,9 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
+from accounts.access import has_global_access, has_role, insurer_ids_for, line_codes_for
+from accounts.models import RoleAssignment
+
 from auditlog.services import record_event
 
 from .models import Claim, ClaimPayment
@@ -30,7 +33,18 @@ def record_payment(
     note="",
     request=None,
 ):
-    claim = Claim.objects.select_for_update().get(pk=claim_id)
+    claim = Claim.objects.select_for_update().select_related("contract").get(pk=claim_id)
+    if not actor or not actor.is_authenticated or not actor.is_active:
+        raise ValidationError("ثبت‌کننده پرداخت باید حساب فعال داشته باشد.")
+    if not confirmed_by or not confirmed_by.is_authenticated or not confirmed_by.is_active or confirmed_by.pk == actor.pk:
+        raise ValidationError("تأیید پرداخت باید توسط کاربر فعال و مستقل انجام شود.")
+    line = claim.contract.line if claim.contract_id else "health"
+    def authorized(user):
+        if has_global_access(user):
+            return True
+        return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line)
+    if not authorized(actor) or not authorized(confirmed_by):
+        raise ValidationError("ثبت و تأیید پرداخت فقط برای رئیس اداره، مدیر سامانه یا کارشناس مجاز همین رشته امکان‌پذیر است.")
     amount = Decimal(str(amount))
     if not amount.is_finite() or amount <= 0:
         raise ValidationError("مبلغ پرداخت باید عددی معتبر و بزرگ‌تر از صفر باشد.")
@@ -92,7 +106,18 @@ def reverse_payment(
         pk=payment_id,
         entry_type=ClaimPayment.EntryType.PAYMENT,
     )
-    claim = Claim.objects.select_for_update().get(pk=original.claim_id)
+    claim = Claim.objects.select_for_update().select_related("contract").get(pk=original.claim_id)
+    if not actor or not actor.is_authenticated or not actor.is_active:
+        raise ValidationError("ثبت‌کننده برگشت پرداخت باید حساب فعال داشته باشد.")
+    if not confirmed_by or not confirmed_by.is_authenticated or not confirmed_by.is_active or confirmed_by.pk == actor.pk:
+        raise ValidationError("تأیید برگشت باید توسط کاربر فعال و مستقل انجام شود.")
+    line = claim.contract.line if claim.contract_id else "health"
+    def authorized(user):
+        if has_global_access(user):
+            return True
+        return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line)
+    if not authorized(actor) or not authorized(confirmed_by):
+        raise ValidationError("ثبت و تأیید برگشت فقط برای رئیس اداره، مدیر سامانه یا کارشناس مجاز همین رشته امکان‌پذیر است.")
     amount = Decimal(str(amount))
     if not amount.is_finite() or amount <= 0:
         raise ValidationError("مبلغ برگشتی باید عددی معتبر و بزرگ‌تر از صفر باشد.")
@@ -116,6 +141,7 @@ def reverse_payment(
         reverses_payment=original,
         note=reason,
         recorded_by=actor,
+        confirmed_by=confirmed_by,
     )
     new_total = _net_paid(claim.pk)
     if new_total < 0:
