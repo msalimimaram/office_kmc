@@ -18,9 +18,7 @@ def _validate_role_list(value, field_name, *, allow_empty=False):
         raise ValidationError({field_name: "نقش‌های مجاز باید یک فهرست غیرخالی باشند."})
     allowed = set(RoleAssignment.Role.values)
     if "*" in value:
-        if value != ["*"]:
-            raise ValidationError({field_name: "نقش عمومی * باید به‌تنهایی تعریف شود."})
-        return
+        raise ValidationError({field_name: "نقش عمومی * برای گردش کار مجاز نیست؛ نقش‌های مشخص را انتخاب کنید."})
     invalid = sorted(set(value) - allowed)
     if invalid:
         raise ValidationError({field_name: f"نقش‌های تعریف‌نشده: {', '.join(invalid)}"})
