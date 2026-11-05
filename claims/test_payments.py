@@ -132,6 +132,10 @@ class ClaimPaymentLedgerTests(TestCase):
             payment.save()
         with self.assertRaises(ValidationError):
             payment.delete()
+        with self.assertRaises(ValidationError):
+            ClaimPayment.objects.filter(pk=payment.pk).update(note="تغییر گروهی غیرمجاز")
+        with self.assertRaises(ValidationError):
+            ClaimPayment.objects.filter(pk=payment.pk).delete()
 
     def test_insurer_reported_payment_requires_separate_internal_review(self):
         insurer = Insurer.objects.create(name="بیمه‌گر تست")
