@@ -159,16 +159,19 @@ def claim_import(request):
                         errors.append(f"ردیف {line}: تاریخ پرداخت بدون مبلغ پرداختی ثبت شده است.")
                         continue
                     primary_insured = person.employee if person.employee_id else person
-                    company_snapshot_id = None
+                    employment_history = PersonEmployment.objects.filter(person=primary_insured)
                     if dates["service_date"]:
-                        employment = PersonEmployment.objects.filter(
-                            person=primary_insured,
+                        employment = employment_history.filter(
                             valid_from__lte=dates["service_date"],
                         ).filter(
                             models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=dates["service_date"])
                         ).order_by("-valid_from", "-pk").first()
-                        company_snapshot_id = employment.company_id if employment else None
-                    if not company_snapshot_id:
+                    else:
+                        employment = employment_history.filter(
+                            status=PersonEmployment.Status.ACTIVE,
+                        ).order_by("-valid_from", "-pk").first()
+                    company_snapshot_id = employment.company_id if employment else None
+                    if not company_snapshot_id and not employment_history.exists():
                         company_snapshot_id = primary_insured.company_id or person.company_id
                     if is_insurer:
                         if not company_snapshot_id or not Contract.objects.filter(
