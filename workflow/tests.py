@@ -51,7 +51,6 @@ class WorkflowEngineTests(TestCase):
             title="رئیس اداره",
             order=2,
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
-            is_terminal=True,
             allow_return=False,
         )
         self.transition = WorkflowTransition.objects.create(
