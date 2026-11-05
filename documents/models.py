@@ -6,7 +6,35 @@ from django.db import models
 from django.db.models import Q
 
 
+class ImmutableDocumentRecordQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("پرونده سند فقط از مسیر سرویس‌های کنترل‌شده قابل تغییر است.")
+
+    def delete(self):
+        raise ValidationError("پرونده سند حذف نمی‌شود؛ از بایگانی یا ابطال استفاده کنید.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی پرونده اسناد مجاز نیست.")
+
+
+class ImmutableDocumentVersionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("نسخه سند ویرایش نمی‌شود؛ نسخه جدید ثبت کنید.")
+
+    def delete(self):
+        raise ValidationError("نسخه سند حذف نمی‌شود.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی نسخه اسناد مجاز نیست.")
+
+    def _mark_previous_not_current(self):
+        # Internal transition used only when a new immutable version is added.
+        return super().update(is_current=False)
+
+
 class DocumentRecord(models.Model):
+    objects = ImmutableDocumentRecordQuerySet.as_manager()
+
     class SecurityLevel(models.TextChoices):
         NORMAL = "normal", "عادی"
         INTERNAL = "internal", "داخلی"
@@ -75,11 +103,15 @@ class DocumentRecord(models.Model):
     def current_version(self):
         return self.versions.filter(is_current=True).first()
 
+    def delete(self, *args, **kwargs):
+        raise ValidationError("پرونده سند حذف نمی‌شود؛ از بایگانی یا ابطال استفاده کنید.")
+
     def __str__(self):
         return self.title
 
 
 class DocumentVersion(models.Model):
+    objects = ImmutableDocumentVersionQuerySet.as_manager()
     document = models.ForeignKey(DocumentRecord, on_delete=models.PROTECT, related_name="versions")
     version_number = models.PositiveIntegerField("شماره نسخه")
     file = models.FileField("فایل نسخه", upload_to="document_versions/")
