@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.db.models import Q
 
 from accounts.access import has_global_access, has_role
@@ -28,7 +29,7 @@ def _eligible_recipients(transition):
         return User.objects.none()
     if "*" in roles:
         return User.objects.filter(is_active=True).order_by("last_name", "first_name", "username")
-    today = __import__("django.utils.timezone", fromlist=["localdate"]).localdate()
+    today = timezone.localdate()
     assignments = RoleAssignment.objects.filter(
         role__in=roles,
         is_active=True,
@@ -87,7 +88,7 @@ def workflow_case_detail(request, pk):
             definition=case.definition, source_step=case.current_step
         ).select_related("target_step"):
             roles = item.allowed_roles or case.current_step.allowed_roles
-            if has_global_access(request.user) or any(has_role(request.user, role) for role in roles):
+            if has_global_access(request.user) or "*" in roles or any(has_role(request.user, role) for role in roles):
                 transitions.append((item, _eligible_recipients(item)))
     return render(request, "workflow/workflow_case_detail.html", {
         "case": case,
