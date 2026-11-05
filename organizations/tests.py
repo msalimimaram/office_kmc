@@ -2,7 +2,7 @@ from datetime import date
 from django.test import TestCase, Client
 from django.urls import reverse
 from accounts.models import User
-from organizations.models import Company, Person
+from organizations.models import Company, Person, PersonEmployment
 
 class OrganizationScopeTests(TestCase):
     def test_employee_cannot_list_other_company_people(self):
@@ -31,4 +31,27 @@ class OrganizationScopeTests(TestCase):
                 company=company_b, national_id="4444444444",
                 first_name="فرد", last_name="تحت تکفل", birth_date=date(2010, 1, 1),
                 relationship=Person.Relationship.CHILD, employee=employee,
+            )
+
+    def test_person_cannot_have_two_active_company_employments(self):
+        person = Person.objects.create(
+            company=self.company,
+            national_id="9876543210",
+            first_name="کارمند",
+            last_name="منتقل‌شده",
+            birth_date=date(1990, 1, 1),
+        )
+        other_company = Company.objects.create(code="EMP-B", name="شرکت دوم")
+        PersonEmployment.objects.create(
+            person=person,
+            company=self.company,
+            valid_from=date(2020, 1, 1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        with self.assertRaises(ValidationError):
+            PersonEmployment.objects.create(
+                person=person,
+                company=other_company,
+                valid_from=date(2025, 1, 1),
+                status=PersonEmployment.Status.ACTIVE,
             )
