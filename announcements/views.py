@@ -3,57 +3,62 @@ from pathlib import Path
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils import timezone
 from django.utils.text import get_valid_filename
-from django.db.models import Q
-from django.core.paginator import Paginator
 
+from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for, is_insurance_staff
+from accounts.models import RoleAssignment
 from auditlog.models import AuditEvent
-from core.permissions import PRIVILEGED
 from .forms import AnnouncementForm
 from .models import Announcement
-
-STAFF_ROLES = PRIVILEGED | {"insurance_specialist"}
-ROLE_AUDIENCE = {
-    "system_admin": {"all", "staff"},
-    "department_head": {"all", "staff"},
-    "insurance_specialist": {"all", "staff"},
-    "subsidiary_rep": {"all", "subsidiary"},
-    "employee": {"all", "employees"},
-    "insurer": {"all", "insurers"},
-    "finance": {"all", "finance_legal"},
-    "legal": {"all", "finance_legal"},
-    "auditor": {"all", "staff"},
-}
 
 
 def _visible_announcements(user):
     now = timezone.now()
-    qs = Announcement.objects.select_related("company", "created_by").filter(is_published=True, publish_at__lte=now).filter(
-        Q(expires_at__isnull=True) | Q(expires_at__gte=now)
-    )
-    qs = qs.filter(audience__in=ROLE_AUDIENCE.get(user.role, {"all"}))
-    if user.is_superuser or user.role in STAFF_ROLES:
+    qs = Announcement.objects.select_related("company", "created_by").filter(
+        is_published=True, publish_at__lte=now,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gte=now))
+
+    if is_insurance_staff(user):
         return qs
-    if user.company_id:
-        return qs.filter(Q(company__isnull=True) | Q(company_id=user.company_id))
-    return qs.filter(company__isnull=True)
+
+    audiences = {Announcement.Audience.ALL}
+    allowed_company_ids = set()
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        audiences.add(Announcement.Audience.SUBSIDIARY)
+        allowed_company_ids |= company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+    if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        audiences.add(Announcement.Audience.EMPLOYEES)
+        allowed_company_ids |= company_ids_for(user, role=RoleAssignment.Role.INSURED_PERSON)
+    if has_role(user, RoleAssignment.Role.INSURER_REP):
+        audiences.add(Announcement.Audience.INSURERS)
+
+    scoped = Q(company__isnull=True)
+    if allowed_company_ids:
+        scoped |= Q(company_id__in=allowed_company_ids)
+    return qs.filter(audience__in=audiences).filter(scoped).distinct()
 
 
 @login_required
 def announcement_list(request):
-    page_obj = Paginator(_visible_announcements(request.user).order_by("-publish_at", "-created_at"), 20).get_page(request.GET.get("page"))
+    page_obj = Paginator(
+        _visible_announcements(request.user).order_by("-publish_at", "-created_at"), 20
+    ).get_page(request.GET.get("page"))
+    can_manage = is_insurance_staff(request.user)
     return render(request, "announcements/announcement_list.html", {
-        "announcements": page_obj.object_list, "page_obj": page_obj,
-        "can_manage": request.user.is_superuser or request.user.role in STAFF_ROLES,
+        "announcements": page_obj.object_list,
+        "page_obj": page_obj,
+        "can_manage": can_manage,
     })
 
 
 @login_required
 def announcement_create(request):
-    if not (request.user.is_superuser or request.user.role in STAFF_ROLES):
+    if not is_insurance_staff(request.user):
         raise PermissionDenied
     if request.method == "POST":
         form = AnnouncementForm(request.POST, request.FILES)
@@ -84,6 +89,7 @@ def announcement_download(request, pk):
     filename = get_valid_filename(Path(item.attachment.name).name) or f"announcement-{item.pk}"
     AuditEvent.objects.create(
         actor=request.user, action="announcement_attachment_downloaded",
-        object_type="Announcement", object_id=str(item.pk), summary=f"دریافت پیوست اطلاعیه: {item.title}",
+        object_type="Announcement", object_id=str(item.pk),
+        summary=f"دریافت پیوست اطلاعیه: {item.title}",
     )
     return FileResponse(handle, as_attachment=True, filename=filename)
