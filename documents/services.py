@@ -92,7 +92,7 @@ def add_document_version(
     current_max = document.versions.aggregate(value=Max("version_number"))["value"] or 0
     next_number = current_max + 1
     digest = _sha256(upload)
-    document.versions.filter(is_current=True).update(is_current=False)
+    document.versions.filter(is_current=True)._mark_previous_not_current()
     version = DocumentVersion.objects.create(
         document=document,
         version_number=next_number,
