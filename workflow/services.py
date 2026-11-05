@@ -141,6 +141,8 @@ def acknowledge_case(*, case_id, actor, note=""):
     case = WorkflowCase.objects.select_for_update().get(pk=case_id)
     if case.is_locked or (not has_global_access(actor) and case.current_assignee_id != actor.pk):
         raise PermissionDenied
+    if not case.current_step or not case.current_step.requires_acknowledgement:
+        raise PermissionDenied("Formal acknowledgement is not enabled for this step.")
     now = timezone.now()
     WorkflowEvent.objects.create(
         workflow_case=case,
