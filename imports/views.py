@@ -151,7 +151,7 @@ def claim_import(request):
                         }
                         dates = {
                             key: _parse_date(val(key), line, key)
-                            for key in ("service_date", "registered_date", "payment_date")
+                            for key in ("service_date", "registered_date", "source_registered_date", "payment_date")
                         }
                     except ValueError as exc:
                         errors.append(str(exc))
@@ -172,7 +172,7 @@ def claim_import(request):
                         "source_claim_number": claim_no,
                         "person_id": person.pk, "national_id": nid,
                         "service_type": service[:120],
-                        "source_registered_date": _parse_date(val("source_registered_date"), line, "source_registered_date").isoformat() if val("source_registered_date") else None,
+                        "source_registered_date": dates["source_registered_date"].isoformat() if dates["source_registered_date"] else None,
                         "contract_number_snapshot": str(val("contract_number") or "").strip()[:120],
                         "source_duplicate_status": Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} else Claim.DuplicateStatus.NOT_DECLARED,
                         "source_duplicate_reference": str(val("source_duplicate_reference") or "").strip()[:120],
