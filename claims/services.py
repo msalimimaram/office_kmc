@@ -99,6 +99,7 @@ def reverse_payment(
     amount,
     actor,
     reason,
+    confirmed_by,
     paid_at=None,
     request=None,
 ):
@@ -172,3 +173,53 @@ def reverse_payment(
         request=request,
     )
     return reversal
+
+@transaction.atomic
+def record_imported_payment(*, claim_id, amount, paid_at, source_reference, source_insurer, submitted_by, reviewed_by, note="", request=None):
+    """Approve an insurer-reported payment without representing an actual money transfer."""
+    claim = Claim.objects.select_for_update().select_related("contract").get(pk=claim_id)
+    if not submitted_by or not submitted_by.is_authenticated or not submitted_by.is_active:
+        raise ValidationError("ثبت‌کننده منبع باید حساب فعال داشته باشد.")
+    if not reviewed_by or not reviewed_by.is_authenticated or not reviewed_by.is_active or reviewed_by.pk == submitted_by.pk:
+        raise ValidationError("تأییدکننده باید کاربر فعال و مستقل از ثبت‌کننده منبع باشد.")
+    if not has_role(submitted_by, RoleAssignment.Role.INSURER_REP):
+        raise ValidationError("منبع این پرداخت باید نماینده بیمه‌گر باشد.")
+    insurer_scope = insurer_ids_for(submitted_by)
+    if len(insurer_scope) != 1 or claim.insurer_id not in insurer_scope:
+        raise ValidationError("نماینده بیمه‌گر فقط می‌تواند پرداخت‌های بیمه‌گر متصل به حساب خود را اعلام کند.")
+    line = claim.contract.line if claim.contract_id else "health"
+    reviewer_allowed = has_global_access(reviewed_by) or has_role(
+        reviewed_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line
+    )
+    if not reviewer_allowed:
+        raise ValidationError("تأیید اطلاعات پرداخت فقط در اختیار رئیس اداره، مدیر سامانه یا کارشناس همان رشته است.")
+    amount = Decimal(str(amount))
+    if not amount.is_finite() or amount <= 0:
+        raise ValidationError("مبلغ پرداخت باید عددی معتبر و بزرگ‌تر از صفر باشد.")
+    if source_insurer and source_insurer.pk != claim.insurer_id:
+        raise ValidationError("بیمه‌گر منبع با بیمه‌گر خسارت یکسان نیست.")
+    total = _net_paid(claim.pk) + amount
+    if total > claim.payable_amount:
+        raise ValidationError("مجموع پرداخت‌ها از مبلغ قابل پرداخت بیشتر می‌شود.")
+    payment = ClaimPayment.objects.create(
+        claim=claim, entry_type=ClaimPayment.EntryType.PAYMENT, amount=amount,
+        paid_at=paid_at, source_reference=source_reference,
+        source_insurer=source_insurer or claim.insurer,
+        note=note, recorded_by=submitted_by, confirmed_by=reviewed_by,
+        is_legacy_import=True,
+    )
+    claim.paid_amount = total
+    claim.payment_date = paid_at or claim.payment_date
+    if total >= claim.payable_amount and claim.payable_amount > 0:
+        claim.status = Claim.Status.PAID
+    elif total > 0:
+        claim.status = Claim.Status.PARTIALLY_PAID
+    claim.save(update_fields=["paid_amount", "payment_date", "status", "updated_at"])
+    record_event(
+        actor=reviewed_by, action="claim_imported_payment_approved", obj=claim,
+        summary="پرداخت اعلام‌شده توسط بیمه‌گر پس از بررسی تأیید شد.",
+        after_data={"payment_id": payment.pk, "amount": str(amount), "net_paid_amount": str(total),
+                    "submitted_by_id": submitted_by.pk, "source_reference": source_reference},
+        request=request,
+    )
+    return payment
