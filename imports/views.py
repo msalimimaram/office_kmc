@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import transaction, models
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 from claims.models import Claim
 from claims.services import record_imported_payment
 from insurance.models import Contract
-from organizations.models import Person
+from organizations.models import Person, PersonEmployment
 from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
@@ -132,11 +132,6 @@ def claim_import(request):
                         errors.append(f"ردیف {line}: شماره پرونده منبع در همین فایل تکراری است.")
                         continue
                     people = Person.objects.filter(national_id=nid, is_active=True)
-                    if is_insurer:
-                        allowed_company_ids = Contract.objects.filter(
-                            insurer_id=insurer_id, is_active=True
-                        ).values_list("companies__id", flat=True)
-                        people = people.filter(company_id__in=allowed_company_ids, is_insured=True)
                     count = people.count()
                     if count == 0:
                         errors.append(f"ردیف {line}: شخصی با کد ملی واردشده یافت نشد.")
@@ -163,6 +158,25 @@ def claim_import(request):
                     if dates["payment_date"] and not amounts["paid_amount"]:
                         errors.append(f"ردیف {line}: تاریخ پرداخت بدون مبلغ پرداختی ثبت شده است.")
                         continue
+                    primary_insured = person.employee if person.employee_id else person
+                    company_snapshot_id = None
+                    if dates["service_date"]:
+                        employment = PersonEmployment.objects.filter(
+                            person=primary_insured,
+                            valid_from__lte=dates["service_date"],
+                        ).filter(
+                            models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=dates["service_date"])
+                        ).order_by("-valid_from", "-pk").first()
+                        company_snapshot_id = employment.company_id if employment else None
+                    if not company_snapshot_id:
+                        company_snapshot_id = primary_insured.company_id or person.company_id
+                    if is_insurer:
+                        if not company_snapshot_id or not Contract.objects.filter(
+                            insurer_id=insurer_id, is_active=True,
+                            companies__id=company_snapshot_id,
+                        ).exists():
+                            errors.append(f"ردیف {line}: شخص در تاریخ خدمت تحت قرارداد فعال این بیمه‌گر در شرکت مربوط قرار ندارد.")
+                            continue
                     duplicate_flag = str(val("source_duplicate_status") or "").strip().lower()
                     if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} and not (is_insurer and insurer_id):
                         errors.append(f"ردیف {line}: اعلام تکراری بودن فقط از فایل بیمه‌گر احراز‌شده پذیرفته می‌شود.")
@@ -171,13 +185,15 @@ def claim_import(request):
                     data.append({
                         "claim_number": "IMP-" + secrets.token_hex(12).upper(),
                         "source_claim_number": claim_no,
-                        "person_id": person.pk, "national_id": nid,
+                        "person_id": person.pk, "primary_insured_id": primary_insured.pk,
+                        "company_snapshot_id": company_snapshot_id, "national_id": nid,
                         "service_type": service[:120],
                         "source_registered_date": dates["source_registered_date"].isoformat() if dates["source_registered_date"] else None,
                         "contract_number_snapshot": str(val("contract_number") or "").strip()[:120],
                         "source_duplicate_status": Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} else Claim.DuplicateStatus.NOT_DECLARED,
                         "source_duplicate_reference": str(val("source_duplicate_reference") or "").strip()[:120],
                         "source_duplicate_note": str(val("source_duplicate_note") or "").strip()[:4000],
+                        "source_duplicate_reported_at": timezone.now().isoformat() if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} else None,
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
