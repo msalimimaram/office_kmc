@@ -116,7 +116,11 @@ class Claim(models.Model):
             if not self.primary_insured_id:
                 self.primary_insured = self.person.employee if self.person.employee_id else self.person
             if not self.company_snapshot_id and self.person.company_id:
-                self.company_snapshot_id = self.person.company_id
+                # Legacy fallback is safe only when no employment history exists.
+                # Once history exists, an unmatched service date must stay unknown.
+                from organizations.models import PersonEmployment
+                if not PersonEmployment.objects.filter(person_id=self.person_id).exists():
+                    self.company_snapshot_id = self.person.company_id
         self.full_clean()
         return super().save(*args, **kwargs)
 
