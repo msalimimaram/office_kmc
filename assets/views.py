@@ -46,7 +46,7 @@ def _asset_scope(user):
             company_id__in=company_ids
         ).values_list("person_id", flat=True)
         rep_lines = line_codes_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-        if "*" in rep_lines or not rep_lines:
+        if "*" in rep_lines:
             rep_asset_scope = models.Q(pk__gt=0)
         else:
             rep_asset_scope = models.Q(pk__in=[])
@@ -61,7 +61,7 @@ def _asset_scope(user):
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
-        allowed |= models.Q(insurer_id__in=insurer_ids)
+        allowed |= models.Q(insurer_id__in=insurer_ids) | models.Q(insurer__isnull=True, contract__insurer_id__in=insurer_ids)
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         person_ids = Person.objects.filter(
