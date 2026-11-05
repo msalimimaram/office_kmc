@@ -30,11 +30,10 @@ class RestrictAdminAccessMiddleware:
             and user.is_authenticated
             and not user.is_superuser
         ):
-            from accounts.access import has_role
-            from accounts.models import RoleAssignment
+            from accounts.access import has_global_access
 
-            allowed = has_role(user, RoleAssignment.Role.SYSTEM_ADMIN)
+            allowed = has_global_access(user)
             if not allowed:
                 from django.core.exceptions import PermissionDenied
-                raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه مجاز است.")
+                raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه یا رئیس اداره بیمه مجاز است.")
         return self.get_response(request)
