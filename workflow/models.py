@@ -319,7 +319,7 @@ class BusinessCalendar(models.Model):
             ZoneInfo(self.timezone_name)
         except (ZoneInfoNotFoundError, TypeError):
             errors["timezone_name"] = "منطقه زمانی معتبر نیست."
-        if not isinstance(self.working_weekdays, list) or any(
+        if not isinstance(self.working_weekdays, list) or not self.working_weekdays or any(
             isinstance(day, bool) or not isinstance(day, int) or day not in range(7)
             for day in self.working_weekdays
         ):
