@@ -1,16 +1,26 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from accounts.access import has_global_access, has_role, insurer_ids_for, line_codes_for
+from accounts.access import has_global_access, has_role, insurer_ids_for
 from accounts.models import RoleAssignment
 
 from auditlog.services import record_event
 
 from .models import Claim, ClaimPayment
+
+
+def _positive_amount(value, message):
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError(message)
+    if not amount.is_finite() or amount <= 0:
+        raise ValidationError(message)
+    return amount
 
 
 def _net_paid(claim_id):
@@ -45,9 +55,7 @@ def record_payment(
         return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line)
     if not authorized(actor) or not authorized(confirmed_by):
         raise ValidationError("ثبت و تأیید پرداخت فقط برای رئیس اداره، مدیر سامانه یا کارشناس مجاز همین رشته امکان‌پذیر است.")
-    amount = Decimal(str(amount))
-    if not amount.is_finite() or amount <= 0:
-        raise ValidationError("مبلغ پرداخت باید عددی معتبر و بزرگ‌تر از صفر باشد.")
+    amount = _positive_amount(amount, "مبلغ پرداخت باید عددی معتبر و بزرگ‌تر از صفر باشد.")
     if source_insurer and claim.insurer_id and source_insurer.pk != claim.insurer_id:
         raise ValidationError("بیمه‌گر اعلام‌کننده با بیمه‌گر خسارت یکسان نیست.")
 
@@ -119,9 +127,7 @@ def reverse_payment(
         return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line)
     if not authorized(actor) or not authorized(confirmed_by):
         raise ValidationError("ثبت و تأیید برگشت فقط برای رئیس اداره، مدیر سامانه یا کارشناس مجاز همین رشته امکان‌پذیر است.")
-    amount = Decimal(str(amount))
-    if not amount.is_finite() or amount <= 0:
-        raise ValidationError("مبلغ برگشتی باید عددی معتبر و بزرگ‌تر از صفر باشد.")
+    amount = _positive_amount(amount, "مبلغ برگشتی باید عددی معتبر و بزرگ‌تر از صفر باشد.")
     if not reason.strip():
         raise ValidationError("علت برگشت پرداخت الزامی است.")
 
