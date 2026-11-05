@@ -1,4 +1,5 @@
 from datetime import date
+from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
 from accounts.models import User
@@ -35,7 +36,7 @@ class OrganizationScopeTests(TestCase):
 
     def test_person_cannot_have_two_active_company_employments(self):
         person = Person.objects.create(
-            company=self.company,
+            company=Company.objects.create(code="EMP-A", name="شرکت اول"),
             national_id="9876543210",
             first_name="کارمند",
             last_name="منتقل‌شده",
@@ -44,7 +45,7 @@ class OrganizationScopeTests(TestCase):
         other_company = Company.objects.create(code="EMP-B", name="شرکت دوم")
         PersonEmployment.objects.create(
             person=person,
-            company=self.company,
+            company=Company.objects.get(code="EMP-A"),
             valid_from=date(2020, 1, 1),
             status=PersonEmployment.Status.ACTIVE,
         )
