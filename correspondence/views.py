@@ -34,7 +34,11 @@ def _scope(user):
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
-        allowed |= models.Q(contract__line__in=lines) | models.Q(assigned_to=user)
+        if "*" in lines:
+            allowed |= models.Q(pk__gt=0, is_confidential=False)
+        else:
+            allowed |= models.Q(contract__line__in=lines, is_confidential=False)
+        allowed |= models.Q(assigned_to=user, is_confidential=False)
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
