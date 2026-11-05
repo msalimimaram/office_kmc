@@ -16,6 +16,9 @@ class ImmutableDocumentRecordQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         raise ValidationError("ویرایش گروهی پرونده اسناد مجاز نیست.")
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی پرونده سند خارج از سرویس مجاز نیست.")
+
 
 class ImmutableDocumentVersionQuerySet(models.QuerySet):
     def update(self, **kwargs):
