@@ -15,14 +15,17 @@ from organizations.models import Person
 from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
+from accounts.access import has_global_access, has_role, insurer_ids_for, line_codes_for
+from accounts.models import RoleAssignment
+import jdatetime
 
 MAX_IMPORT_ROWS = 10000
 
 
 def _can_import(user):
-    if user.is_superuser or user.role in {"system_admin", "department_head", "insurance_specialist"}:
+    if has_global_access(user) or has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         return True
-    return user.role == "insurer" and bool(user.insurer_id)
+    return has_role(user, RoleAssignment.Role.INSURER_REP) and len(insurer_ids_for(user)) == 1
 
 
 def _parse_amount(value, line, key):
@@ -49,16 +52,29 @@ def _parse_date(value, line, key):
         return value.date()
     if isinstance(value, date):
         return value
-    try:
-        return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        raise ValueError(f"ردیف {line}: تاریخ ستون {key} معتبر نیست؛ قالب YYYY-MM-DD استفاده شود.")
+    raw = str(value).strip()
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+        try:
+            parsed = datetime.strptime(raw[:10], pattern).date()
+            if 1300 <= parsed.year <= 1499:
+                return jdatetime.date(parsed.year, parsed.month, parsed.day).togregorian()
+            return parsed
+        except (TypeError, ValueError):
+            continue
+    raise ValueError(f"ردیف {line}: تاریخ ستون {key} معتبر نیست؛ تاریخ میلادی یا شمسی قابل تبدیل وارد کنید.")
 
 
 @login_required
 def claim_import(request):
     if not _can_import(request.user):
         raise PermissionDenied
+    insurer_ids = insurer_ids_for(request.user)
+    is_insurer = has_role(request.user, RoleAssignment.Role.INSURER_REP)
+    insurer_id = next(iter(insurer_ids)) if is_insurer and len(insurer_ids) == 1 else None
+    if has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        specialist_lines = line_codes_for(request.user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        if "*" not in specialist_lines and "health" not in specialist_lines:
+            raise PermissionDenied("ورود خسارت درمان فقط برای کارشناس درمان مجاز است.")
     if request.method == "POST":
         form = ClaimImportForm(request.POST, request.FILES)
         if form.is_valid():
@@ -105,9 +121,9 @@ def claim_import(request):
                         errors.append(f"ردیف {line}: شناسه خسارت {claim_no} تکراری است.")
                         continue
                     people = Person.objects.filter(national_id=nid, is_active=True)
-                    if request.user.role == "insurer":
+                    if is_insurer:
                         allowed_company_ids = Contract.objects.filter(
-                            insurer_id=request.user.insurer_id, is_active=True
+                            insurer_id=insurer_id, is_active=True
                         ).values_list("companies__id", flat=True)
                         people = people.filter(company_id__in=allowed_company_ids, is_insured=True)
                     count = people.count()
