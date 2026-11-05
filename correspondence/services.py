@@ -24,7 +24,8 @@ def next_internal_number(occurred_at=None):
         sequence = CorrespondenceSequence.objects.select_for_update().get(solar_date=solar_day)
     except CorrespondenceSequence.DoesNotExist:
         try:
-            sequence = CorrespondenceSequence.objects.create(solar_date=solar_day, last_number=0)
+            with transaction.atomic():
+                sequence = CorrespondenceSequence.objects.create(solar_date=solar_day, last_number=0)
         except IntegrityError:
             sequence = CorrespondenceSequence.objects.select_for_update().get(solar_date=solar_day)
 
