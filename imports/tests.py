@@ -34,6 +34,9 @@ class ClaimImportValidationTests(SimpleTestCase):
     def test_date_accepts_iso_date(self):
         self.assertEqual(_parse_date("2026-10-21", 2, "service_date"), date(2026, 10, 21))
 
+    def test_date_accepts_jalali_date_with_persian_digits(self):
+        self.assertEqual(_parse_date("۱۴۰۵/۰۸/۰۲", 2, "service_date"), date(2026, 10, 24))
+
     def test_date_accepts_excel_datetime(self):
         from datetime import datetime
         self.assertEqual(_parse_date(datetime(2026, 10, 21, 12, 30), 2, "service_date"), date(2026, 10, 21))
