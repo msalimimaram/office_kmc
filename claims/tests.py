@@ -2,6 +2,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from organizations.models import Company, Person
@@ -53,20 +54,12 @@ class ClaimVisibilityTests(TestCase):
         self.assertNotContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
 
-    def test_employee_identity_is_globally_unique_across_company_records(self):
-        duplicate = Person.objects.create(
-            company=self.company_b, national_id=NATIONAL_ID_A,
-            first_name="شخص", last_name="با شناسه متفاوت", birth_date=date(1992, 1, 1),
-        )
-        Claim.objects.create(
-            claim_number="CL-CROSS-COMPANY", person=duplicate,
-            service_type="خدمت آزمایشی", requested_amount=500,
-        )
-        client = Client()
-        client.force_login(self.employee)
-        response = client.get(reverse("claim_list"))
-        self.assertContains(response, "CL-1")
-        self.assertNotContains(response, "CL-CROSS-COMPANY")
+    def test_national_id_is_globally_unique_across_company_records(self):
+        with self.assertRaises(ValidationError):
+            Person.objects.create(
+                company=self.company_b, national_id=NATIONAL_ID_A,
+                first_name="شخص", last_name="شناسه تکراری", birth_date=date(1992, 1, 1),
+            )
 
     def test_claim_cannot_record_negative_or_overpaid_amounts(self):
         with self.assertRaises(ValidationError):
@@ -82,6 +75,8 @@ class ClaimVisibilityTests(TestCase):
 
     def test_only_employee_or_company_representative_can_submit_claim_objection(self):
         claim = Claim.objects.get(claim_number="CL-1")
+        claim.result_sent_at = timezone.now()
+        claim.save(update_fields=["result_sent_at", "updated_at"])
         client = Client()
         client.force_login(self.admin)
         response = client.post(reverse("claim_detail", args=[claim.pk]), {"description": "اعتراض آزمایشی"})
