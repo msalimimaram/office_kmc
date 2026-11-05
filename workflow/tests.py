@@ -161,11 +161,16 @@ class WorkflowEngineTests(TestCase):
             WorkflowEvent.objects.filter(pk=event.pk).delete()
 
     def test_step_rejects_unknown_and_unscoped_wildcard_roles(self):
+        draft = WorkflowDefinition.objects.create(
+            code="draft-invalid-role",
+            title="تعریف پیش‌نویس",
+            created_by=self.admin,
+        )
         for index, roles in enumerate((["made_up_role"], ["*"])):
             with self.subTest(roles=roles):
                 with self.assertRaises(ValidationError):
                     WorkflowStep.objects.create(
-                        definition=self.definition,
+                        definition=draft,
                         code=f"invalid-role-{index}",
                         title="نقش نامعتبر",
                         order=9 + index,
@@ -173,10 +178,23 @@ class WorkflowEngineTests(TestCase):
                     )
 
     def test_transition_requires_destination_unless_closing_case(self):
+        draft = WorkflowDefinition.objects.create(
+            code="draft-invalid-transition",
+            title="تعریف پیش‌نویس مسیر",
+            created_by=self.admin,
+        )
+        draft_step = WorkflowStep.objects.create(
+            definition=draft,
+            code="draft-step",
+            title="مرحله پیش‌نویس",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
         with self.assertRaises(ValidationError):
             WorkflowTransition.objects.create(
-                definition=self.definition,
-                source_step=self.initial,
+                definition=draft,
+                source_step=draft_step,
                 action_code="broken-route",
                 title="مسیر ناقص",
                 allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
