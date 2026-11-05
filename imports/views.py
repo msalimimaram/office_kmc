@@ -244,6 +244,8 @@ def claim_import_confirm(request, batch_id):
             for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
+            if item.get("source_duplicate_reported_at"):
+                item["source_duplicate_reported_at"] = datetime.fromisoformat(item["source_duplicate_reported_at"])
             imported_paid_amount = Decimal(str(item.pop("paid_amount", "0") or "0"))
             imported_payment_date = item.pop("payment_date", None)
             claim = Claim.objects.create(**item)
