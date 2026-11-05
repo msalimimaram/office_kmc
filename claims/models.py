@@ -124,7 +124,20 @@ class Claim(models.Model):
         return self.claim_number
 
 
+class ImmutableClaimPaymentQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("دفترکل پرداخت فقط با ثبت رویداد جدید قابل اصلاح است.")
+
+    def delete(self):
+        raise ValidationError("رویدادهای دفترکل پرداخت حذف نمی‌شوند.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی دفترکل پرداخت مجاز نیست.")
+
+
 class ClaimPayment(models.Model):
+    objects = ImmutableClaimPaymentQuerySet.as_manager()
+
     class EntryType(models.TextChoices):
         PAYMENT = "payment", "پرداخت ثبت‌شده"
         REVERSAL = "reversal", "برگشت/اصلاح پرداخت"
