@@ -176,18 +176,27 @@ def reverse_payment(
 
 @transaction.atomic
 def record_imported_payment(*, claim_id, amount, paid_at, source_reference, source_insurer, submitted_by, reviewed_by, note="", request=None):
-    """Approve an insurer-reported payment without representing an actual money transfer."""
+    """Approve an imported payment from an insurer or authorized internal specialist."""
     claim = Claim.objects.select_for_update().select_related("contract").get(pk=claim_id)
     if not submitted_by or not submitted_by.is_authenticated or not submitted_by.is_active:
         raise ValidationError("ثبت‌کننده منبع باید حساب فعال داشته باشد.")
     if not reviewed_by or not reviewed_by.is_authenticated or not reviewed_by.is_active or reviewed_by.pk == submitted_by.pk:
         raise ValidationError("تأییدکننده باید کاربر فعال و مستقل از ثبت‌کننده منبع باشد.")
-    if not has_role(submitted_by, RoleAssignment.Role.INSURER_REP):
-        raise ValidationError("منبع این پرداخت باید نماینده بیمه‌گر باشد.")
-    insurer_scope = insurer_ids_for(submitted_by)
-    if len(insurer_scope) != 1 or claim.insurer_id not in insurer_scope:
-        raise ValidationError("نماینده بیمه‌گر فقط می‌تواند پرداخت‌های بیمه‌گر متصل به حساب خود را اعلام کند.")
     line = claim.contract.line if claim.contract_id else "health"
+    submitted_as_insurer = (
+        has_role(submitted_by, RoleAssignment.Role.INSURER_REP)
+        and not has_global_access(submitted_by)
+    )
+    if submitted_as_insurer:
+        insurer_scope = insurer_ids_for(submitted_by)
+        if len(insurer_scope) != 1 or claim.insurer_id not in insurer_scope:
+            raise ValidationError("نماینده بیمه‌گر فقط می‌تواند پرداخت‌های بیمه‌گر متصل به حساب خود را اعلام کند.")
+    else:
+        submitter_allowed = has_global_access(submitted_by) or has_role(
+            submitted_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line
+        )
+        if not submitter_allowed:
+            raise ValidationError("ثبت پرداخت واردشده فقط برای نماینده بیمه‌گر یا کارشناس مجاز همان رشته امکان‌پذیر است.")
     reviewer_allowed = has_global_access(reviewed_by) or has_role(
         reviewed_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line
     )
