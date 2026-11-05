@@ -203,6 +203,7 @@ class WorkflowEngineTests(TestCase):
     def test_calendar_rejects_invalid_hours_weekdays_and_timezone(self):
         invalid_values = [
             {"start_time": "16:00", "end_time": "08:00"},
+            {"working_weekdays": []},
             {"working_weekdays": [0, 0, 1]},
             {"working_weekdays": [0, 7]},
             {"timezone_name": "Mars/Olympus"},
