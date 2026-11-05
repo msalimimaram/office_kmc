@@ -10,7 +10,7 @@ from organizations.models import Company
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
-from .services import _has_any_role, add_business_minutes, start_workflow, transition_case
+from .services import _has_any_role, _scope_for_object, add_business_minutes, start_workflow, transition_case
 
 
 User = get_user_model()
@@ -152,15 +152,17 @@ class WorkflowEngineTests(TestCase):
         with self.assertRaises(ValidationError):
             WorkflowEvent.objects.filter(pk=event.pk).delete()
 
-    def test_step_rejects_unknown_roles(self):
-        with self.assertRaises(ValidationError):
-            WorkflowStep.objects.create(
-                definition=self.definition,
-                code="invalid-role",
-                title="نقش نامعتبر",
-                order=9,
-                allowed_roles=["made_up_role"],
-            )
+    def test_step_rejects_unknown_and_unscoped_wildcard_roles(self):
+        for index, roles in enumerate((["made_up_role"], ["*"])):
+            with self.subTest(roles=roles):
+                with self.assertRaises(ValidationError):
+                    WorkflowStep.objects.create(
+                        definition=self.definition,
+                        code=f"invalid-role-{index}",
+                        title="نقش نامعتبر",
+                        order=9 + index,
+                        allowed_roles=roles,
+                    )
 
     def test_transition_requires_destination_unless_closing_case(self):
         with self.assertRaises(ValidationError):
@@ -187,6 +189,57 @@ class WorkflowEngineTests(TestCase):
                         title="تقویم نامعتبر",
                         **values,
                     )
+
+    def test_workflow_object_scope_uses_historical_company_snapshot(self):
+        company_a = Company.objects.create(code="WF-SCOPE-A", name="شرکت تاریخی الف")
+        company_b = Company.objects.create(code="WF-SCOPE-B", name="شرکت تاریخی ب")
+        representative = User.objects.create_user(
+            username="workflow-snapshot-rep", password="StrongPass!123"
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company_a,
+            line_code="health",
+            reason="نماینده شرکت الف",
+        )
+        object_a = type("ClaimScope", (), {
+            "company_snapshot_id": company_a.pk,
+            "insurer_id": None,
+            "line_code": "health",
+            "contract": None,
+            "person": None,
+        })()
+        object_b = type("ClaimScope", (), {
+            "company_snapshot_id": company_b.pk,
+            "insurer_id": None,
+            "line_code": "health",
+            "contract": None,
+            "person": None,
+        })()
+        self.assertTrue(_has_any_role(
+            representative, [RoleAssignment.Role.SUBSIDIARY_REP], **_scope_for_object(object_a)
+        ))
+        self.assertFalse(_has_any_role(
+            representative, [RoleAssignment.Role.SUBSIDIARY_REP], **_scope_for_object(object_b)
+        ))
+
+    def test_company_representative_is_denied_when_workflow_object_has_no_company_scope(self):
+        representative = User.objects.create_user(
+            username="workflow-unscoped-rep", password="StrongPass!123"
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=Company.objects.create(code="WF-UNSCOPED", name="شرکت بدون محدوده"),
+            line_code="health",
+            reason="نماینده شرکت",
+        )
+        self.assertFalse(_has_any_role(
+            representative,
+            [RoleAssignment.Role.SUBSIDIARY_REP],
+            line_code="health",
+        ))
 
     def test_representative_role_is_scoped_to_company_and_insurance_line(self):
         company_a = Company.objects.create(code="WF-A", name="شرکت گردش کار الف")
