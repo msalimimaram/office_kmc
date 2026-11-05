@@ -10,7 +10,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from claims.models import Claim, ClaimPayment
+from claims.models import Claim
+from claims.services import record_imported_payment
 from insurance.models import Contract
 from organizations.models import Person
 from .forms import ClaimImportForm
@@ -221,18 +222,22 @@ def claim_import_confirm(request, batch_id):
             for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
+            imported_paid_amount = Decimal(str(item.pop("paid_amount", "0") or "0"))
+            imported_payment_date = item.pop("payment_date", None)
             claim = Claim.objects.create(**item)
-            if claim.paid_amount and claim.paid_amount > 0:
-                ClaimPayment.objects.create(
-                    claim=claim,
-                    amount=claim.paid_amount,
-                    paid_at=claim.payment_date,
+            if imported_paid_amount > 0:
+                if not claim.insurer_id:
+                    raise PermissionDenied("برای تأیید پرداخت واردشده، بیمه‌گر منبع باید در پرونده مشخص باشد.")
+                record_imported_payment(
+                    claim_id=claim.pk,
+                    amount=imported_paid_amount,
+                    paid_at=imported_payment_date,
                     source_reference=claim.source_reference[:160],
                     source_insurer=claim.insurer,
-                    recorded_by=batch.uploaded_by,
-                    confirmed_by=request.user,
-                    is_legacy_import=True,
-                    note="Imported aggregate payment; this records source data and does not transfer money.",
+                    submitted_by=batch.uploaded_by,
+                    reviewed_by=request.user,
+                    note="پرداخت تجمیعی واردشده از فایل بیمه‌گر؛ ثبت اطلاعات است و انتقال وجه انجام نمی‌دهد.",
+                    request=request,
                 )
         batch.status = ImportBatch.Status.PROCESSED
         batch.reviewed_by = request.user
