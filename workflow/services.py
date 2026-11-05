@@ -189,11 +189,14 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     ).get(pk=case_id)
     if case.is_locked or case.status in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}:
         raise PermissionDenied("پرونده بسته یا قفل نهایی شده است.")
-    transition = WorkflowTransition.objects.select_related("source_step", "target_step").get(
-        definition=case.definition,
-        source_step=case.current_step,
-        action_code=action_code,
-    )
+    try:
+        transition = WorkflowTransition.objects.select_related("source_step", "target_step").get(
+            definition=case.definition,
+            source_step=case.current_step,
+            action_code=action_code,
+        )
+    except WorkflowTransition.DoesNotExist:
+        raise PermissionDenied("این اقدام در مرحله جاری تعریف نشده است.")
     _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles)
     if transition.requires_note and not note.strip():
         raise ValidationError({"note": "برای این اقدام درج توضیحات الزامی است."})
