@@ -33,7 +33,7 @@ class WorkflowDefinition(models.Model):
         super().clean()
         if self.is_active and not self.approved_by_id:
             raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره یا مدیر سامانه است."})
-        if self.is_active and not self.steps.filter(is_initial=True).exists():
+        if self.is_active and (not self.pk or not self.steps.filter(is_initial=True).exists()):
             raise ValidationError("گردش کار منتشرشده باید دقیقاً یک مرحله آغازین داشته باشد.")
         if self.is_active and self.approved_by_id:
             from accounts.access import has_role
