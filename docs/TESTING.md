@@ -1,4 +1,4 @@
-# راهنمای آزمون و CI
+# راهنمای آزمون محلی و پذیرش
 
 ## اهداف
 
@@ -16,7 +16,7 @@ python manage.py test accounts organizations claims requests_portal imports core
 
 ```powershell
 python manage.py makemigrations --check --dry-run
-python manage.py migrate --check
+python manage.py migrate --check\npython manage.py showmigrations
 ```
 
 ## CI فعلی
