@@ -96,9 +96,9 @@ class DocumentUploadAuthorizationTests(TestCase):
             DocumentRecord.objects.filter(pk=document.pk).update(title="تغییر مستقیم")
         with self.assertRaises(ValidationError):
             DocumentRecord.objects.filter(pk=document.pk).delete()
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             document.versions.filter(pk=first_version.pk).update(change_reason="تغییر مستقیم")
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             document.versions.filter(pk=first_version.pk).delete()
 
         second_version = add_document_version(
