@@ -86,6 +86,11 @@ class ClaimPaymentLedgerTests(TestCase):
             record_payment(claim_id=self.claim.pk, amount="100", actor=self.operator)
         with self.assertRaises(ValidationError):
             record_payment(
+                claim_id=self.claim.pk, amount="not-a-number",
+                actor=self.operator, confirmed_by=self.reviewer,
+            )
+        with self.assertRaises(ValidationError):
+            record_payment(
                 claim_id=self.claim.pk, amount="100",
                 actor=self.operator, confirmed_by=self.operator,
             )
