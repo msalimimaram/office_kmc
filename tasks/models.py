@@ -1,5 +1,8 @@
-from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
 
 class InternalTask(models.Model):
     class Priority(models.TextChoices):
@@ -7,12 +10,14 @@ class InternalTask(models.Model):
         NORMAL = "normal", "عادی"
         HIGH = "high", "زیاد"
         URGENT = "urgent", "فوری"
+
     class Status(models.TextChoices):
         OPEN = "open", "باز"
         IN_PROGRESS = "in_progress", "در حال انجام"
         WAITING = "waiting", "در انتظار"
         DONE = "done", "انجام‌شده"
         CANCELLED = "cancelled", "لغوشده"
+
     title = models.CharField("عنوان", max_length=250)
     description = models.TextField("شرح")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_tasks")
@@ -23,5 +28,41 @@ class InternalTask(models.Model):
     related_request = models.ForeignKey("requests_portal.ServiceRequest", null=True, blank=True, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
         ordering = ["status", "due_at", "-created_at"]
+        verbose_name = "وظیفه"
+        verbose_name_plural = "وظایف داخلی"
+
+    def __str__(self):
+        return self.title
+
+
+class TaskEvent(models.Model):
+    class EventType(models.TextChoices):
+        CREATED = "created", "ایجاد"
+        ASSIGNED = "assigned", "تخصیص"
+        STATUS = "status", "تغییر وضعیت"
+        COMMENT = "comment", "یادداشت"
+        DUE_CHANGED = "due_changed", "تغییر مهلت"
+
+    task = models.ForeignKey(InternalTask, on_delete=models.PROTECT, related_name="events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    event_type = models.CharField(max_length=20, choices=EventType.choices)
+    from_value = models.CharField(max_length=80, blank=True)
+    to_value = models.CharField(max_length=80, blank=True)
+    note = models.TextField(blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("occurred_at", "pk")
+        verbose_name = "رویداد وظیفه"
+        verbose_name_plural = "تاریخچه وظایف"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("رویداد وظیفه قابل ویرایش نیست؛ رویداد جدید ثبت کنید.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("رویداد وظیفه قابل حذف نیست.")
