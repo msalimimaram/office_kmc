@@ -10,6 +10,9 @@ class ClaimImportValidationTests(SimpleTestCase):
     def test_amount_accepts_decimal_and_thousands_separators(self):
         self.assertEqual(_parse_amount("1,250.75", 2, "paid_amount"), Decimal("1250.75"))
 
+    def test_amount_accepts_persian_digits_and_decimal_separator(self):
+        self.assertEqual(_parse_amount("۱٬۲۵۰٫۷۵", 2, "paid_amount"), Decimal("1250.75"))
+
     def test_amount_rejects_negative_values(self):
         with self.assertRaisesRegex(ValueError, "نامنفی"):
             _parse_amount("-1", 4, "paid_amount")
