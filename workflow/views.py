@@ -6,10 +6,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.db.models import Q
 
-from accounts.access import has_global_access, has_role
+from accounts.access import has_global_access
 from accounts.models import RoleAssignment, User
-from .models import WorkflowCase, WorkflowEvent, WorkflowTransition
-from .services import acknowledge_case, mark_case_opened, set_final_lock, transition_case
+from .models import WorkflowCase, WorkflowTransition
+from .services import (
+    _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
+    set_final_lock, transition_case,
+)
 
 
 def _visible_cases(user):
@@ -21,23 +24,44 @@ def _visible_cases(user):
     return qs.filter(current_assignee=user)
 
 
-def _eligible_recipients(transition):
+def _eligible_recipients(case, transition):
     roles = transition.recipient_roles or (
         transition.target_step.allowed_roles if transition.target_step_id else []
     )
     if not roles:
         return User.objects.none()
-    if "*" in roles:
-        return User.objects.filter(is_active=True).order_by("last_name", "first_name", "username")
+
+    scope = _scope_for_object(case.content_object)
     today = timezone.localdate()
     assignments = RoleAssignment.objects.filter(
         role__in=roles,
         is_active=True,
         valid_from__lte=today,
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-    return User.objects.filter(is_active=True, role_assignments__in=assignments).distinct().order_by(
-        "last_name", "first_name", "username"
-    )
+
+    scoped_roles = Q()
+    for role in roles:
+        role_filter = Q(role=role)
+        if role == RoleAssignment.Role.SUBSIDIARY_REP:
+            if not scope["company_id"]:
+                continue
+            role_filter &= Q(company_id=scope["company_id"])
+            if scope["line_code"]:
+                role_filter &= Q(line_code__in=[scope["line_code"], "*"])
+        elif role == RoleAssignment.Role.INSURER_REP:
+            if not scope["insurer_id"]:
+                continue
+            role_filter &= Q(insurer_id=scope["insurer_id"])
+        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST and scope["line_code"]:
+            role_filter &= Q(line_code__in=[scope["line_code"], "*"])
+        scoped_roles |= role_filter
+
+    if not scoped_roles.children:
+        return User.objects.none()
+    assignments = assignments.filter(scoped_roles)
+    return User.objects.filter(
+        is_active=True, role_assignments__in=assignments
+    ).distinct().order_by("last_name", "first_name", "username")
 
 
 @login_required
@@ -84,12 +108,13 @@ def workflow_case_detail(request, pk):
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
     transitions = []
     if has_global_access(request.user) or case.current_assignee_id == request.user.pk:
+        scope = _scope_for_object(case.content_object)
         for item in WorkflowTransition.objects.filter(
             definition=case.definition, source_step=case.current_step
         ).select_related("target_step"):
             roles = item.allowed_roles or case.current_step.allowed_roles
-            if has_global_access(request.user) or "*" in roles or any(has_role(request.user, role) for role in roles):
-                transitions.append((item, _eligible_recipients(item)))
+            if has_global_access(request.user) or _has_any_role(request.user, roles, **scope):
+                transitions.append((item, _eligible_recipients(case, item)))
     return render(request, "workflow/workflow_case_detail.html", {
         "case": case,
         "events": events,
