@@ -19,10 +19,36 @@ from .models import (
 User = get_user_model()
 
 
-def _has_any_role(user, roles):
-    if "*" in roles:
-        return user.is_authenticated and user.is_active
-    return bool(roles) and any(has_role(user, role) for role in roles)
+def _scope_for_object(obj):
+    company_id = getattr(obj, "company_id", None)
+    insurer_id = getattr(obj, "insurer_id", None)
+    line_code = getattr(obj, "line_code", None)
+    contract = getattr(obj, "contract", None)
+    if contract:
+        company_id = company_id or None
+        insurer_id = insurer_id or getattr(contract, "insurer_id", None)
+        line_code = line_code or getattr(contract, "line", None)
+    return {"company_id": company_id, "insurer_id": insurer_id, "line_code": line_code}
+
+
+def _has_any_role(user, roles, *, company_id=None, insurer_id=None, line_code=None):
+    if not user or not user.is_authenticated or not user.is_active:
+        return False
+    if not roles:
+        return False
+    return any(
+        has_role(
+            user,
+            role,
+            company_id=company_id if role == RoleAssignment.Role.SUBSIDIARY_REP else None,
+            insurer_id=insurer_id if role == RoleAssignment.Role.INSURER_REP else None,
+            line_code=line_code if role in {
+                RoleAssignment.Role.INSURANCE_SPECIALIST,
+                RoleAssignment.Role.SUBSIDIARY_REP,
+            } else None,
+        )
+        for role in roles
+    )
 
 
 def _calendar_is_working_day(calendar, day):
@@ -38,7 +64,10 @@ def add_business_minutes(start_at, minutes, calendar=None):
     calendar = calendar or BusinessCalendar.objects.filter(is_active=True).first()
     if not calendar:
         raise ValidationError("تقویم کاری فعال برای محاسبه مهلت تعریف نشده است.")
-    tz = ZoneInfo(calendar.timezone_name)
+    try:
+        tz = ZoneInfo(calendar.timezone_name)
+    except Exception as exc:
+        raise ValidationError("منطقه زمانی تقویم کاری معتبر نیست.") from exc
     cursor = timezone.localtime(start_at, tz) if timezone.is_aware(start_at) else timezone.make_aware(start_at, tz)
     remaining = int(minutes)
 
@@ -58,54 +87,76 @@ def add_business_minutes(start_at, minutes, calendar=None):
     raise ValidationError("محاسبه مهلت کاری در بازه مجاز ممکن نشد.")
 
 
-def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, exclude_user_id=None):
+def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, exclude_user_id=None):
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
     roles = initial.allowed_roles or []
     today = timezone.localdate()
-    if "*" in roles:
-        candidates = User.objects.filter(is_active=True)
-    else:
-        assignments = RoleAssignment.objects.filter(role__in=roles, is_active=True, valid_from__lte=today).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-        if roles == [RoleAssignment.Role.SUBSIDIARY_REP] and company_id:
-            assignments = assignments.filter(company_id=company_id)
-        if roles == [RoleAssignment.Role.INSURER_REP] and insurer_id:
-            assignments = assignments.filter(insurer_id=insurer_id)
-        candidates = User.objects.filter(pk__in=assignments.values("user_id"), is_active=True)
+    assignments = RoleAssignment.objects.filter(
+        role__in=roles,
+        is_active=True,
+        valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+
+    scope = Q()
+    for role in roles:
+        role_scope = Q(role=role)
+        if role == RoleAssignment.Role.SUBSIDIARY_REP:
+            if not company_id:
+                continue
+            role_scope &= Q(company_id=company_id)
+            if line_code:
+                role_scope &= Q(line_code__in=[line_code, "*"])
+        elif role == RoleAssignment.Role.INSURER_REP:
+            if not insurer_id:
+                continue
+            role_scope &= Q(insurer_id=insurer_id)
+        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST and line_code:
+            role_scope &= Q(line_code__in=[line_code, "*"])
+        scope |= role_scope
+    if not scope.children:
+        raise ValidationError("برای محدوده این پرونده، نقش گیرنده قابل تخصیص نیست.")
+    candidates = User.objects.filter(
+        pk__in=assignments.filter(scope).values("user_id"),
+        is_active=True,
+    )
     if exclude_user_id:
         candidates = candidates.exclude(pk=exclude_user_id)
     candidate = candidates.order_by("pk").first()
     if candidate:
         return candidate
-    raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر پیدا نشد.")
+    raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر در محدوده پرونده پیدا نشد.")
 
 
-def _validate_recipient(user, roles):
-    if not user or not user.is_active or not _has_any_role(user, roles):
-        raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر در نقش مجاز این مرحله ندارد.")
+def _validate_recipient(user, roles, *, scope):
+    if not _has_any_role(user, roles, **scope):
+        raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش مجاز این مرحله ندارد.")
 
 
-def _validate_actor(case, actor, roles):
-    if not actor.is_active:
+def _validate_actor(case, actor, roles, *, scope):
+    if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied
     if has_global_access(actor):
         return
     if case.current_assignee_id != actor.pk:
         raise PermissionDenied("مسئولیت این مرحله به حساب شما واگذار نشده است.")
-    if roles and not _has_any_role(actor, roles):
-        raise PermissionDenied("نقش فعال شما برای اقدام در این مرحله مجاز نیست.")
+    if not _has_any_role(actor, roles, **scope):
+        raise PermissionDenied("نقش فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
 
 
 @transaction.atomic
 def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
+    if not actor or not actor.is_authenticated or not actor.is_active:
+        raise PermissionDenied("شروع گردش کار فقط توسط حساب فعال مجاز است.")
     definition = WorkflowDefinition.objects.filter(code=code, is_active=True).order_by("-version").first()
     if not definition:
         raise ValidationError(f"گردش کار فعال با کد {code} تعریف نشده است.")
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
-    _validate_recipient(assignee, initial.allowed_roles)
+    scope = _scope_for_object(obj)
+    _validate_recipient(assignee, initial.allowed_roles, scope=scope)
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
     case, created = WorkflowCase.objects.get_or_create(
         definition=definition,
@@ -137,6 +188,8 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
 @transaction.atomic
 def mark_case_opened(*, case_id, actor):
     case = WorkflowCase.objects.select_for_update().get(pk=case_id)
+    if not actor or not actor.is_authenticated or not actor.is_active:
+        raise PermissionDenied
     if case.is_locked or case.status in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}:
         return case
     if not has_global_access(actor) and case.current_assignee_id != actor.pk:
@@ -162,10 +215,16 @@ def mark_case_opened(*, case_id, actor):
 @transaction.atomic
 def acknowledge_case(*, case_id, actor, note=""):
     case = WorkflowCase.objects.select_for_update().get(pk=case_id)
+    if not actor or not actor.is_authenticated or not actor.is_active:
+        raise PermissionDenied
     if case.is_locked or (not has_global_access(actor) and case.current_assignee_id != actor.pk):
         raise PermissionDenied
     if not case.current_step or not case.current_step.requires_acknowledgement:
-        raise PermissionDenied("Formal acknowledgement is not enabled for this step.")
+        raise PermissionDenied("تأیید رسمی مشاهده در این مرحله فعال نشده است.")
+    if not has_global_access(actor) and not _has_any_role(
+        actor, case.current_step.allowed_roles, **_scope_for_object(case.content_object)
+    ):
+        raise PermissionDenied("نقش شما برای تأیید مشاهده در این محدوده مجاز نیست.")
     now = timezone.now()
     WorkflowEvent.objects.create(
         workflow_case=case,
@@ -197,7 +256,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         )
     except WorkflowTransition.DoesNotExist:
         raise PermissionDenied("این اقدام در مرحله جاری تعریف نشده است.")
-    _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles)
+    scope = _scope_for_object(case.content_object)
+    _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles, scope=scope)
     if transition.requires_note and not note.strip():
         raise ValidationError({"note": "برای این اقدام درج توضیحات الزامی است."})
     if transition.is_return and not case.current_step.allow_return:
@@ -220,9 +280,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             raise ValidationError("مرحله مقصد برای این اقدام مشخص نشده است.")
         target = recipient or actor
         allowed_recipients = transition.recipient_roles or transition.target_step.allowed_roles
-        _validate_recipient(target, allowed_recipients)
-        if not _has_any_role(target, transition.target_step.allowed_roles):
-            raise PermissionDenied("گیرنده در مرحله مقصد مجاز نیست.")
+        _validate_recipient(target, allowed_recipients, scope=scope)
+        _validate_recipient(target, transition.target_step.allowed_roles, scope=scope)
         case.current_step = transition.target_step
         case.current_assignee = target
         case.status = WorkflowCase.Status.WAITING
