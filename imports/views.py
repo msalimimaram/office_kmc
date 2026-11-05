@@ -10,7 +10,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from claims.models import Claim
+from claims.models import Claim, ClaimPayment
 from insurance.models import Contract
 from organizations.models import Person
 from .forms import ClaimImportForm
@@ -81,7 +81,7 @@ def claim_import(request):
     insurer_ids = insurer_ids_for(request.user)
     is_insurer = has_role(request.user, RoleAssignment.Role.INSURER_REP)
     insurer_id = next(iter(insurer_ids)) if is_insurer and len(insurer_ids) == 1 else None
-    if has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+    if has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(request.user):
         specialist_lines = line_codes_for(request.user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
         if "*" not in specialist_lines and "health" not in specialist_lines:
             raise PermissionDenied("ورود خسارت درمان فقط برای کارشناس درمان مجاز است.")
@@ -210,7 +210,19 @@ def claim_import_confirm(request, batch_id):
             for field in ("service_date", "registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
-            Claim.objects.create(**item)
+            claim = Claim.objects.create(**item)
+            if claim.paid_amount and claim.paid_amount > 0:
+                ClaimPayment.objects.create(
+                    claim=claim,
+                    amount=claim.paid_amount,
+                    paid_at=claim.payment_date,
+                    source_reference=claim.source_reference,
+                    source_insurer=claim.insurer,
+                    recorded_by=batch.uploaded_by,
+                    confirmed_by=request.user,
+                    is_legacy_import=True,
+                    note="Imported aggregate payment; this records source data and does not transfer money.",
+                )
         batch.status = ImportBatch.Status.PROCESSED
         batch.reviewed_by = request.user
         batch.reviewed_at = timezone.now()
