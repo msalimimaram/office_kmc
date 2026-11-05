@@ -131,11 +131,11 @@ class PersonEmployment(models.Model):
     job_title = models.CharField("عنوان شغلی", max_length=150, blank=True)
     valid_from = models.DateField("شروع اشتغال", null=True, blank=True)
     valid_until = models.DateField("پایان اشتغال", null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    status = models.CharField("وضعیت اشتغال", max_length=20, choices=Status.choices, default=Status.ACTIVE)
     source_reference = models.CharField("مرجع ورود اطلاعات", max_length=160, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="created_person_employments")
     approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="approved_person_employments")
-    created_at = models.DateTimeField("ثبت", auto_now_add=True)
+    created_at = models.DateTimeField("ایجاد", auto_now_add=True)
     updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
 
     class Meta:
@@ -176,8 +176,8 @@ class CompanyLeadershipTitle(models.Model):
     valid_from = models.DateField("شروع اعتبار", null=True, blank=True)
     valid_until = models.DateField("پایان اعتبار", null=True, blank=True)
     declared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="declared_leadership_titles")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField("ثبت", auto_now_add=True)
+    updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
 
     class Meta:
         ordering = ("company__name", "person__last_name", "title")
