@@ -88,7 +88,7 @@ def request_create(request):
                 item.save()
                 active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
                 if active_definition:
-                    initial_assignee = resolve_initial_assignee(definition=active_definition, company_id=item.company_id, exclude_user_id=user.pk)
+                    initial_assignee = resolve_initial_assignee(definition=active_definition, company_id=item.company_id, owner_user_id=user.pk, exclude_user_id=user.pk)
                     start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
                     item.assigned_to = initial_assignee
                     item.save(update_fields=["assigned_to", "updated_at"])
