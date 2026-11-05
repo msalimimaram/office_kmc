@@ -30,6 +30,9 @@ class ImmutableDocumentVersionQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         raise ValidationError("ویرایش گروهی نسخه اسناد مجاز نیست.")
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی نسخه سند مجاز نیست.")
+
     def _mark_previous_not_current(self):
         # Internal transition used only when a new immutable version is added.
         return super().update(is_current=False)
