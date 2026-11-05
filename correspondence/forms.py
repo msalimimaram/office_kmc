@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for
+from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for
 from accounts.models import RoleAssignment, PositionAssignment
 from insurance.models import Contract, Insurer
 from organizations.models import Company
@@ -67,6 +67,15 @@ class CorrespondenceForm(forms.ModelForm):
 
         if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(user):
             self.fields.pop("is_confidential")
+            specialist_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+            if "*" in specialist_lines:
+                pass
+            elif specialist_lines:
+                self.fields["contract"].queryset = self.fields["contract"].queryset.filter(line__in=specialist_lines)
+                self.fields["company"].queryset = self.fields["company"].queryset.filter(insurance_contracts__line__in=specialist_lines).distinct()
+            else:
+                self.fields["contract"].queryset = Contract.objects.none()
+                self.fields["company"].queryset = Company.objects.none()
 
         if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
             company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
