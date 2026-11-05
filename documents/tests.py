@@ -5,6 +5,7 @@ from django.urls import reverse
 from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from documents.models import DocumentRecord
+from documents.services import create_document
 
 
 class DocumentUploadAuthorizationTests(TestCase):
@@ -52,3 +53,32 @@ class DocumentUploadAuthorizationTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertFalse(DocumentRecord.objects.filter(title="مدرک پزشکی آزمایشی").exists())
+
+    def test_medical_document_download_is_limited_to_global_roles(self):
+        admin = User.objects.create_user(
+            username="document-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون اسناد",
+        )
+        document = create_document(
+            title="مدرک پزشکی محرمانه",
+            category="medical",
+            upload=SimpleUploadedFile("medical-private.pdf", b"%PDF-1.7\\nprivate"),
+            uploaded_by=admin,
+            company=self.company,
+            is_medical=True,
+        )
+        client = Client()
+        client.force_login(self.specialist)
+        response = client.get(reverse("document_download", args=[document.pk]))
+        self.assertEqual(response.status_code, 404)
+
+        client.force_login(admin)
+        response = client.get(reverse("document_download", args=[document.pk]))
+        self.assertEqual(response.status_code, 200)
+        response.close()
