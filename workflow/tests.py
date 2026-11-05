@@ -138,6 +138,14 @@ class WorkflowEngineTests(TestCase):
             self.initial.save()
         with self.assertRaises(ValidationError):
             self.initial.delete()
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.filter(pk=self.initial.pk).update(title="تغییر گروهی")
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.filter(pk=self.initial.pk).delete()
+        with self.assertRaises(ValidationError):
+            WorkflowDefinition.objects.filter(pk=self.definition.pk).update(title="تغییر تعریف")
+        with self.assertRaises(ValidationError):
+            WorkflowDefinition.objects.filter(pk=self.definition.pk).delete()
 
     def test_workflow_events_reject_queryset_mutation(self):
         case = start_workflow(
