@@ -127,8 +127,8 @@ def claim_import(request):
                     if len(claim_no) > 100:
                         errors.append(f"ردیف {line}: شناسه خسارت بیش از حد مجاز طولانی است.")
                         continue
-                    if claim_no in seen or Claim.objects.filter(claim_number=claim_no).exists():
-                        errors.append(f"ردیف {line}: شناسه خسارت {claim_no} تکراری است.")
+                    if claim_no in seen:
+                        errors.append(f"ردیف {line}: شماره پرونده منبع در همین فایل تکراری است.")
                         continue
                     people = Person.objects.filter(national_id=nid, is_active=True)
                     if is_insurer:
@@ -162,10 +162,21 @@ def claim_import(request):
                     if dates["payment_date"] and not amounts["paid_amount"]:
                         errors.append(f"ردیف {line}: تاریخ پرداخت بدون مبلغ پرداختی ثبت شده است.")
                         continue
+                    duplicate_flag = str(val("source_duplicate_status") or "").strip().lower()
+                    if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} and not (is_insurer and insurer_id):
+                        errors.append(f"ردیف {line}: اعلام تکراری بودن فقط از فایل بیمه‌گر احراز‌شده پذیرفته می‌شود.")
+                        continue
                     seen.add(claim_no)
                     data.append({
-                        "claim_number": claim_no, "person_id": person.pk, "national_id": nid,
+                        "claim_number": "IMP-" + secrets.token_hex(12).upper(),
+                        "source_claim_number": claim_no,
+                        "person_id": person.pk, "national_id": nid,
                         "service_type": service[:120],
+                        "source_registered_date": _parse_date(val("source_registered_date"), line, "source_registered_date").isoformat() if val("source_registered_date") else None,
+                        "contract_number_snapshot": str(val("contract_number") or "").strip()[:120],
+                        "source_duplicate_status": Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate_flag in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"} else Claim.DuplicateStatus.NOT_DECLARED,
+                        "source_duplicate_reference": str(val("source_duplicate_reference") or "").strip()[:120],
+                        "source_duplicate_note": str(val("source_duplicate_note") or "").strip()[:4000],
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
@@ -207,7 +218,7 @@ def claim_import_confirm(request, batch_id):
         for row in batch.preview_data:
             item = dict(row)
             item.pop("national_id", None)
-            for field in ("service_date", "registered_date", "payment_date"):
+            for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
             claim = Claim.objects.create(**item)
