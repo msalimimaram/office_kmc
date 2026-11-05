@@ -33,16 +33,23 @@ def _manager_scope(user):
     if has_global_access(user):
         return None
     today = timezone.localdate()
-    assignments = PositionAssignment.objects.filter(
+    assignments = list(PositionAssignment.objects.filter(
         user=user, is_active=True, valid_from__lte=today,
         position__level__in=[
             PositionAssignment.position.field.related_model.Level.SUPERVISOR,
             PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
         ],
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-    units = assignments.values_list("unit_id", flat=True)
-    levels = assignments.values_list("position__level", flat=True)
-    return Q(position_assignments__unit_id__in=units) & Q(position_assignments__position__level__gt=min(levels)) if levels else Q(pk__in=[])
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).select_related("position"))
+    allowed = Q(pk__in=[])
+    for assignment in assignments:
+        subordinate_ids = PositionAssignment.objects.filter(
+            unit_id=assignment.unit_id,
+            is_active=True,
+            valid_from__lte=today,
+            position__level__gt=assignment.position.level,
+        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
+        allowed |= Q(pk__in=subordinate_ids)
+    return allowed
 
 
 class InternalTaskForm(forms.ModelForm):
