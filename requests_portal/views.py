@@ -88,7 +88,20 @@ def request_create(request):
                 item.save()
                 active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
                 if active_definition:
-                    initial_assignee = resolve_initial_assignee(definition=active_definition, company_id=item.company_id, owner_user_id=user.pk, exclude_user_id=user.pk)
+                    initial_assignee = resolve_initial_assignee(
+                        definition=active_definition,
+                        company_id=item.company_id,
+                        line_code="health" if item.kind in {
+                            ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+                            ServiceRequest.Kind.ANONYMOUS_PLAN,
+                            ServiceRequest.Kind.EXCESS_COVERAGE,
+                            ServiceRequest.Kind.ADD_COVERAGE,
+                            ServiceRequest.Kind.REMOVE_COVERAGE,
+                            ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
+                        } else None,
+                        owner_user_id=user.pk,
+                        exclude_user_id=user.pk,
+                    )
                     start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
                     item.assigned_to = initial_assignee
                     item.save(update_fields=["assigned_to", "updated_at"])
