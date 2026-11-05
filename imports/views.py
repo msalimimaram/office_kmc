@@ -83,7 +83,7 @@ def claim_import(request):
     if not _can_import(request.user):
         raise PermissionDenied
     insurer_ids = insurer_ids_for(request.user)
-    is_insurer = has_role(request.user, RoleAssignment.Role.INSURER_REP)
+    is_insurer = has_role(request.user, RoleAssignment.Role.INSURER_REP) and not has_global_access(request.user)
     insurer_id = next(iter(insurer_ids)) if is_insurer and len(insurer_ids) == 1 else None
     if has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(request.user):
         specialist_lines = line_codes_for(request.user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
