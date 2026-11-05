@@ -130,6 +130,8 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
 
 
 def _validate_recipient(user, roles, *, scope):
+    if has_global_access(user):
+        return
     if not _has_any_role(user, roles, **scope):
         raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش مجاز این مرحله ندارد.")
 
