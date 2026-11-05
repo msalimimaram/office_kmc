@@ -94,7 +94,6 @@ def scoped_claims_for(user):
         )
         allowed |= (
             Q(company_snapshot_id__in=company_ids)
-            | Q(company_snapshot__isnull=True, person__company_id__in=company_ids)
             | Q(person_id__in=current_employment_people)
             | Q(primary_insured_id__in=current_employment_people)
             | Q(person_id__in=legacy_people)
