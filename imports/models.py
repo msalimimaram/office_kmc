@@ -17,4 +17,7 @@ class ImportBatch(models.Model):
     invalid_rows = models.PositiveIntegerField(default=0)
     result_report = models.TextField("گزارش نتیجه", blank=True)
     preview_data = models.JSONField("داده موقت پیش‌نمایش", default=list, blank=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="reviewed_import_batches")
+    reviewed_at = models.DateTimeField("زمان تأیید", null=True, blank=True)
+    review_note = models.TextField("یادداشت بررسی", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
