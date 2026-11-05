@@ -1,4 +1,4 @@
-from accounts.access import has_global_access, has_role, is_insurance_staff
+from accounts.access import active_assignments, has_global_access, has_role, is_insurance_staff
 from accounts.models import RoleAssignment
 
 
@@ -20,7 +20,7 @@ def access_flags(request):
             "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
-            "tasks": staff or user.position_assignments.filter(is_active=True).exists(),
+            "tasks": staff or active_assignments(user).exists(),
             "imports": staff or has_role(user, RoleAssignment.Role.INSURER_REP),
         },
     }
