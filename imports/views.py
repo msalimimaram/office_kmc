@@ -216,7 +216,7 @@ def claim_import_confirm(request, batch_id):
                     claim=claim,
                     amount=claim.paid_amount,
                     paid_at=claim.payment_date,
-                    source_reference=claim.source_reference,
+                    source_reference=claim.source_reference[:160],
                     source_insurer=claim.insurer,
                     recorded_by=batch.uploaded_by,
                     confirmed_by=request.user,
