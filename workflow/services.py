@@ -20,24 +20,45 @@ User = get_user_model()
 
 
 def _scope_for_object(obj):
-    company_id = getattr(obj, "company_id", None)
+    company_id = getattr(obj, "company_id", None) or getattr(obj, "company_snapshot_id", None)
     insurer_id = getattr(obj, "insurer_id", None)
     line_code = getattr(obj, "line_code", None)
+    owner_user_id = getattr(obj, "submitted_by_id", None) or getattr(obj, "user_id", None)
+    person = getattr(obj, "person", None)
+    if person is not None:
+        company_id = company_id or getattr(person, "company_id", None)
+        if owner_user_id is None:
+            owner = getattr(person, "user", None) or getattr(getattr(person, "employee", None), "user", None)
+            owner_user_id = getattr(owner, "pk", None)
     contract = getattr(obj, "contract", None)
     if contract:
-        company_id = company_id or None
         insurer_id = insurer_id or getattr(contract, "insurer_id", None)
         line_code = line_code or getattr(contract, "line", None)
-    return {"company_id": company_id, "insurer_id": insurer_id, "line_code": line_code}
+    return {
+        "company_id": company_id,
+        "insurer_id": insurer_id,
+        "line_code": line_code,
+        "owner_user_id": owner_user_id,
+    }
 
 
-def _has_any_role(user, roles, *, company_id=None, insurer_id=None, line_code=None):
-    if not user or not user.is_authenticated or not user.is_active:
+def _has_any_role(
+    user, roles, *, company_id=None, insurer_id=None, line_code=None, owner_user_id=None
+):
+    if not user or not user.is_authenticated or not user.is_active or not roles:
         return False
-    if not roles:
-        return False
-    return any(
-        has_role(
+    for role in roles:
+        # A scoped role must never become an unscoped role because an object
+        # lacks the corresponding scope field.
+        if role == RoleAssignment.Role.SUBSIDIARY_REP and company_id is None:
+            continue
+        if role == RoleAssignment.Role.INSURER_REP and insurer_id is None:
+            continue
+        if role == RoleAssignment.Role.INSURANCE_SPECIALIST and not line_code:
+            continue
+        if role == RoleAssignment.Role.INSURED_PERSON and owner_user_id != user.pk:
+            continue
+        if has_role(
             user,
             role,
             company_id=company_id if role == RoleAssignment.Role.SUBSIDIARY_REP else None,
@@ -46,9 +67,9 @@ def _has_any_role(user, roles, *, company_id=None, insurer_id=None, line_code=No
                 RoleAssignment.Role.INSURANCE_SPECIALIST,
                 RoleAssignment.Role.SUBSIDIARY_REP,
             } else None,
-        )
-        for role in roles
-    )
+        ):
+            return True
+    return False
 
 
 def _calendar_is_working_day(calendar, day):
@@ -87,7 +108,7 @@ def add_business_minutes(start_at, minutes, calendar=None):
     raise ValidationError("محاسبه مهلت کاری در بازه مجاز ممکن نشد.")
 
 
-def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, exclude_user_id=None):
+def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None):
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
@@ -112,8 +133,14 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
             if not insurer_id:
                 continue
             role_scope &= Q(insurer_id=insurer_id)
-        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST and line_code:
+        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST:
+            if not line_code:
+                continue
             role_scope &= Q(line_code__in=[line_code, "*"])
+        elif role == RoleAssignment.Role.INSURED_PERSON:
+            if not owner_user_id:
+                continue
+            role_scope &= Q(user_id=owner_user_id)
         scope |= role_scope
     if not scope.children:
         raise ValidationError("برای محدوده این پرونده، نقش گیرنده قابل تخصیص نیست.")
