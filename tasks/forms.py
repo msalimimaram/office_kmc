@@ -1,13 +1,47 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.db.models import Q
+from django.utils import timezone
 
-from requests_portal.models import ServiceRequest
+from accounts.access import has_global_access
+from accounts.models import PositionAssignment, RoleAssignment
+from core.permissions import scoped_requests_for
 from .models import InternalTask
 
 
 User = get_user_model()
-MANAGER_ROLES = {"system_admin", "department_head", "insurance_specialist"}
-PRIVILEGED_ROLES = {"system_admin", "department_head"}
+
+
+def _active_staff_ids():
+    today = timezone.localdate()
+    roles = RoleAssignment.objects.filter(
+        is_active=True, valid_from__lte=today,
+        role__in=[
+            RoleAssignment.Role.SYSTEM_ADMIN,
+            RoleAssignment.Role.DEPARTMENT_HEAD,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+        ],
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
+    positions = PositionAssignment.objects.filter(
+        is_active=True, valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
+    return User.objects.filter(is_active=True).filter(Q(pk__in=roles) | Q(pk__in=positions)).distinct()
+
+
+def _manager_scope(user):
+    if has_global_access(user):
+        return None
+    today = timezone.localdate()
+    assignments = PositionAssignment.objects.filter(
+        user=user, is_active=True, valid_from__lte=today,
+        position__level__in=[
+            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
+            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+        ],
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    units = assignments.values_list("unit_id", flat=True)
+    levels = assignments.values_list("position__level", flat=True)
+    return Q(position_assignments__unit_id__in=units) & Q(position_assignments__position__level__gt=min(levels)) if levels else Q(pk__in=[])
 
 
 class InternalTaskForm(forms.ModelForm):
@@ -23,43 +57,29 @@ class InternalTaskForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields["assignees"].queryset = User.objects.none()
-        self.fields["related_request"].queryset = ServiceRequest.objects.none()
-        if not user:
+        self.fields["related_request"].queryset = scoped_requests_for(user).order_by("-created_at", "-pk") if user and user.is_authenticated else scoped_requests_for(User.objects.none())
+        if not user or not user.is_authenticated:
             return
-
-        # Tasks are internal workflow tools. Only active internal staff can be assigned.
-        self.fields["assignees"].queryset = User.objects.filter(
-            is_active=True,
-            role__in=MANAGER_ROLES,
-        ).order_by("last_name", "first_name", "username")
-
-        requests = ServiceRequest.objects.select_related("company", "submitted_by")
-        if user.is_superuser or user.role in PRIVILEGED_ROLES:
-            pass
-        elif user.role == "insurance_specialist":
-            requests = requests.filter(is_confidential=False)
-        else:
-            requests = ServiceRequest.objects.none()
-        self.fields["related_request"].queryset = requests.order_by("-created_at", "-pk")
-
-        # A specialist can create tasks, but cannot assign them to another role
-        # or attach confidential request metadata.
-        if user.role not in MANAGER_ROLES and not user.is_superuser:
-            self.fields["assignees"].queryset = User.objects.none()
-            self.fields["related_request"].queryset = ServiceRequest.objects.none()
+        staff = _active_staff_ids()
+        scope = _manager_scope(user)
+        if scope is not None:
+            staff = staff.filter(scope).distinct()
+        self.fields["assignees"].queryset = staff.order_by("last_name", "first_name", "username")
 
     def clean(self):
         cleaned = super().clean()
+        if not has_global_access(self.user):
+            today = timezone.localdate()
+            levels = PositionAssignment.objects.filter(
+                user=self.user, is_active=True, valid_from__lte=today,
+                position__level__in=[
+                    PositionAssignment.position.field.related_model.Level.SUPERVISOR,
+                    PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+                ],
+            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values_list("position__level", flat=True)
+            if not levels:
+                self.add_error(None, "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول مجاز می‌تواند وظیفه تعریف کند.")
         related_request = cleaned.get("related_request")
-        assignees = cleaned.get("assignees")
-        if related_request and related_request.is_confidential:
-            allowed = PRIVILEGED_ROLES
-            if assignees and any(
-                not (assignee.is_superuser or assignee.role in allowed)
-                for assignee in assignees
-            ):
-                self.add_error(
-                    "assignees",
-                    "وظیفه مرتبط با درخواست محرمانه فقط می‌تواند به مدیر سامانه یا رئیس اداره بیمه تخصیص داده شود.",
-                )
+        if related_request and related_request.is_confidential and not has_global_access(self.user):
+            self.add_error("related_request", "اتصال وظیفه به پرونده محرمانه فقط برای رئیس اداره یا مدیر سامانه مجاز است.")
         return cleaned
