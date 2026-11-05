@@ -138,6 +138,9 @@ class ImmutableClaimPaymentQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         raise ValidationError("ویرایش گروهی دفترکل پرداخت مجاز نیست.")
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی پرداخت خارج از سرویس تأییدشده مجاز نیست.")
+
 
 class ClaimPayment(models.Model):
     objects = ImmutableClaimPaymentQuerySet.as_manager()
