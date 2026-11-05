@@ -5,7 +5,7 @@ class ImportBatch(models.Model):
     class Status(models.TextChoices):
         UPLOADED = "uploaded", "بارگذاری‌شده"
         VALIDATED = "validated", "اعتبارسنجی‌شده و در انتظار تأیید"
-        PROCESSED = "processed", "پردازش‌شده"
+        PROCESSED = "processed", "تأیید و پردازش‌شده"
         FAILED = "failed", "ناموفق"
     batch_number = models.CharField("شماره عملیات", max_length=40, unique=True)
     source_type = models.CharField("نوع داده", max_length=50, default="claims")
