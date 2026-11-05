@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
-from organizations.models import Company, Person
+from organizations.models import Company, Person, PersonEmployment
 from claims.models import Claim, ClaimObjection
 
 NATIONAL_ID_A = "1" * 10
@@ -53,6 +53,32 @@ class ClaimVisibilityTests(TestCase):
         response = client.get(reverse("claim_list"))
         self.assertNotContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
+
+    def test_new_company_representative_can_see_current_employee_historical_claims(self):
+        PersonEmployment.objects.create(
+            person=self.person_b,
+            company=self.company_b,
+            valid_from=date(2026, 1, 1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        Claim.objects.create(
+            claim_number="CL-HISTORICAL",
+            person=self.person_b,
+            company_snapshot=self.company_a,
+            service_type="خدمت پیش از انتقال",
+            requested_amount=300,
+        )
+        new_company_rep = User.objects.create_user(
+            username="rep-b",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="subsidiary_rep",
+            company=self.company_b,
+        )
+        client = Client()
+        client.force_login(new_company_rep)
+        response = client.get(reverse("claim_list"))
+        self.assertContains(response, "CL-HISTORICAL")
 
     def test_national_id_is_globally_unique_across_company_records(self):
         with self.assertRaises(ValidationError):
