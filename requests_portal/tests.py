@@ -124,7 +124,7 @@ class ServiceRequestTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
 
-    def test_specialist_can_claim_unassigned_request_when_review_starts(self):
+    def test_specialist_can_process_only_explicitly_assigned_request(self):
         item = ServiceRequest.objects.create(
             reference="IB-QUEUE-1", kind=ServiceRequest.Kind.OTHER,
             submitted_by=self.user, company=self.company,
@@ -136,6 +136,14 @@ class ServiceRequestTests(TestCase):
         )
         client = Client()
         client.force_login(specialist)
+
+        # There is no shared, unassigned specialist queue. A specialist must
+        # receive an explicit assignment before the request becomes visible.
+        response = client.get(reverse("request_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 404)
+
+        item.assigned_to = specialist
+        item.save(update_fields=["assigned_to", "updated_at"])
         response = client.get(reverse("request_detail", args=[item.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "رسیدگی به درخواست")
