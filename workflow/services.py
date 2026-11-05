@@ -58,6 +58,29 @@ def add_business_minutes(start_at, minutes, calendar=None):
     raise ValidationError("محاسبه مهلت کاری در بازه مجاز ممکن نشد.")
 
 
+def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, exclude_user_id=None):
+    initial = definition.steps.filter(is_initial=True).first()
+    if not initial:
+        raise ValidationError("گردش کار مرحله آغازین ندارد.")
+    roles = initial.allowed_roles or []
+    today = timezone.localdate()
+    if "*" in roles:
+        candidates = User.objects.filter(is_active=True)
+    else:
+        assignments = RoleAssignment.objects.filter(role__in=roles, is_active=True, valid_from__lte=today).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+        if roles == [RoleAssignment.Role.SUBSIDIARY_REP] and company_id:
+            assignments = assignments.filter(company_id=company_id)
+        if roles == [RoleAssignment.Role.INSURER_REP] and insurer_id:
+            assignments = assignments.filter(insurer_id=insurer_id)
+        candidates = User.objects.filter(pk__in=assignments.values("user_id"), is_active=True)
+    if exclude_user_id:
+        candidates = candidates.exclude(pk=exclude_user_id)
+    candidate = candidates.order_by("pk").first()
+    if candidate:
+        return candidate
+    raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر پیدا نشد.")
+
+
 def _validate_recipient(user, roles):
     if not user or not user.is_active or not _has_any_role(user, roles):
         raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر در نقش مجاز این مرحله ندارد.")
