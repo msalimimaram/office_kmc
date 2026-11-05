@@ -164,7 +164,7 @@ def claim_import(request):
                         continue
                     seen.add(claim_no)
                     data.append({
-                        "claim_number": claim_no, "person_id": person.pk,
+                        "claim_number": claim_no, "person_id": person.pk, "national_id": nid,
                         "service_type": service[:120],
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
@@ -206,6 +206,7 @@ def claim_import_confirm(request, batch_id):
         # A concurrent confirmation cannot process the same batch twice.
         for row in batch.preview_data:
             item = dict(row)
+            item.pop("national_id", None)
             for field in ("service_date", "registered_date", "payment_date"):
                 if item.get(field):
                     item[field] = datetime.fromisoformat(item[field]).date()
