@@ -1,6 +1,7 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -218,7 +219,7 @@ class WorkflowCase(models.Model):
     definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="cases")
     content_type = models.ForeignKey("contenttypes.ContentType", on_delete=models.PROTECT)
     object_id = models.CharField(max_length=64)
-    content_object = models.GenericForeignKey("content_type", "object_id")
+    content_object = GenericForeignKey("content_type", "object_id")
     current_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="active_cases")
     current_assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_cases")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
