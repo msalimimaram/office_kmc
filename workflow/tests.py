@@ -130,6 +130,28 @@ class WorkflowEngineTests(TestCase):
         with self.assertRaises(ValidationError):
             event.save()
 
+    def test_published_workflow_steps_remain_immutable_after_deactivation(self):
+        self.definition.is_active = False
+        self.definition.save(update_fields=["is_active"])
+        self.initial.title = "تغییر غیرمجاز پس از انتشار"
+        with self.assertRaises(ValidationError):
+            self.initial.save()
+        with self.assertRaises(ValidationError):
+            self.initial.delete()
+
+    def test_workflow_events_reject_queryset_mutation(self):
+        case = start_workflow(
+            obj=self.specialist,
+            code="test-request",
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        event = case.events.first()
+        with self.assertRaises(ValidationError):
+            WorkflowEvent.objects.filter(pk=event.pk).update(note="tampered")
+        with self.assertRaises(ValidationError):
+            WorkflowEvent.objects.filter(pk=event.pk).delete()
+
     def test_step_rejects_unknown_roles(self):
         with self.assertRaises(ValidationError):
             WorkflowStep.objects.create(
