@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -91,7 +92,7 @@ class DocumentUploadAuthorizationTests(TestCase):
             uploaded_by=self.specialist,
         )
         first_version = document.current_version
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             DocumentRecord.objects.filter(pk=document.pk).update(title="تغییر مستقیم")
         with self.assertRaises(Exception):
             DocumentRecord.objects.filter(pk=document.pk).delete()
