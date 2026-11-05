@@ -6,7 +6,7 @@
 
 ## پیش‌نیازها
 
-- Python 3.11 یا 3.12 سازگار با CI
+- Python 3.11 یا 3.12 سازگار با نسخه‌های پشتیبانی‌شده پروژه
 - PostgreSQL برای محیط غیرتوسعه‌ای
 - HTTPS termination در reverse proxy
 - فضای ذخیره‌سازی خصوصی برای فایل‌ها و برنامه پشتیبان‌گیری
@@ -19,10 +19,10 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-Copy-Item .env.example .env
+Copy-Item .env.local.example .env
 ```
 
-در `.env` توسعه‌ای، `DJANGO_DEBUG=True` قرار دهید. سپس migrationها را تولید و بررسی کنید:
+فایل `.env.local.example` به‌صورت پیش‌فرض SQLite را فعال می‌کند و برای اجرای اولیه به Docker نیاز ندارد. برای آزمون PostgreSQL می‌توانید سرویس دیتابیس فایل `docker-compose.local.yml` را اجرا و `DATABASE_URL` را در `.env` فعال کنید. سپس migrationها را بررسی کنید؛ در این مرحله migration جدید را خودکار تولید نکنید، چون migrationهای شاخه باید مرجع باشند:
 
 ```powershell
 python manage.py makemigrations accounts organizations insurance claims requests_portal tasks documents imports auditlog assets announcements correspondence
