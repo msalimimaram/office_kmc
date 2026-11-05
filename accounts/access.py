@@ -135,6 +135,12 @@ def company_ids_for(user, *, role: str | None = None, on_date: date | None = Non
     if role:
         qs = qs.filter(role=role)
     ids = set(qs.values_list("company_id", flat=True))
+    if not ids and role == RoleAssignment.Role.INSURED_PERSON:
+        from organizations.models import PersonEmployment
+        today = _today(on_date)
+        ids = set(PersonEmployment.objects.filter(person__user_id=user.pk, status=PersonEmployment.Status.ACTIVE).filter(Q(valid_from__isnull=True) | Q(valid_from__lte=today)).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values_list("company_id", flat=True))
+        if ids:
+            return ids
     if not ids and _legacy_fallback_allowed(user):
         legacy = _legacy_role(user)
         if legacy == RoleAssignment.Role.SUBSIDIARY_REP and (not role or role == legacy):
