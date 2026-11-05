@@ -6,6 +6,7 @@ from django.utils import timezone
 from accounts.access import has_global_access
 from accounts.models import PositionAssignment, RoleAssignment
 from core.permissions import scoped_requests_for
+from requests_portal.models import ServiceRequest
 from .models import InternalTask
 
 
@@ -57,7 +58,7 @@ class InternalTaskForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields["assignees"].queryset = User.objects.none()
-        self.fields["related_request"].queryset = scoped_requests_for(user).order_by("-created_at", "-pk") if user and user.is_authenticated else scoped_requests_for(User.objects.none())
+        self.fields["related_request"].queryset = scoped_requests_for(user).order_by("-created_at", "-pk") if user and user.is_authenticated else ServiceRequest.objects.none()
         if not user or not user.is_authenticated:
             return
         staff = _active_staff_ids()
