@@ -10,7 +10,7 @@ class Company(models.Model):
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="subsidiaries")
     is_parent = models.BooleanField("شرکت مادر", default=False)
     is_active = models.BooleanField("فعال", default=True)
-    created_at = models.DateTimeField("تاریخ ایجاد", auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["name"]
@@ -52,12 +52,8 @@ class Person(models.Model):
         Company, null=True, blank=True, on_delete=models.PROTECT, related_name="people",
     )
     user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="person_record",
-        verbose_name="حساب کاربری",
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="person_record", verbose_name="حساب کاربری",
     )
     personnel_code = models.CharField("کد پرسنلی", max_length=50, blank=True, db_index=True)
     national_id = models.CharField("کد ملی", max_length=10, unique=True, db_index=True)
@@ -88,6 +84,22 @@ class Person(models.Model):
             errors["birth_date"] = "تاریخ تولد برای ثبت شخص الزامی است."
         if self.relationship == self.Relationship.EMPLOYEE and self.employee_id:
             errors["employee"] = "بیمه‌شده اصلی نباید به فرد دیگری وابسته باشد."
+        if self.employee_id and self.company_id:
+            today = timezone.localdate()
+            active_employment = PersonEmployment.objects.filter(
+                person_id=self.employee_id,
+                status=PersonEmployment.Status.ACTIVE,
+            ).filter(
+                models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+            ).filter(
+                models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+            ).order_by("-valid_from", "-pk").first()
+            employee_company_id = (
+                active_employment.company_id if active_employment
+                else Person.objects.filter(pk=self.employee_id).values_list("company_id", flat=True).first()
+            )
+            if employee_company_id and employee_company_id != self.company_id:
+                errors["company"] = "شرکت فرد تحت تکفل باید با شرکت محل اشتغال فعلی کارمند اصلی یکسان باشد."
         if self.national_id:
             normalized = normalize_national_id(self.national_id)
             if len(normalized) != 10:
@@ -119,18 +131,12 @@ class PersonEmployment(models.Model):
     job_title = models.CharField("عنوان شغلی", max_length=150, blank=True)
     valid_from = models.DateField("شروع اشتغال", null=True, blank=True)
     valid_until = models.DateField("پایان اشتغال", null=True, blank=True)
-    status = models.CharField("وضعیت اشتغال", max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     source_reference = models.CharField("مرجع ورود اطلاعات", max_length=160, blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
-        related_name="created_person_employments",
-    )
-    approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
-        related_name="approved_person_employments",
-    )
-    created_at = models.DateTimeField("ایجاد", auto_now_add=True)
-    updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="created_person_employments")
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="approved_person_employments")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ("person_id", "valid_from", "pk")
@@ -139,11 +145,7 @@ class PersonEmployment(models.Model):
                 condition=models.Q(valid_until__isnull=True) | models.Q(valid_from__isnull=True) | models.Q(valid_until__gte=models.F("valid_from")),
                 name="person_employment_dates_ordered",
             ),
-            models.UniqueConstraint(
-                fields=("person",),
-                condition=models.Q(status="active"),
-                name="uniq_active_employment_per_person",
-            ),
+            models.UniqueConstraint(fields=("person",), condition=models.Q(status="active"), name="uniq_active_employment_per_person"),
         ]
         indexes = [
             models.Index(fields=("person", "company", "status"), name="employment_person_company"),
@@ -171,13 +173,11 @@ class CompanyLeadershipTitle(models.Model):
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="leadership_titles")
     person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="leadership_titles")
     title = models.CharField("عنوان سمت", max_length=150)
-    valid_from = models.DateField("اعتبار از", null=True, blank=True)
-    valid_until = models.DateField("اعتبار تا", null=True, blank=True)
-    declared_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="declared_leadership_titles",
-    )
-    created_at = models.DateTimeField("ثبت", auto_now_add=True)
-    updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
+    valid_from = models.DateField(null=True, blank=True)
+    valid_until = models.DateField(null=True, blank=True)
+    declared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="declared_leadership_titles")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ("company__name", "person__last_name", "title")
@@ -198,9 +198,7 @@ class CompanyLeadershipTitle(models.Model):
         if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
             errors["valid_until"] = "پایان اعتبار نمی‌تواند قبل از شروع باشد."
         if self.person_id and self.company_id:
-            employed = PersonEmployment.objects.filter(
-                person_id=self.person_id, company_id=self.company_id,
-            ).filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=timezone.localdate())).exists()
+            employed = PersonEmployment.objects.filter(person_id=self.person_id, company_id=self.company_id).filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=timezone.localdate())).exists()
             legacy_company_match = self.person.company_id == self.company_id
             if not employed and not legacy_company_match:
                 errors["person"] = "این شخص در سوابق اشتغال به شرکت انتخاب‌شده متصل نیست."
