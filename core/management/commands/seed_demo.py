@@ -24,7 +24,7 @@ class Command(BaseCommand):
             code="DEMO-A", defaults={"name": "شرکت نمونه الف", "is_parent": True, "is_active": True}
         )
         company_b, _ = Company.objects.update_or_create(
-            code="DEMO-B", defaults={"name": "شرکت نمونه ب", "is_parent": True, "is_active": True}
+            code="DEMO-B", defaults={"name": "شرکت نمونه ب", "is_parent": False, "is_active": True}
         )
         insurer, _ = Insurer.objects.update_or_create(name="بیمه‌گر نمونه", defaults={"is_active": True})
         contract, _ = Contract.objects.update_or_create(
@@ -58,6 +58,7 @@ class Command(BaseCommand):
             ("head.demo", User.Role.DEPARTMENT_HEAD, None, "", None),
             ("specialist.demo", User.Role.INSURANCE_SPECIALIST, None, "", None),
             ("companya.demo", User.Role.SUBSIDIARY_REP, company_a, "", None),
+            ("companyb.demo", User.Role.SUBSIDIARY_REP, company_b, "", None),
             ("employee.a", User.Role.EMPLOYEE, company_a, employee_a.national_id, None),
             ("employee.b", User.Role.EMPLOYEE, company_b, employee_b.national_id, None),
             ("insurer.demo", User.Role.INSURER, None, "", insurer),
@@ -69,7 +70,7 @@ class Command(BaseCommand):
             user.insurer = insurer_obj
             user.is_active = True
             user.must_change_password = False
-            user.set_unusable_password()
+            user.set_password("DemoPass!2026")
             user.save()
 
             assignment_role = {
@@ -160,4 +161,4 @@ class Command(BaseCommand):
             },
         )
 
-        self.stdout.write(self.style.SUCCESS("داده نمونه ایجاد شد. کاربران نمونه با رمز غیرقابل‌استفاده ساخته شدند؛ برای تست ورود، برای هر کاربر از Django shell رمز محلی تعیین کنید."))
+        self.stdout.write(self.style.SUCCESS("داده نمونه ایجاد شد. رمز مشترک محلی حساب‌های نمونه: DemoPass!2026 — فقط در DEBUG و فقط با داده ساختگی استفاده شود."))
