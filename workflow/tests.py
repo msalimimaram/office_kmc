@@ -29,6 +29,7 @@ class WorkflowEngineTests(TestCase):
             line_code="health",
             reason="test assignment",
         )
+        BusinessCalendar.objects.create(code="iran-default", title="تقویم پیش‌فرض آزمون", timezone_name="Asia/Tehran", working_weekdays=[5, 6, 0, 1, 2, 3], start_time="08:00", end_time="16:00")
         self.definition = WorkflowDefinition.objects.create(
             code="test-request",
             title="گردش کار آزمایشی",
