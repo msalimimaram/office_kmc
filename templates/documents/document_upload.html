@@ -7,7 +7,9 @@
 <label>دسته‌بندی<input name="category" maxlength="100" required value="{{ category|default:'' }}"></label>
 <label>شرکت مرتبط<select name="company"><option value="">سراسری</option>{% for company in companies %}<option value="{{ company.pk }}" {% if selected_company == company.pk|stringformat:"s" %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></label>
 <label>فایل<input type="file" name="file" required accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg"></label>
+<label>سطح محرمانگی<select name="security_level">{% for value,label in security_levels %}<option value="{{ value }}" {% if security_level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
 <label class="check-label"><input type="checkbox" name="is_confidential" {% if is_confidential %}checked{% endif %}> سند محرمانه</label>
+{% if can_upload_medical %}<label class="check-label"><input type="checkbox" name="is_medical" {% if is_medical %}checked{% endif %}> مدرک پزشکی (فقط رئیس اداره/مدیر سامانه)</label>{% endif %}
 <div><button type="submit">ثبت سند</button> <a href="{% url 'document_list' %}">انصراف</a></div>
 </form></section>
 {% endblock %}
