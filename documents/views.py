@@ -37,7 +37,7 @@ def _visible_documents(user):
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
-        claims = Claim.objects.filter(contract__line__in=line_codes)
+        claims = Claim.objects.all() if "*" in line_codes else Claim.objects.filter(contract__line__in=line_codes)
         claim_ct = DocumentLink.objects.filter(
             content_type__app_label="claims",
             content_type__model="claim",
