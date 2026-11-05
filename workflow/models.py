@@ -24,6 +24,7 @@ class WorkflowDefinition(models.Model):
         ordering = ("code", "-version")
         constraints = [
             models.UniqueConstraint(fields=("code", "version"), name="uniq_workflow_code_version"),
+            models.UniqueConstraint(fields=("code",), condition=models.Q(is_active=True), name="uniq_active_workflow_code"),
         ]
         verbose_name = "تعریف گردش کار"
         verbose_name_plural = "تعریف‌های گردش کار"
@@ -34,6 +35,10 @@ class WorkflowDefinition(models.Model):
             raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره یا مدیر سامانه است."})
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            previous = WorkflowDefinition.objects.get(pk=self.pk)
+            if previous.published_at and (previous.code != self.code or previous.version != self.version or previous.title != self.title or previous.description != self.description or previous.approved_by_id != self.approved_by_id):
+                raise ValidationError("Published workflow definitions are immutable; create a new version.")
         if self.is_active and not self.published_at:
             self.published_at = timezone.now()
         self.full_clean()
