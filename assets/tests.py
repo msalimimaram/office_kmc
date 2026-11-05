@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from assets.models import InsuredAsset
 
@@ -13,6 +13,12 @@ class AssetScopeTests(TestCase):
         self.rep = User.objects.create_user(
             username="asset-rep", password="StrongPass!2026", must_change_password=False,
             role="subsidiary_rep", company=self.company_a,
+        )
+        RoleAssignment.objects.create(
+            user=self.rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company_a,
+            line_code="*",
         )
         InsuredAsset.objects.create(
             asset_code="ASSET-A1", name="خودروی شرکت الف",
@@ -32,12 +38,13 @@ class AssetScopeTests(TestCase):
         self.assertContains(response, "ASSET-A1")
         self.assertNotContains(response, "ASSET-B1")
 
-    def test_company_representative_cannot_choose_another_company(self):
+    def test_company_representative_cannot_create_or_choose_another_company_asset(self):
         client = Client()
         client.force_login(self.rep)
         response = client.get(reverse("asset_create"))
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "AS-B")
+        # Asset registration is reserved for insurance specialists; a company
+        # representative cannot bypass that policy by manipulating company ids.
+        self.assertEqual(response.status_code, 403)
 
     def test_asset_rejects_negative_insured_value_and_invalid_policy_dates(self):
         from datetime import date
