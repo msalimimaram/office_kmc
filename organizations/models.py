@@ -10,7 +10,7 @@ class Company(models.Model):
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="subsidiaries")
     is_parent = models.BooleanField("شرکت مادر", default=False)
     is_active = models.BooleanField("فعال", default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField("تاریخ ایجاد", auto_now_add=True)
 
     class Meta:
         ordering = ["name"]
@@ -135,8 +135,8 @@ class PersonEmployment(models.Model):
     source_reference = models.CharField("مرجع ورود اطلاعات", max_length=160, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="created_person_employments")
     approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="approved_person_employments")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField("ثبت", auto_now_add=True)
+    updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
 
     class Meta:
         ordering = ("person_id", "valid_from", "pk")
@@ -173,8 +173,8 @@ class CompanyLeadershipTitle(models.Model):
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="leadership_titles")
     person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="leadership_titles")
     title = models.CharField("عنوان سمت", max_length=150)
-    valid_from = models.DateField(null=True, blank=True)
-    valid_until = models.DateField(null=True, blank=True)
+    valid_from = models.DateField("شروع اعتبار", null=True, blank=True)
+    valid_until = models.DateField("پایان اعتبار", null=True, blank=True)
     declared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="declared_leadership_titles")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
