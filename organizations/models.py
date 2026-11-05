@@ -139,6 +139,11 @@ class PersonEmployment(models.Model):
                 condition=models.Q(valid_until__isnull=True) | models.Q(valid_from__isnull=True) | models.Q(valid_until__gte=models.F("valid_from")),
                 name="person_employment_dates_ordered",
             ),
+            models.UniqueConstraint(
+                fields=("person",),
+                condition=models.Q(status="active"),
+                name="uniq_active_employment_per_person",
+            ),
         ]
         indexes = [
             models.Index(fields=("person", "company", "status"), name="employment_person_company"),
