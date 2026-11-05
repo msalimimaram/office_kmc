@@ -139,6 +139,7 @@ class Migration(migrations.Migration):
             options={"verbose_name": "تعطیلی/استثنای تقویم", "verbose_name_plural": "تعطیلی‌ها و استثناهای تقویم", "ordering": ("date",)},
         ),
         migrations.AddConstraint(model_name="workflowdefinition", constraint=models.UniqueConstraint(fields=("code", "version"), name="uniq_workflow_code_version")),
+        migrations.AddConstraint(model_name="workflowdefinition", constraint=models.UniqueConstraint(condition=models.Q(is_active=True), fields=("code",), name="uniq_active_workflow_code")),
         migrations.AddConstraint(model_name="workflowstep", constraint=models.UniqueConstraint(fields=("definition", "code"), name="uniq_workflow_step_code")),
         migrations.AddConstraint(model_name="workflowstep", constraint=models.UniqueConstraint(condition=models.Q(is_initial=True), fields=("definition",), name="uniq_workflow_initial_step")),
         migrations.AddConstraint(model_name="workflowtransition", constraint=models.UniqueConstraint(fields=("source_step", "action_code"), name="uniq_workflow_action_per_step")),
