@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 from claims.models import Claim
 from claims.services import record_imported_payment
 from insurance.models import Contract
-from organizations.models import Person, PersonEmployment
+from organizations.models import Person, PersonEmployment, normalize_national_id
 from .forms import ClaimImportForm
 from .models import ImportBatch
 from auditlog.models import AuditEvent
@@ -63,7 +63,7 @@ def _parse_date(value, line, key):
         return value.date()
     if isinstance(value, date):
         return value
-    raw = str(value).strip()
+    raw = str(value).strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
     for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
             parsed = datetime.strptime(raw[:10], pattern).date()
@@ -118,9 +118,7 @@ def claim_import(request):
                         return row[i] if i is not None and i < len(row) else None
 
                     claim_no = str(val("claim_number") or "").strip()
-                    nid = str(val("national_id") or "").strip()
-                    if nid.endswith(".0"):
-                        nid = nid[:-2]
+                    nid = normalize_national_id(val("national_id"))
                     service = str(val("service_type") or "").strip()
                     if not claim_no or not nid or not service:
                         errors.append(f"ردیف {line}: شناسه خسارت، کد ملی و نوع خدمت الزامی است.")
