@@ -8,7 +8,7 @@
 {% if not case.is_locked and case.status != "closed" %}
 <h2>ثبت اقدام / ارجاع</h2>
 {% for transition, recipients in transitions %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="{{ transition.action_code }}"><h3>{{ transition.title }}</h3>{% if recipients %}<label>گیرنده مجاز</label><select name="recipient"><option value="">واگذاری به خودم (در صورت مجاز بودن)</option>{% for recipient in recipients %}<option value="{{ recipient.pk }}">{{ recipient.get_full_name|default:recipient.username }}</option>{% endfor %}</select>{% endif %}<label>توضیحات {% if transition.requires_note %}(اجباری){% else %}(اختیاری){% endif %}</label><textarea name="note" rows="3"></textarea><button type="submit">ثبت اقدام</button></form>{% endfor %}
-<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="acknowledge"><label>توضیح تأیید مشاهده (اختیاری)</label><textarea name="note" rows="2"></textarea><button type="submit">تأیید رسمی مشاهده</button></form>
+{% if case.current_step.requires_acknowledgement %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="acknowledge"><label>توضیح تأیید مشاهده (اختیاری)</label><textarea name="note" rows="2"></textarea><button type="submit">تأیید رسمی مشاهده</button></form>{% endif %}
 {% endif %}
-{% if request.user.is_superuser or request.user.role == "system_admin" %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="final_lock"><label>دلیل قفل نهایی</label><textarea name="note" required rows="2"></textarea><button type="submit">قفل نهایی و غیرقابل اعتراض</button></form>{% endif %}
+{% if access.system_admin %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="final_lock"><label>دلیل قفل نهایی</label><textarea name="note" required rows="2"></textarea><button type="submit">قفل نهایی و غیرقابل اعتراض</button></form>{% endif %}
 {% endblock %}
