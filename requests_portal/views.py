@@ -14,6 +14,9 @@ from auditlog.services import record_event
 from core.permissions import can_process_request, can_transition_request, scoped_requests_for
 from .forms import ServiceRequestForm
 from .models import ServiceRequest
+from django.contrib.contenttypes.models import ContentType
+from workflow.models import WorkflowCase, WorkflowDefinition
+from workflow.services import resolve_initial_assignee, start_workflow
 
 
 def _initial_company_id(user):
@@ -83,6 +86,12 @@ def request_create(request):
                 if has_role(user, RoleAssignment.Role.INSURED_PERSON) and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
                     item.assigned_to = _first_company_representative(item.company_id)
                 item.save()
+                active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
+                if active_definition:
+                    initial_assignee = resolve_initial_assignee(definition=active_definition, company_id=item.company_id, exclude_user_id=user.pk)
+                    start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
+                    item.assigned_to = initial_assignee
+                    item.save(update_fields=["assigned_to", "updated_at"])
                 record_event(
                     actor=user,
                     action="service_request_created",
@@ -109,6 +118,10 @@ def request_detail(request, pk):
     item = get_object_or_404(scoped_requests_for(request.user), pk=pk)
     user = request.user
     can_process = can_process_request(user, item)
+    content_type = ContentType.objects.get_for_model(item, for_concrete_model=False)
+    workflow_case = WorkflowCase.objects.filter(content_type=content_type, object_id=str(item.pk)).select_related("current_assignee").first()
+    if workflow_case and (has_global_access(user) or workflow_case.current_assignee_id == user.pk):
+        return redirect("workflow_case_detail", pk=workflow_case.pk)
 
     if request.method == "POST":
         if not can_process:
