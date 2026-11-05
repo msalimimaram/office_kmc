@@ -69,6 +69,16 @@ class WorkflowStep(models.Model):
         if not isinstance(self.allowed_roles, list):
             raise ValidationError({"allowed_roles": "نقش‌های مجاز باید به صورت فهرست ذخیره شوند."})
 
+    def save(self, *args, **kwargs):
+        if self.definition_id and self.definition.is_active:
+            raise ValidationError("Published workflow steps are immutable; create a new version.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.definition.is_active:
+            raise ValidationError("Published workflow steps cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.definition.code}: {self.title}"
 
@@ -100,6 +110,16 @@ class WorkflowTransition(models.Model):
             raise ValidationError({"target_step": "مرحله مقصد باید متعلق به همین تعریف باشد."})
         if self.closes_case and self.target_step_id:
             raise ValidationError({"target_step": "مسیر بستن پرونده نباید مرحله مقصد داشته باشد."})
+
+    def save(self, *args, **kwargs):
+        if self.definition_id and self.definition.is_active:
+            raise ValidationError("Published workflow transitions are immutable; create a new version.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.definition.is_active:
+            raise ValidationError("Published workflow transitions cannot be deleted.")
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.source_step} → {self.title}"
