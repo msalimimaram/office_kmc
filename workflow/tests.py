@@ -51,6 +51,8 @@ class WorkflowEngineTests(TestCase):
             title="رئیس اداره",
             order=2,
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            is_terminal=True,
+            allow_return=False,
         )
         self.transition = WorkflowTransition.objects.create(
             definition=self.definition,
@@ -127,3 +129,39 @@ class WorkflowEngineTests(TestCase):
         event.note = "tampered"
         with self.assertRaises(ValidationError):
             event.save()
+
+    def test_step_rejects_unknown_roles(self):
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.create(
+                definition=self.definition,
+                code="invalid-role",
+                title="نقش نامعتبر",
+                order=9,
+                allowed_roles=["made_up_role"],
+            )
+
+    def test_transition_requires_destination_unless_closing_case(self):
+        with self.assertRaises(ValidationError):
+            WorkflowTransition.objects.create(
+                definition=self.definition,
+                source_step=self.initial,
+                action_code="broken-route",
+                title="مسیر ناقص",
+                allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            )
+
+    def test_calendar_rejects_invalid_hours_weekdays_and_timezone(self):
+        invalid_values = [
+            {"start_time": "16:00", "end_time": "08:00"},
+            {"working_weekdays": [0, 0, 1]},
+            {"working_weekdays": [0, 7]},
+            {"timezone_name": "Mars/Olympus"},
+        ]
+        for index, values in enumerate(invalid_values):
+            with self.subTest(values=values):
+                with self.assertRaises(ValidationError):
+                    BusinessCalendar.objects.create(
+                        code=f"invalid-calendar-{index}",
+                        title="تقویم نامعتبر",
+                        **values,
+                    )
