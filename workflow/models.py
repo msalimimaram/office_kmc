@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -7,6 +9,23 @@ from django.utils import timezone
 def default_working_weekdays():
     # Iran's standard workweek: Saturday through Thursday.
     return [5, 6, 0, 1, 2, 3]
+
+
+def _validate_role_list(value, field_name, *, allow_empty=False):
+    from accounts.models import RoleAssignment
+
+    if not isinstance(value, list) or (not value and not allow_empty):
+        raise ValidationError({field_name: "نقش‌های مجاز باید یک فهرست غیرخالی باشند."})
+    allowed = set(RoleAssignment.Role.values)
+    if "*" in value:
+        if value != ["*"]:
+            raise ValidationError({field_name: "نقش عمومی * باید به‌تنهایی تعریف شود."})
+        return
+    invalid = sorted(set(value) - allowed)
+    if invalid:
+        raise ValidationError({field_name: f"نقش‌های تعریف‌نشده: {', '.join(invalid)}"})
+    if len(value) != len(set(value)):
+        raise ValidationError({field_name: "نقش تکراری مجاز نیست."})
 
 
 class WorkflowDefinition(models.Model):
@@ -31,9 +50,11 @@ class WorkflowDefinition(models.Model):
 
     def clean(self):
         super().clean()
+        if self.version < 1:
+            raise ValidationError({"version": "شماره نسخه باید حداقل یک باشد."})
         if self.is_active and not self.approved_by_id:
             raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره یا مدیر سامانه است."})
-        if self.is_active and (not self.pk or not self.steps.filter(is_initial=True).exists()):
+        if self.is_active and (not self.pk or self.steps.filter(is_initial=True).count() != 1):
             raise ValidationError("گردش کار منتشرشده باید دقیقاً یک مرحله آغازین داشته باشد.")
         if self.is_active and self.approved_by_id:
             from accounts.access import has_role
@@ -44,7 +65,11 @@ class WorkflowDefinition(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             previous = WorkflowDefinition.objects.get(pk=self.pk)
-            if previous.published_at and (previous.code != self.code or previous.version != self.version or previous.title != self.title or previous.description != self.description or previous.approved_by_id != self.approved_by_id):
+            if previous.published_at and (
+                previous.code != self.code or previous.version != self.version
+                or previous.title != self.title or previous.description != self.description
+                or previous.approved_by_id != self.approved_by_id
+            ):
                 raise ValidationError("Published workflow definitions are immutable; create a new version.")
         if self.is_active and not self.published_at:
             self.published_at = timezone.now()
@@ -78,12 +103,14 @@ class WorkflowStep(models.Model):
 
     def clean(self):
         super().clean()
-        if not isinstance(self.allowed_roles, list):
-            raise ValidationError({"allowed_roles": "نقش‌های مجاز باید به صورت فهرست ذخیره شوند."})
+        _validate_role_list(self.allowed_roles, "allowed_roles")
+        if self.is_terminal and self.allow_return:
+            raise ValidationError({"allow_return": "مرحله پایانی نباید امکان بازگشت داشته باشد."})
 
     def save(self, *args, **kwargs):
         if self.definition_id and self.definition.is_active:
             raise ValidationError("Published workflow steps are immutable; create a new version.")
+        self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -122,10 +149,17 @@ class WorkflowTransition(models.Model):
             raise ValidationError({"target_step": "مرحله مقصد باید متعلق به همین تعریف باشد."})
         if self.closes_case and self.target_step_id:
             raise ValidationError({"target_step": "مسیر بستن پرونده نباید مرحله مقصد داشته باشد."})
+        if not self.closes_case and not self.target_step_id:
+            raise ValidationError({"target_step": "برای مسیر غیرنهایی تعیین مرحله مقصد الزامی است."})
+        if self.target_step_id and self.target_step.is_terminal and not self.closes_case:
+            raise ValidationError({"closes_case": "انتقال به مرحله پایانی باید پرونده را ببندد."})
+        _validate_role_list(self.allowed_roles, "allowed_roles")
+        _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
 
     def save(self, *args, **kwargs):
         if self.definition_id and self.definition.is_active:
             raise ValidationError("Published workflow transitions are immutable; create a new version.")
+        self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -217,7 +251,7 @@ class WorkflowEvent(models.Model):
 
 
 class BusinessCalendar(models.Model):
-    code = models.SlugField("کد تقویم", unique=True, default="iran-default")
+    code = models.SlugField("کد تقویم", max_length=80, unique=True, default="iran-default")
     title = models.CharField("عنوان تقویم", max_length=120, default="تقویم کاری مجموعه")
     timezone_name = models.CharField(max_length=64, default="Asia/Tehran")
     working_weekdays = models.JSONField(default=default_working_weekdays, help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")
@@ -228,6 +262,29 @@ class BusinessCalendar(models.Model):
     class Meta:
         verbose_name = "تقویم کاری"
         verbose_name_plural = "تقویم‌های کاری"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        try:
+            ZoneInfo(self.timezone_name)
+        except (ZoneInfoNotFoundError, TypeError):
+            errors["timezone_name"] = "منطقه زمانی معتبر نیست."
+        if not isinstance(self.working_weekdays, list) or any(
+            isinstance(day, bool) or not isinstance(day, int) or day not in range(7)
+            for day in self.working_weekdays
+        ):
+            errors["working_weekdays"] = "روزهای کاری باید فهرستی از اعداد یکتای ۰ تا ۶ باشد."
+        elif len(self.working_weekdays) != len(set(self.working_weekdays)):
+            errors["working_weekdays"] = "روز هفته تکراری مجاز نیست."
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            errors["end_time"] = "ساعت پایان باید بعد از ساعت شروع باشد."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class CalendarHoliday(models.Model):
