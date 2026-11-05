@@ -11,6 +11,7 @@ def access_flags(request):
         "access": {
             "staff": staff,
             "global": has_global_access(user),
+            "system_admin": has_role(user, RoleAssignment.Role.SYSTEM_ADMIN),
             "insured": has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "company_rep": has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
             "insurer_rep": has_role(user, RoleAssignment.Role.INSURER_REP),
