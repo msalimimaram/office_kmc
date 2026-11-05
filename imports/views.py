@@ -159,7 +159,7 @@ def claim_import(request):
                         **{key: str(value) for key, value in amounts.items()},
                         **{key: value.isoformat() if value else None for key, value in dates.items()},
                         "source_reference": upload.name[:200],
-                        "insurer_id": request.user.insurer_id if request.user.role == "insurer" else None,
+                        "insurer_id": insurer_id if is_insurer else None,
                     })
                 batch = ImportBatch.objects.create(
                     batch_number="IMP-" + secrets.token_hex(5).upper(),
