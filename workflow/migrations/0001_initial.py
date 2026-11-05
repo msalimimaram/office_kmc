@@ -6,6 +6,14 @@ from django.utils import timezone
 import django.contrib.contenttypes.fields
 
 
+def seed_default_calendar(apps, schema_editor):
+    Calendar = apps.get_model("workflow", "BusinessCalendar")
+    Calendar.objects.using(schema_editor.connection.alias).get_or_create(
+        code="iran-default",
+        defaults={"title": "تقویم کاری مجموعه", "timezone_name": "Asia/Tehran", "working_weekdays": [5, 6, 0, 1, 2, 3], "start_time": "08:00", "end_time": "16:00", "is_active": True},
+    )
+
+
 class Migration(migrations.Migration):
     initial = True
     dependencies = [
@@ -139,4 +147,5 @@ class Migration(migrations.Migration):
         migrations.AddIndex(model_name="workflowcase", index=models.Index(fields=["content_type", "object_id"], name="workflow_object_lookup")),
         migrations.AddIndex(model_name="workflowevent", index=models.Index(fields=["workflow_case", "sent_at"], name="workflow_event_timeline")),
         migrations.AddConstraint(model_name="calendarholiday", constraint=models.UniqueConstraint(fields=("calendar", "date"), name="uniq_calendar_holiday_date")),
+        migrations.RunPython(seed_default_calendar, migrations.RunPython.noop),
     ]
