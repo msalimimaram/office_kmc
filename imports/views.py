@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
 from openpyxl import load_workbook
 
 from claims.models import Claim
@@ -26,6 +27,15 @@ def _can_import(user):
     if has_global_access(user) or has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         return True
     return has_role(user, RoleAssignment.Role.INSURER_REP) and len(insurer_ids_for(user)) == 1
+
+
+def _can_confirm_import(user):
+    if has_global_access(user):
+        return True
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        return "*" in lines or "health" in lines
+    return False
 
 
 def _parse_amount(value, line, key):
@@ -171,7 +181,7 @@ def claim_import(request):
                 )
                 return render(request, "imports/claim_import.html", {
                     "form": ClaimImportForm(), "batch": batch, "preview_count": len(data),
-                    "errors": errors[:100], "confirm_available": bool(data),
+                    "errors": errors[:100], "confirm_available": bool(data) and _can_confirm_import(request.user), "preview_rows": data[:20],
                 })
             except Exception:
                 form.add_error("file", "فایل قابل پردازش نیست یا ساختار آن معتبر نیست. قالب فایل و ستون‌ها را بررسی کنید.")
@@ -180,17 +190,18 @@ def claim_import(request):
                     wb.close()
     else:
         form = ClaimImportForm()
-    return render(request, "imports/claim_import.html", {"form": form})
+    pending_batches = ImportBatch.objects.filter(status=ImportBatch.Status.VALIDATED).select_related("uploaded_by").order_by("created_at") if _can_confirm_import(request.user) else ImportBatch.objects.filter(uploaded_by=request.user, status=ImportBatch.Status.VALIDATED).order_by("-created_at")
+    return render(request, "imports/claim_import.html", {"form": form, "pending_batches": pending_batches, "can_confirm_batches": _can_confirm_import(request.user)})
 
 
 @login_required
 def claim_import_confirm(request, batch_id):
-    if request.method != "POST" or not _can_import(request.user):
+    if request.method != "POST" or not _can_confirm_import(request.user):
         raise PermissionDenied
     with transaction.atomic():
         batch = get_object_or_404(
             ImportBatch.objects.select_for_update(),
-            pk=batch_id, uploaded_by=request.user, status=ImportBatch.Status.VALIDATED
+            pk=batch_id, status=ImportBatch.Status.VALIDATED
         )
         # A concurrent confirmation cannot process the same batch twice.
         for row in batch.preview_data:
@@ -200,8 +211,11 @@ def claim_import_confirm(request, batch_id):
                     item[field] = datetime.fromisoformat(item[field]).date()
             Claim.objects.create(**item)
         batch.status = ImportBatch.Status.PROCESSED
+        batch.reviewed_by = request.user
+        batch.reviewed_at = timezone.now()
+        batch.review_note = request.POST.get("review_note", "").strip()[:4000]
         batch.preview_data = []
-        batch.save(update_fields=["status", "preview_data"])
+        batch.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "preview_data"])
         AuditEvent.objects.create(
             actor=request.user, action="claim_excel_import", object_type="ImportBatch",
             object_id=str(batch.pk), summary=f"{batch.valid_rows} ردیف ثبت شد؛ {batch.invalid_rows} خطا"
