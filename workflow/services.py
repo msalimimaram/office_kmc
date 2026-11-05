@@ -19,10 +19,35 @@ from .models import (
 User = get_user_model()
 
 
+HEALTH_REQUEST_KINDS = {
+    "medical_assistance", "anonymous_plan", "excess_coverage",
+    "add_coverage", "remove_coverage", "base_insurance_waiver",
+}
+
+
+def _infer_insurer_id(company_id, line_code):
+    if not company_id or not line_code:
+        return None
+    from insurance.models import Contract
+    today = timezone.localdate()
+    insurer_ids = list(
+        Contract.objects.filter(
+            companies__id=company_id,
+            line=line_code,
+            is_active=True,
+            start_date__lte=today,
+            end_date__gte=today,
+        ).values_list("insurer_id", flat=True).distinct()[:2]
+    )
+    return insurer_ids[0] if len(insurer_ids) == 1 else None
+
+
 def _scope_for_object(obj):
     company_id = getattr(obj, "company_id", None) or getattr(obj, "company_snapshot_id", None)
     insurer_id = getattr(obj, "insurer_id", None)
     line_code = getattr(obj, "line_code", None)
+    if not line_code and getattr(obj, "kind", None) in HEALTH_REQUEST_KINDS:
+        line_code = "health"
     owner_user_id = getattr(obj, "submitted_by_id", None) or getattr(obj, "user_id", None)
     person = getattr(obj, "person", None)
     if person is not None:
@@ -34,6 +59,7 @@ def _scope_for_object(obj):
     if contract:
         insurer_id = insurer_id or getattr(contract, "insurer_id", None)
         line_code = line_code or getattr(contract, "line", None)
+    insurer_id = insurer_id or _infer_insurer_id(company_id, line_code)
     return {
         "company_id": company_id,
         "insurer_id": insurer_id,
@@ -109,6 +135,7 @@ def add_business_minutes(start_at, minutes, calendar=None):
 
 
 def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None):
+    insurer_id = insurer_id or _infer_insurer_id(company_id, line_code)
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
