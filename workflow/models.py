@@ -26,7 +26,39 @@ def _validate_role_list(value, field_name, *, allow_empty=False):
         raise ValidationError({field_name: "نقش تکراری مجاز نیست."})
 
 
+class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if self.filter(published_at__isnull=False).exists():
+            raise ValidationError("تعریف منتشرشده گردش کار فقط با ایجاد نسخه جدید تغییر می‌کند.")
+        return super().update(**kwargs)
+
+    def delete(self):
+        if self.filter(published_at__isnull=False).exists():
+            raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
+        return super().delete()
+
+
+class PublishedWorkflowChildQuerySet(models.QuerySet):
+    def _guard_published(self):
+        if self.filter(definition__published_at__isnull=False).exists():
+            raise ValidationError("مراحل و مسیرهای تعریف منتشرشده فقط خواندنی هستند.")
+
+    def update(self, **kwargs):
+        self._guard_published()
+        return super().update(**kwargs)
+
+    def delete(self):
+        self._guard_published()
+        return super().delete()
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._guard_published()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
 class WorkflowDefinition(models.Model):
+    objects = PublishedWorkflowDefinitionQuerySet.as_manager()
+
     code = models.SlugField("کد گردش کار", max_length=80)
     title = models.CharField("عنوان", max_length=180)
     version = models.PositiveIntegerField("نسخه", default=1)
@@ -74,11 +106,17 @@ class WorkflowDefinition(models.Model):
         self.full_clean()
         return super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        if self.published_at:
+            raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.title} — v{self.version}"
 
 
 class WorkflowStep(models.Model):
+    objects = PublishedWorkflowChildQuerySet.as_manager()
     definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="steps")
     code = models.SlugField("کد مرحله", max_length=60)
     title = models.CharField("عنوان مرحله", max_length=160)
@@ -121,6 +159,8 @@ class WorkflowStep(models.Model):
 
 
 class WorkflowTransition(models.Model):
+    objects = PublishedWorkflowChildQuerySet.as_manager()
+
     definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="transitions")
     source_step = models.ForeignKey(WorkflowStep, on_delete=models.PROTECT, related_name="outgoing_transitions")
     target_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="incoming_transitions")
