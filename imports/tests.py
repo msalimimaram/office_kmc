@@ -164,3 +164,40 @@ class ImportBatchApprovalFlowTests(TestCase):
         self.assertEqual(payment.recorded_by_id, self.insurer_user.pk)
         self.assertEqual(payment.confirmed_by_id, self.reviewer.pk)
         self.assertTrue(payment.is_legacy_import)
+
+    def test_specialist_payment_import_requires_independent_head_review(self):
+        batch = ImportBatch.objects.create(
+            batch_number="IMP-TEST-0002",
+            file=SimpleUploadedFile("specialist-claims.xlsx", b"test-file"),
+            uploaded_by=self.reviewer,
+            status=ImportBatch.Status.VALIDATED,
+            total_rows=1,
+            valid_rows=1,
+            invalid_rows=0,
+            preview_data=[dict(self.batch.preview_data[0])],
+        )
+        head = User.objects.create_user(
+            username="import-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای بازبینی ورود داخلی",
+        )
+        client = Client()
+        client.force_login(self.reviewer)
+        self.assertEqual(
+            client.post(reverse("claim_import_confirm", args=[batch.pk])).status_code,
+            403,
+        )
+
+        client.force_login(head)
+        response = client.post(reverse("claim_import_confirm", args=[batch.pk]))
+        self.assertEqual(response.status_code, 302)
+        claim = Claim.objects.get(source_claim_number="INSURER-CLAIM-77")
+        payment = ClaimPayment.objects.get(claim=claim)
+        self.assertEqual(payment.recorded_by_id, self.reviewer.pk)
+        self.assertEqual(payment.confirmed_by_id, head.pk)
+        self.assertEqual(payment.source_insurer_id, self.insurer.pk)
