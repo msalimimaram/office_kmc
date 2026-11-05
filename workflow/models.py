@@ -255,6 +255,9 @@ class ImmutableWorkflowEventQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         raise ValidationError("ویرایش گروهی رویداد گردش کار مجاز نیست.")
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی رویداد گردش کار مجاز نیست.")
+
 
 class WorkflowEvent(models.Model):
     objects = ImmutableWorkflowEventQuerySet.as_manager()
