@@ -1,5 +1,8 @@
-from accounts.access import active_assignments, has_global_access, has_role, is_insurance_staff
-from accounts.models import RoleAssignment
+from django.db.models import Q
+from django.utils import timezone
+
+from accounts.access import has_global_access, has_role, is_insurance_staff
+from accounts.models import PositionAssignment, RoleAssignment
 
 
 def access_flags(request):
@@ -21,7 +24,7 @@ def access_flags(request):
             "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
-            "tasks": staff or active_assignments(user).exists(),
+            "tasks": staff or PositionAssignment.objects.filter(user=user, is_active=True, valid_from__lte=timezone.localdate()).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())).exists(),
             "imports": staff or has_role(user, RoleAssignment.Role.INSURER_REP),
         },
     }
