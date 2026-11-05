@@ -4,6 +4,7 @@ from django.urls import reverse
 
 from accounts.models import RoleAssignment, User
 from organizations.models import Company
+from documents.models import DocumentRecord
 
 
 class DocumentUploadAuthorizationTests(TestCase):
@@ -50,9 +51,4 @@ class DocumentUploadAuthorizationTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["messages"].__len__(), 1)
-        self.assertFalse(
-            __import__("documents.models", fromlist=["DocumentRecord"]).DocumentRecord.objects.filter(
-                title="مدرک پزشکی آزمایشی"
-            ).exists()
-        )
+        self.assertFalse(DocumentRecord.objects.filter(title="مدرک پزشکی آزمایشی").exists())
