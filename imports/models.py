@@ -4,7 +4,7 @@ from django.conf import settings
 class ImportBatch(models.Model):
     class Status(models.TextChoices):
         UPLOADED = "uploaded", "بارگذاری‌شده"
-        VALIDATED = "validated", "اعتبارسنجی‌شده"
+        VALIDATED = "validated", "اعتبارسنجی‌شده و در انتظار تأیید"
         PROCESSED = "processed", "پردازش‌شده"
         FAILED = "failed", "ناموفق"
     batch_number = models.CharField("شماره عملیات", max_length=40, unique=True)
