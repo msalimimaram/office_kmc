@@ -39,6 +39,15 @@ class InternalTaskFormScopeTests(TestCase):
             title="درخواست محرمانه", description="شرح محرمانه", is_confidential=True,
         )
 
+    def _confidential_task_form(self, assignee_ids):
+        return InternalTaskForm(data={
+            "title": "وظیفه محرمانه",
+            "description": "شرح محرمانه",
+            "assignees": [str(pk) for pk in assignee_ids],
+            "priority": "normal",
+            "related_request": str(self.confidential_request.pk),
+        }, user=self.head)
+
     def test_specialist_form_excludes_confidential_requests(self):
         form = InternalTaskForm(user=self.specialist)
         request_ids = set(form.fields["related_request"].queryset.values_list("pk", flat=True))
@@ -57,12 +66,10 @@ class InternalTaskFormScopeTests(TestCase):
         self.assertNotIn(self.employee.pk, assignee_ids)
 
     def test_confidential_request_task_cannot_be_assigned_to_specialist(self):
-        form = InternalTaskForm(data={
-            "title": "وظیفه محرمانه",
-            "description": "شرح محرمانه",
-            "assignees": [str(self.specialist.pk)],
-            "priority": "normal",
-            "related_request": str(self.confidential_request.pk),
-        }, user=self.head)
+        form = self._confidential_task_form([self.specialist.pk])
         self.assertFalse(form.is_valid())
         self.assertIn("assignees", form.errors)
+
+    def test_confidential_request_task_can_be_assigned_to_department_head(self):
+        form = self._confidential_task_form([self.head.pk])
+        self.assertTrue(form.is_valid(), form.errors)
