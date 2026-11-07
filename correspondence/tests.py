@@ -159,3 +159,101 @@ class CorrespondenceFollowUpFlowTests(TestCase):
         client.force_login(outsider)
         response = client.get(reverse("correspondence_detail", args=[self.item.pk]))
         self.assertEqual(response.status_code, 404)
+
+
+
+class CorrespondenceLinkFlowTests(TestCase):
+    def setUp(self):
+        from accounts.models import RoleAssignment, User
+        from correspondence.models import Correspondence, CorrespondenceLink
+        from correspondence.services import next_internal_number
+
+        self.company_a = Company.objects.create(code="COR-LINK-A", name="شرکت مقصد الف")
+        self.company_b = Company.objects.create(code="COR-LINK-B", name="شرکت مقصد ب")
+        self.rep = User.objects.create_user(
+            username="cor-link-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company_a,
+            line_code="*",
+            reason="نماینده شرکت الف برای آزمون پیوند",
+        )
+        self.item = Correspondence.objects.create(
+            internal_number=next_internal_number(),
+            subject="نامه مرتبط با شرکت",
+            channel=Correspondence.Channel.LETTER,
+            direction=Correspondence.Direction.INBOUND,
+            company=self.company_a,
+            summary="نامه برای اتصال به رکورد شرکت",
+            created_by=self.rep,
+        )
+
+    def test_company_representative_can_link_company_within_scope_and_link_is_persisted(self):
+        from auditlog.models import AuditEvent
+        from correspondence.models import CorrespondenceLink
+
+        client = Client()
+        client.force_login(self.rep)
+        detail = client.get(reverse("correspondence_detail", args=[self.item.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, "اتصال رکورد موجود")
+
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "add_link",
+            "target_type": "company",
+            "target_id": str(self.company_a.pk),
+        })
+        self.assertEqual(response.status_code, 302)
+        link = CorrespondenceLink.objects.get(correspondence=self.item)
+        self.assertEqual(link.content_object, self.company_a)
+        self.assertEqual(link.created_by_id, self.rep.pk)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.rep,
+                action="correspondence_link_created",
+                object_id=str(self.item.pk),
+            ).exists()
+        )
+        detail = client.get(reverse("correspondence_detail", args=[self.item.pk]))
+        self.assertContains(detail, "شرکت مقصد الف")
+
+    def test_company_representative_cannot_link_company_outside_scope(self):
+        from correspondence.models import CorrespondenceLink
+
+        client = Client()
+        client.force_login(self.rep)
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "add_link",
+            "target_type": "company",
+            "target_id": str(self.company_b.pk),
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(CorrespondenceLink.objects.filter(correspondence=self.item).exists())
+
+    def test_global_user_cannot_link_target_company_inconsistent_with_correspondence(self):
+        from accounts.models import RoleAssignment, User
+        from correspondence.models import CorrespondenceLink
+
+        head = User.objects.create_user(
+            username="cor-link-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون پیوند",
+        )
+        client = Client()
+        client.force_login(head)
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "add_link",
+            "target_type": "company",
+            "target_id": str(self.company_b.pk),
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(CorrespondenceLink.objects.filter(correspondence=self.item).exists())
