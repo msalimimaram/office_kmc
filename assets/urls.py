@@ -6,4 +6,5 @@ urlpatterns = [
     path("new/", views.asset_create, name="asset_create"),
     path("<int:pk>/", views.asset_detail, name="asset_detail"),
     path("<int:pk>/edit/", views.asset_update, name="asset_update"),
+    path("endorsements/<int:pk>/download/", views.asset_endorsement_download, name="asset_endorsement_download"),
 ]
