@@ -87,7 +87,22 @@ class InternalTaskForm(forms.ModelForm):
             ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values_list("position__level", flat=True)
             if not levels:
                 self.add_error(None, "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول مجاز می‌تواند وظیفه تعریف کند.")
+
         related_request = cleaned.get("related_request")
-        if related_request and related_request.is_confidential and not has_global_access(self.user):
-            self.add_error("related_request", "اتصال وظیفه به پرونده محرمانه فقط برای رئیس اداره یا مدیر سامانه مجاز است.")
+        assignees = cleaned.get("assignees")
+        if related_request and related_request.is_confidential:
+            if not has_global_access(self.user):
+                self.add_error(
+                    "related_request",
+                    "اتصال وظیفه به پرونده محرمانه فقط برای رئیس اداره یا مدیر سامانه مجاز است.",
+                )
+            unauthorized_assignees = [
+                assignee for assignee in (assignees or [])
+                if not has_global_access(assignee)
+            ]
+            if unauthorized_assignees:
+                self.add_error(
+                    "assignees",
+                    "وظیفه مرتبط با پرونده محرمانه فقط می‌تواند به رئیس اداره یا مدیر سامانه تخصیص داده شود.",
+                )
         return cleaned
