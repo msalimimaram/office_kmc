@@ -49,6 +49,10 @@ def home(request):
         tasks = InternalTask.objects.filter(assignees=user) | InternalTask.objects.filter(created_by=user)
         if has_global_access(user):
             tasks = InternalTask.objects.all()
+        else:
+            # Keep dashboard counts consistent with task_list: confidential
+            # request-linked tasks must never be exposed to non-global users.
+            tasks = tasks.exclude(related_request__is_confidential=True)
         tasks = tasks.distinct()
     else:
         tasks = InternalTask.objects.none()
