@@ -37,27 +37,29 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 
 ## شروع سریع در Windows PowerShell
 
-پیش‌نیاز: Python 3.11 یا 3.12 و pip.
+پیش‌نیاز: Python 3.11 یا 3.12 و pip. فایل `.env.local.example` برای اجرای محلی با SQLite آماده شده است؛ `.env.example` فقط نمونه تنظیمات تولید است.
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-Copy-Item .env.example .env
+Copy-Item .env.local.example .env -Force
 ```
 
 برای توسعه محلی، در فایل `.env` مقدار `DJANGO_DEBUG=True` را فقط روی دستگاه توسعه قرار دهید. سپس:
 
 ```powershell
-python manage.py migrate
 python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py migrate --plan
+python manage.py migrate
 python manage.py test
-python manage.py createsuperuser
+python manage.py seed_demo
 python manage.py runserver
 ```
 
-از داده ساختگی استفاده کنید. پیش از تولید migration جدید، وضعیت migrationها را بررسی و فایل‌های migration را بازبینی و نسخه‌بندی کنید.
+پس از اجرای seed_demo، برای ورود به حساب‌های نمونه از رمز محلی DemoPass!2026 استفاده کنید. حساب‌ها: admin.demo، head.demo، specialist.demo، companya.demo، companyb.demo، employee.a، employee.b و insurer.demo. این حساب‌ها و رمز مشترک فقط برای داده ساختگی در DEBUG=True هستند؛ هرگز در محیط واقعی استفاده نشوند. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با python manage.py createsuperuser بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود؛ در مرحله تست اولیه migration خودکار نسازید.
 
 ## تنظیمات محیط
 

@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from assets.models import InsuredAsset
 
@@ -13,6 +13,12 @@ class AssetScopeTests(TestCase):
         self.rep = User.objects.create_user(
             username="asset-rep", password="StrongPass!2026", must_change_password=False,
             role="subsidiary_rep", company=self.company_a,
+        )
+        RoleAssignment.objects.create(
+            user=self.rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company_a,
+            line_code="*",
         )
         InsuredAsset.objects.create(
             asset_code="ASSET-A1", name="خودروی شرکت الف",
@@ -32,12 +38,13 @@ class AssetScopeTests(TestCase):
         self.assertContains(response, "ASSET-A1")
         self.assertNotContains(response, "ASSET-B1")
 
-    def test_company_representative_cannot_choose_another_company(self):
+    def test_company_representative_cannot_create_or_choose_another_company_asset(self):
         client = Client()
         client.force_login(self.rep)
         response = client.get(reverse("asset_create"))
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "AS-B")
+        # Asset registration is reserved for insurance specialists; a company
+        # representative cannot bypass that policy by manipulating company ids.
+        self.assertEqual(response.status_code, 403)
 
     def test_asset_rejects_negative_insured_value_and_invalid_policy_dates(self):
         from datetime import date
@@ -56,3 +63,255 @@ class AssetScopeTests(TestCase):
                 created_by=self.rep, policy_start=date(2026, 2, 1),
                 policy_end=date(2026, 1, 1),
             )
+
+
+
+class AssetOperationalWorkflowTests(TestCase):
+    def setUp(self):
+        from datetime import date
+        from accounts.models import RoleAssignment
+        from insurance.models import Contract, Insurer
+        from assets.models import Vehicle
+
+        self.company = Company.objects.create(code="AS-OPS", name="شرکت عملیات دارایی")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر عملیات دارایی")
+        self.specialist = User.objects.create_user(
+            username="asset-ops-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="third_party",
+            reason="کارشناس خودرو برای آزمون عملیات دارایی",
+        )
+        self.contract = Contract.objects.create(
+            code="AS-OPS-CONTRACT",
+            title="قرارداد خودرو",
+            insurer=self.insurer,
+            line="third_party",
+            start_date=date(2026, 1, 1),
+            end_date=date(2027, 1, 1),
+        )
+        self.contract.companies.add(self.company)
+        self.asset = InsuredAsset.objects.create(
+            asset_code="AS-OPS-1",
+            name="خودروی عملیاتی",
+            asset_type=InsuredAsset.Type.VEHICLE,
+            company=self.company,
+            insurer=self.insurer,
+            contract=self.contract,
+            policy_number="BASE-POLICY-1",
+            policy_start=date(2026, 1, 1),
+            policy_end=date(2027, 1, 1),
+            created_by=self.specialist,
+        )
+        Vehicle.objects.create(
+            asset=self.asset,
+            plate_number="12الف345",
+            vin="VIN-AS-OPS-1",
+            make="سازنده",
+            model_name="مدل",
+            model_year=2024,
+        )
+
+    def test_specialist_can_open_asset_detail_and_add_immutable_valuation_record(self):
+        from auditlog.models import AuditEvent
+        from django.core.exceptions import ValidationError
+        from assets.models import AssetValuation
+
+        client = Client()
+        client.force_login(self.specialist)
+        listing = client.get(reverse("asset_list"))
+        self.assertEqual(listing.status_code, 200)
+        self.assertContains(listing, reverse("asset_detail", args=[self.asset.pk]))
+
+        detail = client.get(reverse("asset_detail", args=[self.asset.pk]))
+        self.assertEqual(detail.status_code, 200)
+        response = client.post(reverse("asset_detail", args=[self.asset.pk]), {
+            "action": "add_valuation",
+            "valuation_date": "2026-11-07",
+            "market_value": "1500000000",
+            "insured_value": "1400000000",
+            "method": AssetValuation.Method.EXPERT,
+            "source_reference": "EXPERT-REF-1",
+            "note": "ارزیابی دوره‌ای",
+        })
+        self.assertEqual(response.status_code, 302)
+        valuation = AssetValuation.objects.get(asset=self.asset)
+        self.assertEqual(valuation.created_by_id, self.specialist.pk)
+        self.assertIsNone(valuation.approved_by_id)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.specialist,
+                action="asset_valuation_created",
+                object_id=str(self.asset.pk),
+            ).exists()
+        )
+        with self.assertRaises(ValidationError):
+            valuation.save()
+
+    def test_specialist_can_create_draft_policy_period_and_endorsement_with_secure_download(self):
+        from auditlog.models import AuditEvent
+        from assets.models import AssetPolicyEndorsement, AssetPolicyPeriod
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        client = Client()
+        client.force_login(self.specialist)
+        response = client.post(reverse("asset_detail", args=[self.asset.pk]), {
+            "action": "add_policy_period",
+            "insurer": str(self.insurer.pk),
+            "contract": str(self.contract.pk),
+            "policy_number": "OPS-POLICY-2",
+            "policy_start": "2026-11-01",
+            "policy_end": "2027-10-31",
+            "source_reference": "INSURER-POLICY-2",
+            "note": "دوره جدید؛ منتظر تأیید",
+        })
+        self.assertEqual(response.status_code, 302)
+        period = AssetPolicyPeriod.objects.get(asset=self.asset, policy_number="OPS-POLICY-2")
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.DRAFT)
+        self.assertIsNone(period.approved_by_id)
+
+        response = client.post(
+            reverse("asset_detail", args=[self.asset.pk]),
+            {
+                "action": "add_endorsement",
+                "policy_period": str(period.pk),
+                "endorsement_number": "ENDORSEMENT-1",
+                "effective_date": "2026-11-15",
+                "description": "اصلاح مشخصات بیمه‌نامه",
+                "document": SimpleUploadedFile(
+                    "endorsement.pdf",
+                    b"%PDF-1.4\nendorsement content",
+                    content_type="application/pdf",
+                ),
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        endorsement = AssetPolicyEndorsement.objects.get(
+            policy_period=period,
+            endorsement_number="ENDORSEMENT-1",
+        )
+        self.assertEqual(endorsement.created_by_id, self.specialist.pk)
+        self.assertIsNone(endorsement.approved_by_id)
+
+        downloaded = client.get(reverse("asset_endorsement_download", args=[endorsement.pk]))
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(b"".join(downloaded.streaming_content), b"%PDF-1.4\nendorsement content")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.specialist,
+                action="asset_policy_endorsement_downloaded",
+                object_id=str(self.asset.pk),
+            ).exists()
+        )
+
+    def test_specialist_can_update_asset_and_vehicle_details_through_scoped_route(self):
+        client = Client()
+        client.force_login(self.specialist)
+        response = client.post(reverse("asset_update", args=[self.asset.pk]), {
+            "asset_code": self.asset.asset_code,
+            "name": "خودروی عملیاتی ویرایش‌شده",
+            "asset_type": InsuredAsset.Type.VEHICLE,
+            "company": str(self.company.pk),
+            "person": "",
+            "identifier": "FLEET-01",
+            "location": "سایت مرکزی",
+            "insured_value": "1750000000",
+            "insurer": str(self.insurer.pk),
+            "contract": str(self.contract.pk),
+            "policy_number": "BASE-POLICY-1",
+            "policy_start": "2026-01-01",
+            "policy_end": "2027-01-01",
+            "is_active": "on",
+            "notes": "به‌روزرسانی اطلاعات دارایی",
+            "plate_number": "12الف345",
+            "vin": "VIN-AS-OPS-UPDATED",
+            "engine_number": "ENG-UPDATED",
+            "make": "سازنده",
+            "model_name": "مدل جدید",
+            "model_year": "2025",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.name, "خودروی عملیاتی ویرایش‌شده")
+        self.assertEqual(self.asset.insured_value, 1750000000)
+        self.asset.vehicle_details.refresh_from_db()
+        self.assertEqual(self.asset.vehicle_details.vin, "VIN-AS-OPS-UPDATED")
+        self.assertEqual(self.asset.vehicle_details.model_year, 2025)
+
+    def test_company_representative_cannot_create_asset_lifecycle_records(self):
+        from accounts.models import RoleAssignment
+
+        representative = User.objects.create_user(
+            username="asset-ops-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="third_party",
+            reason="نماینده شرکت برای آزمون محدودیت",
+        )
+        client = Client()
+        client.force_login(representative)
+        response = client.get(reverse("asset_detail", args=[self.asset.pk]))
+        self.assertEqual(response.status_code, 200)
+        denied = client.post(reverse("asset_detail", args=[self.asset.pk]), {
+            "action": "add_valuation",
+            "valuation_date": "2026-11-07",
+            "market_value": "100",
+            "insured_value": "100",
+            "method": "expert",
+            "note": "تلاش غیرمجاز",
+        })
+        self.assertEqual(denied.status_code, 403)
+
+    def test_user_from_another_company_cannot_download_asset_endorsement(self):
+        from datetime import date
+        from accounts.models import RoleAssignment
+        from assets.models import AssetPolicyEndorsement, AssetPolicyPeriod
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        period = AssetPolicyPeriod.objects.create(
+            asset=self.asset,
+            insurer=self.insurer,
+            contract=self.contract,
+            policy_number="AS-PRIVATE-POLICY",
+            policy_start=date(2026, 1, 1),
+            policy_end=date(2027, 1, 1),
+            status=AssetPolicyPeriod.Status.DRAFT,
+            created_by=self.specialist,
+        )
+        endorsement = AssetPolicyEndorsement.objects.create(
+            policy_period=period,
+            endorsement_number="AS-PRIVATE-ENDORSEMENT",
+            description="پیوست محرمانه شرکت",
+            document=SimpleUploadedFile(
+                "private-endorsement.pdf",
+                b"%PDF-1.4\nprivate",
+                content_type="application/pdf",
+            ),
+            created_by=self.specialist,
+        )
+        other_company = Company.objects.create(code="AS-OTHER", name="شرکت دیگر")
+        outsider = User.objects.create_user(
+            username="asset-ops-outsider",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=outsider,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=other_company,
+            line_code="third_party",
+            reason="نماینده شرکت دیگر",
+        )
+        client = Client()
+        client.force_login(outsider)
+        response = client.get(reverse("asset_endorsement_download", args=[endorsement.pk]))
+        self.assertEqual(response.status_code, 404)

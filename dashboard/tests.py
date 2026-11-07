@@ -1,9 +1,10 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from organizations.models import Company
 from requests_portal.models import ServiceRequest
+from tasks.models import InternalTask
 
 
 class RoleDashboardTests(TestCase):
@@ -63,3 +64,44 @@ class RoleDashboardTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "درخواست محرمانه کمک‌هزینه")
         self.assertContains(response, "ورود اطلاعات از اکسل")
+
+    def test_specialist_dashboard_does_not_count_confidential_request_tasks(self):
+        specialist = User.objects.create_user(
+            username="dashboard-specialist", password="StrongPass!2026",
+            must_change_password=False, role="insurance_specialist",
+        )
+        head = User.objects.create_user(
+            username="dashboard-task-head", password="StrongPass!2026",
+            must_change_password=False, role="department_head",
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+        )
+        confidential_request = ServiceRequest.objects.create(
+            reference="IB-DASH-SECRET-TASK",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.employee,
+            company=self.company,
+            title="درخواست پزشکی",
+            description="شرح محرمانه",
+            is_confidential=True,
+        )
+        task = InternalTask.objects.create(
+            title="وظیفه مرتبط با پرونده محرمانه",
+            description="شرح",
+            created_by=head,
+            related_request=confidential_request,
+        )
+        task.assignees.add(specialist)
+
+        client = Client()
+        client.force_login(specialist)
+        response = client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["task_count"], 0)

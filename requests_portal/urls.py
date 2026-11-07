@@ -4,4 +4,5 @@ urlpatterns = [
     path("", views.request_list, name="request_list"),
     path("new/", views.request_create, name="request_create"),
     path("<int:pk>/", views.request_detail, name="request_detail"),
+    path("<int:pk>/attachment/", views.request_attachment_download, name="request_attachment_download"),
 ]

@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class Claim(models.Model):
@@ -14,21 +17,51 @@ class Claim(models.Model):
         PAID = "paid", "پرداخت‌شده"
         CLOSED = "closed", "بسته‌شده"
 
-    claim_number = models.CharField("شناسه خسارت", max_length=100, unique=True)
+    class DuplicateStatus(models.TextChoices):
+        NOT_DECLARED = "not_declared", "اعلام نشده"
+        DECLARED_DUPLICATE = "declared_duplicate", "تکراری اعلام‌شده توسط بیمه‌گر"
+
+    claim_number = models.CharField("شناسه داخلی خسارت", max_length=100, unique=True)
+    source_claim_number = models.CharField("شماره پرونده در سامانه بیمه‌گر", max_length=120, blank=True, db_index=True)
     person = models.ForeignKey("organizations.Person", on_delete=models.PROTECT, related_name="claims")
+    primary_insured = models.ForeignKey(
+        "organizations.Person", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="primary_insured_claims",
+    )
+    company_snapshot = models.ForeignKey(
+        "organizations.Company", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="claim_snapshots",
+        help_text="شرکت مرتبط در زمان وقوع/ثبت خسارت؛ برای حفظ تاریخچه پس از انتقال شخص.",
+    )
     contract = models.ForeignKey("insurance.Contract", null=True, blank=True, on_delete=models.PROTECT, related_name="claims")
     insurer = models.ForeignKey("insurance.Insurer", null=True, blank=True, on_delete=models.PROTECT)
-    service_date = models.DateField("تاریخ خدمت", null=True, blank=True)
+    service_date = models.DateField("تاریخ خسارت/خدمت", null=True, blank=True)
     registered_date = models.DateField("تاریخ ثبت", null=True, blank=True)
-    service_type = models.CharField("نوع خدمت", max_length=120, help_text="فقط نوع خدمت؛ تصویر یا محتوای مدرک پزشکی ثبت نشود.")
+    source_registered_date = models.DateField("تاریخ ثبت در بیمه‌گر", null=True, blank=True)
+    contract_number_snapshot = models.CharField("شماره قرارداد در منبع", max_length=120, blank=True)
+    service_type = models.CharField("نوع خدمت", max_length=120, help_text="نوع خدمت و اطلاعات غیرپزشکی؛ دسترسی به اسناد پزشکی تابع سطح محرمانگی است.")
     requested_amount = models.DecimalField("مبلغ ثبت‌شده/درخواستی", max_digits=16, decimal_places=2, default=0)
     assessed_amount = models.DecimalField("مبلغ تأییدشده", max_digits=16, decimal_places=2, default=0)
     payable_amount = models.DecimalField("مبلغ قابل پرداخت", max_digits=16, decimal_places=2, default=0)
-    paid_amount = models.DecimalField("مبلغ پرداخت‌شده طبق اعلام منبع", max_digits=16, decimal_places=2, default=0)
-    payment_date = models.DateField("تاریخ پرداخت", null=True, blank=True)
+    paid_amount = models.DecimalField("مبلغ پرداخت‌شده طبق اعلام منبع (مقدار تجمیعی سازگاری)", max_digits=16, decimal_places=2, default=0)
+    payment_date = models.DateField("آخرین تاریخ پرداخت قدیمی", null=True, blank=True)
     status = models.CharField("وضعیت", max_length=24, choices=Status.choices, default=Status.REGISTERED)
     source_reference = models.CharField("مرجع فایل/سامانه منبع", max_length=200, blank=True)
+    source_duplicate_status = models.CharField(
+        "وضعیت تکراری طبق اعلام بیمه‌گر",
+        max_length=24,
+        choices=DuplicateStatus.choices,
+        default=DuplicateStatus.NOT_DECLARED,
+    )
+    source_duplicate_reference = models.CharField("مرجع خسارت اصلی اعلام‌شده", max_length=120, blank=True)
+    source_duplicate_note = models.TextField("توضیح اعلام تکراری بودن", blank=True)
+    source_duplicate_reported_at = models.DateTimeField("زمان اعلام تکراری بودن", null=True, blank=True)
     assessment_note = models.TextField("یادداشت ارزیابی غیرپزشکی", blank=True)
+    result_sent_at = models.DateTimeField("زمان ارسال نتیجه به بیمه‌شده", null=True, blank=True)
+    result_sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="sent_claim_results",
+    )
     imported_at = models.DateTimeField("آخرین ورود اطلاعات", null=True, blank=True)
     created_at = models.DateTimeField("ایجاد", auto_now_add=True)
     updated_at = models.DateTimeField("آخرین بروزرسانی", auto_now=True)
@@ -43,7 +76,21 @@ class Claim(models.Model):
             models.CheckConstraint(condition=models.Q(payable_amount__gte=0), name="claim_payable_nonnegative"),
             models.CheckConstraint(condition=models.Q(paid_amount__gte=0), name="claim_paid_nonnegative"),
             models.CheckConstraint(condition=models.Q(paid_amount__lte=models.F("payable_amount")), name="claim_paid_lte_payable"),
+            models.CheckConstraint(
+                condition=~models.Q(source_duplicate_status="declared_duplicate")
+                | models.Q(insurer__isnull=False),
+                name="claim_duplicate_requires_insurer",
+            ),
         ]
+        indexes = [
+            models.Index(fields=("company_snapshot", "registered_date"), name="claim_company_regdate"),
+            models.Index(fields=("insurer", "source_claim_number"), name="claim_insurer_source_ref"),
+            models.Index(fields=("primary_insured", "service_date"), name="claim_primary_service"),
+        ]
+
+    @property
+    def objection_deadline(self):
+        return self.result_sent_at + timedelta(days=60) if self.result_sent_at else None
 
     def clean(self):
         super().clean()
@@ -59,15 +106,128 @@ class Claim(models.Model):
             errors["payment_date"] = "تاریخ پرداخت بدون مبلغ پرداخت‌شده قابل ثبت نیست."
         if self.contract_id and self.insurer_id and self.contract.insurer_id != self.insurer_id:
             errors["insurer"] = "بیمه‌گر خسارت باید با بیمه‌گر قرارداد یکسان باشد."
+        if self.source_duplicate_status == self.DuplicateStatus.DECLARED_DUPLICATE and not self.insurer_id:
+            errors["insurer"] = "اعلام تکراری بودن باید به بیمه‌گر منبع متصل باشد."
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self.person_id:
+            if not self.primary_insured_id:
+                self.primary_insured = self.person.employee if self.person.employee_id else self.person
+            if not self.company_snapshot_id and self.person.company_id:
+                # Legacy fallback is safe only when no employment history exists.
+                # Once history exists, an unmatched service date must stay unknown.
+                from organizations.models import PersonEmployment
+                if not PersonEmployment.objects.filter(person_id=self.person_id).exists():
+                    self.company_snapshot_id = self.person.company_id
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.claim_number
+
+
+class ImmutableClaimPaymentQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("دفترکل پرداخت فقط با ثبت رویداد جدید قابل اصلاح است.")
+
+    def delete(self):
+        raise ValidationError("رویدادهای دفترکل پرداخت حذف نمی‌شوند.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی دفترکل پرداخت مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی پرداخت خارج از سرویس تأییدشده مجاز نیست.")
+
+
+class ClaimPayment(models.Model):
+    objects = ImmutableClaimPaymentQuerySet.as_manager()
+
+    class EntryType(models.TextChoices):
+        PAYMENT = "payment", "پرداخت ثبت‌شده"
+        REVERSAL = "reversal", "برگشت/اصلاح پرداخت"
+
+    """An append-only payment ledger entry reported by a trusted source."""
+
+    claim = models.ForeignKey(Claim, on_delete=models.PROTECT, related_name="payments")
+    entry_type = models.CharField("نوع رویداد", max_length=12, choices=EntryType.choices, default=EntryType.PAYMENT)
+    amount = models.DecimalField("مبلغ", max_digits=16, decimal_places=2)
+    paid_at = models.DateField("تاریخ پرداخت/اصلاح", null=True, blank=True)
+    source_reference = models.CharField("شماره حواله/مرجع منبع", max_length=160, blank=True)
+    source_insurer = models.ForeignKey(
+        "insurance.Insurer", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="claim_payments",
+    )
+    reverses_payment = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="reversal_entries",
+    )
+    note = models.TextField("توضیحات", blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="recorded_claim_payments",
+    )
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="confirmed_claim_payments",
+    )
+    is_legacy_import = models.BooleanField("منتقل‌شده از داده قدیمی", default=False)
+    created_at = models.DateTimeField("ثبت", auto_now_add=True)
+
+    class Meta:
+        ordering = ("claim_id", "paid_at", "created_at", "pk")
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="claim_payment_amount_positive"),
+            models.CheckConstraint(
+                condition=(models.Q(entry_type="payment", reverses_payment__isnull=True)
+                           | models.Q(entry_type="reversal", reverses_payment__isnull=False)),
+                name="claim_payment_reversal_target",
+            ),
+        ]
+        verbose_name = "رویداد پرداخت خسارت"
+        verbose_name_plural = "رویدادهای پرداخت خسارت"
+
+    @property
+    def signed_amount(self):
+        return self.amount if self.entry_type == self.EntryType.PAYMENT else -self.amount
+
+    def clean(self):
+        super().clean()
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({"amount": "مبلغ هر رویداد باید بزرگ‌تر از صفر باشد."})
+        if self.claim_id and self.source_insurer_id and self.claim.insurer_id and self.source_insurer_id != self.claim.insurer_id:
+            raise ValidationError({"source_insurer": "بیمه‌گر پرداخت با بیمه‌گر خسارت مطابقت ندارد."})
+        if self.entry_type == self.EntryType.PAYMENT and self.reverses_payment_id:
+            raise ValidationError({"reverses_payment": "رکورد پرداخت اصلی نمی‌تواند رکورد پرداخت دیگری را برگشت بزند."})
+        if self.entry_type == self.EntryType.REVERSAL:
+            if not self.reverses_payment_id:
+                raise ValidationError({"reverses_payment": "برای ثبت برگشت باید پرداخت اصلی مشخص شود."})
+            original = self.reverses_payment
+            if original.entry_type != self.EntryType.PAYMENT or original.claim_id != self.claim_id:
+                raise ValidationError({"reverses_payment": "پرداخت اصلی باید متعلق به همین خسارت باشد."})
+            already_reversed = ClaimPayment.objects.filter(
+                reverses_payment_id=original.pk,
+                entry_type=self.EntryType.REVERSAL,
+            )
+            if self.pk:
+                already_reversed = already_reversed.exclude(pk=self.pk)
+            total_reversed = sum(already_reversed.values_list("amount", flat=True))
+            if total_reversed + self.amount > original.amount:
+                raise ValidationError({"amount": "مجموع مبالغ برگشتی نمی‌تواند از پرداخت اصلی بیشتر باشد."})
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("رویداد پرداخت ویرایش نمی‌شود؛ برای اصلاح رکورد برگشت جدید ثبت کنید.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("سوابق پرداخت حذف نمی‌شوند؛ برای اصلاح، رکورد برگشت ثبت کنید.")
+
+    def __str__(self):
+        return f"{self.claim} — {self.get_entry_type_display()} — {self.amount}"
 
 
 class ClaimObjection(models.Model):
@@ -82,5 +242,19 @@ class ClaimObjection(models.Model):
     description = models.TextField("شرح اعتراض")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     response = models.TextField("پاسخ", blank=True)
+    deadline_at = models.DateTimeField("آخرین مهلت ثبت اعتراض", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        super().clean()
+        if self.claim_id and self.claim.result_sent_at:
+            expected = self.claim.result_sent_at + timedelta(days=60)
+            if self.deadline_at and self.deadline_at != expected:
+                raise ValidationError({"deadline_at": "مهلت اعتراض باید ۶۰ روز از زمان ارسال نتیجه باشد."})
+
+    def save(self, *args, **kwargs):
+        if self.claim_id and self.claim.result_sent_at and not self.deadline_at:
+            self.deadline_at = self.claim.result_sent_at + timedelta(days=60)
+        self.full_clean()
+        return super().save(*args, **kwargs)

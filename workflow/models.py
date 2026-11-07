@@ -1,0 +1,355 @@
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+
+def default_working_weekdays():
+    # Iran's standard workweek: Saturday through Thursday.
+    return [5, 6, 0, 1, 2, 3]
+
+
+def _validate_role_list(value, field_name, *, allow_empty=False):
+    from accounts.models import RoleAssignment
+
+    if not isinstance(value, list) or (not value and not allow_empty):
+        raise ValidationError({field_name: "نقش‌های مجاز باید یک فهرست غیرخالی باشند."})
+    allowed = set(RoleAssignment.Role.values)
+    if "*" in value:
+        raise ValidationError({field_name: "نقش عمومی * برای گردش کار مجاز نیست؛ نقش‌های مشخص را انتخاب کنید."})
+    invalid = sorted(set(value) - allowed)
+    if invalid:
+        raise ValidationError({field_name: f"نقش‌های تعریف‌نشده: {', '.join(invalid)}"})
+    if len(value) != len(set(value)):
+        raise ValidationError({field_name: "نقش تکراری مجاز نیست."})
+
+
+class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if self.filter(published_at__isnull=False).exists():
+            raise ValidationError("تعریف منتشرشده گردش کار فقط با ایجاد نسخه جدید تغییر می‌کند.")
+        return super().update(**kwargs)
+
+    def delete(self):
+        if self.filter(published_at__isnull=False).exists():
+            raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
+        return super().delete()
+
+
+class PublishedWorkflowChildQuerySet(models.QuerySet):
+    def _guard_published(self):
+        if self.filter(definition__published_at__isnull=False).exists():
+            raise ValidationError("مراحل و مسیرهای تعریف منتشرشده فقط خواندنی هستند.")
+
+    def update(self, **kwargs):
+        self._guard_published()
+        return super().update(**kwargs)
+
+    def delete(self):
+        self._guard_published()
+        return super().delete()
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._guard_published()
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
+class WorkflowDefinition(models.Model):
+    objects = PublishedWorkflowDefinitionQuerySet.as_manager()
+
+    code = models.SlugField("کد گردش کار", max_length=80)
+    title = models.CharField("عنوان", max_length=180)
+    version = models.PositiveIntegerField("نسخه", default=1)
+    is_active = models.BooleanField("فعال", default=False)
+    description = models.TextField("شرح", blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="workflow_definitions_created")
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_definitions_approved")
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("code", "-version")
+        constraints = [
+            models.UniqueConstraint(fields=("code", "version"), name="uniq_workflow_code_version"),
+            models.UniqueConstraint(fields=("code",), condition=models.Q(is_active=True), name="uniq_active_workflow_code"),
+        ]
+        verbose_name = "تعریف گردش کار"
+        verbose_name_plural = "تعریف‌های گردش کار"
+
+    def clean(self):
+        super().clean()
+        if self.version < 1:
+            raise ValidationError({"version": "شماره نسخه باید حداقل یک باشد."})
+        if self.is_active and not self.approved_by_id:
+            raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره یا مدیر سامانه است."})
+        if self.is_active and (not self.pk or self.steps.filter(is_initial=True).count() != 1):
+            raise ValidationError("گردش کار منتشرشده باید دقیقاً یک مرحله آغازین داشته باشد.")
+        if self.is_active and self.approved_by_id:
+            from accounts.access import has_role
+            from accounts.models import RoleAssignment
+            if not has_role(self.approved_by, RoleAssignment.Role.SYSTEM_ADMIN, RoleAssignment.Role.DEPARTMENT_HEAD):
+                raise ValidationError({"approved_by": "تأییدکننده باید رئیس اداره یا مدیر سامانه باشد."})
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = WorkflowDefinition.objects.get(pk=self.pk)
+            if previous.published_at and (
+                previous.code != self.code or previous.version != self.version
+                or previous.title != self.title or previous.description != self.description
+                or previous.approved_by_id != self.approved_by_id
+            ):
+                raise ValidationError("Published workflow definitions are immutable; create a new version.")
+        if self.is_active and not self.published_at:
+            self.published_at = timezone.now()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.published_at:
+            raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} — v{self.version}"
+
+
+class WorkflowStep(models.Model):
+    objects = PublishedWorkflowChildQuerySet.as_manager()
+    definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="steps")
+    code = models.SlugField("کد مرحله", max_length=60)
+    title = models.CharField("عنوان مرحله", max_length=160)
+    order = models.PositiveSmallIntegerField("ترتیب")
+    allowed_roles = models.JSONField("نقش‌های مجاز", default=list, blank=True)
+    sla_minutes = models.PositiveIntegerField("مهلت کاری (دقیقه)", default=0)
+    is_initial = models.BooleanField("مرحله آغازین", default=False)
+    is_terminal = models.BooleanField("مرحله پایانی", default=False)
+    allow_return = models.BooleanField("امکان بازگشت", default=True)
+    requires_acknowledgement = models.BooleanField("نیازمند تأیید رسمی مشاهده", default=False)
+
+    class Meta:
+        ordering = ("order", "pk")
+        constraints = [
+            models.UniqueConstraint(fields=("definition", "code"), name="uniq_workflow_step_code"),
+            models.UniqueConstraint(fields=("definition",), condition=models.Q(is_initial=True), name="uniq_workflow_initial_step"),
+        ]
+        verbose_name = "مرحله گردش کار"
+        verbose_name_plural = "مراحل گردش کار"
+
+    def clean(self):
+        super().clean()
+        _validate_role_list(self.allowed_roles, "allowed_roles")
+        if self.is_terminal and self.allow_return:
+            raise ValidationError({"allow_return": "مرحله پایانی نباید امکان بازگشت داشته باشد."})
+
+    def save(self, *args, **kwargs):
+        if self.definition_id and self.definition.published_at:
+            raise ValidationError("Published workflow steps are immutable; create a new version.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.definition.published_at:
+            raise ValidationError("Published workflow steps cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.definition.code}: {self.title}"
+
+
+class WorkflowTransition(models.Model):
+    objects = PublishedWorkflowChildQuerySet.as_manager()
+
+    definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="transitions")
+    source_step = models.ForeignKey(WorkflowStep, on_delete=models.PROTECT, related_name="outgoing_transitions")
+    target_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="incoming_transitions")
+    action_code = models.SlugField("کد اقدام", max_length=60)
+    title = models.CharField("عنوان اقدام", max_length=120)
+    allowed_roles = models.JSONField("نقش‌های مجاز برای اقدام", default=list, blank=True)
+    recipient_roles = models.JSONField("نقش‌های مجاز گیرنده", default=list, blank=True)
+    requires_note = models.BooleanField("توضیح اجباری", default=False)
+    is_return = models.BooleanField("اقدام بازگشت", default=False)
+    closes_case = models.BooleanField("بستن پرونده", default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("source_step", "action_code"), name="uniq_workflow_action_per_step"),
+        ]
+        verbose_name = "مسیر انتقال"
+        verbose_name_plural = "مسیرهای انتقال"
+
+    def clean(self):
+        super().clean()
+        if self.source_step_id and self.source_step.definition_id != self.definition_id:
+            raise ValidationError({"source_step": "مرحله مبدأ باید متعلق به همین تعریف باشد."})
+        if self.target_step_id and self.target_step.definition_id != self.definition_id:
+            raise ValidationError({"target_step": "مرحله مقصد باید متعلق به همین تعریف باشد."})
+        if self.closes_case and self.target_step_id:
+            raise ValidationError({"target_step": "مسیر بستن پرونده نباید مرحله مقصد داشته باشد."})
+        if not self.closes_case and not self.target_step_id:
+            raise ValidationError({"target_step": "برای مسیر غیرنهایی تعیین مرحله مقصد الزامی است."})
+        _validate_role_list(self.allowed_roles, "allowed_roles")
+        _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
+
+    def save(self, *args, **kwargs):
+        if self.definition_id and self.definition.published_at:
+            raise ValidationError("Published workflow transitions are immutable; create a new version.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.definition.published_at:
+            raise ValidationError("Published workflow transitions cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.source_step} → {self.title}"
+
+
+class WorkflowCase(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "باز"
+        WAITING = "waiting", "در انتظار"
+        COMPLETED = "completed", "تکمیل‌شده"
+        CLOSED = "closed", "بسته‌شده"
+        LOCKED = "locked", "قفل نهایی"
+
+    definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="cases")
+    content_type = models.ForeignKey("contenttypes.ContentType", on_delete=models.PROTECT)
+    object_id = models.CharField(max_length=64)
+    content_object = GenericForeignKey("content_type", "object_id")
+    current_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="active_cases")
+    current_assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_cases")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    opened_at = models.DateTimeField(default=timezone.now)
+    first_viewed_at = models.DateTimeField(null=True, blank=True)
+    first_action_at = models.DateTimeField(null=True, blank=True)
+    sla_due_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    is_locked = models.BooleanField(default=False)
+    locked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="locked_workflow_cases")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("definition", "content_type", "object_id"), name="uniq_workflow_case_object"),
+        ]
+        indexes = [
+            models.Index(fields=("current_assignee", "status"), name="workflow_assignee_status"),
+            models.Index(fields=("content_type", "object_id"), name="workflow_object_lookup"),
+        ]
+        verbose_name = "پرونده گردش کار"
+        verbose_name_plural = "پرونده‌های گردش کار"
+
+    def __str__(self):
+        return f"{self.definition.code} — {self.object_id}"
+
+
+class ImmutableWorkflowEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("رویداد گردش کار قابل ویرایش نیست.")
+
+    def delete(self):
+        raise ValidationError("رویداد گردش کار قابل حذف نیست.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی رویداد گردش کار مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی رویداد گردش کار مجاز نیست.")
+
+
+class WorkflowEvent(models.Model):
+    objects = ImmutableWorkflowEventQuerySet.as_manager()
+
+    class EventType(models.TextChoices):
+        STARTED = "started", "شروع"
+        OPENED = "opened", "مشاهده صفحه"
+        ACKNOWLEDGED = "acknowledged", "تأیید رسمی مشاهده"
+        ACTION = "action", "اقدام"
+        REFERRED = "referred", "ارجاع"
+        RETURNED = "returned", "بازگشت"
+        LOCKED = "locked", "قفل نهایی"
+        UNLOCKED = "unlocked", "رفع قفل"
+
+    workflow_case = models.ForeignKey(WorkflowCase, on_delete=models.PROTECT, related_name="events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    event_type = models.CharField(max_length=20, choices=EventType.choices)
+    action_code = models.CharField(max_length=60, blank=True)
+    from_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="events_from")
+    to_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="events_to")
+    from_assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_events_from")
+    to_assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_events_to")
+    note = models.TextField(blank=True)
+    opened_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acted_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(default=timezone.now)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ("sent_at", "pk")
+        indexes = [models.Index(fields=("workflow_case", "sent_at"), name="workflow_event_timeline")]
+        verbose_name = "رویداد گردش کار"
+        verbose_name_plural = "تاریخچه گردش کار"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("رویداد گردش کار غیرقابل ویرایش است.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("رویداد گردش کار غیرقابل حذف است.")
+
+
+class BusinessCalendar(models.Model):
+    code = models.SlugField("کد تقویم", max_length=80, unique=True, default="iran-default")
+    title = models.CharField("عنوان تقویم", max_length=120, default="تقویم کاری مجموعه")
+    timezone_name = models.CharField(max_length=64, default="Asia/Tehran")
+    working_weekdays = models.JSONField(default=default_working_weekdays, help_text="روزهای هفته به صورت عدد 0 تا 6؛ دوشنبه=0")
+    start_time = models.TimeField(default="08:00")
+    end_time = models.TimeField(default="16:00")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "تقویم کاری"
+        verbose_name_plural = "تقویم‌های کاری"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        try:
+            ZoneInfo(self.timezone_name)
+        except (ZoneInfoNotFoundError, TypeError):
+            errors["timezone_name"] = "منطقه زمانی معتبر نیست."
+        if not isinstance(self.working_weekdays, list) or not self.working_weekdays or any(
+            isinstance(day, bool) or not isinstance(day, int) or day not in range(7)
+            for day in self.working_weekdays
+        ):
+            errors["working_weekdays"] = "روزهای کاری باید فهرستی از اعداد یکتای ۰ تا ۶ باشد."
+        elif len(self.working_weekdays) != len(set(self.working_weekdays)):
+            errors["working_weekdays"] = "روز هفته تکراری مجاز نیست."
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            errors["end_time"] = "ساعت پایان باید بعد از ساعت شروع باشد."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class CalendarHoliday(models.Model):
+    calendar = models.ForeignKey(BusinessCalendar, on_delete=models.PROTECT, related_name="holidays")
+    date = models.DateField("تاریخ تعطیل")
+    title = models.CharField("عنوان تعطیلی", max_length=180)
+    is_working_override = models.BooleanField("روز کاری استثنایی", default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("calendar", "date"), name="uniq_calendar_holiday_date"),
+        ]
+        ordering = ("date",)
+        verbose_name = "تعطیلی/استثنای تقویم"
+        verbose_name_plural = "تعطیلی‌ها و استثناهای تقویم"

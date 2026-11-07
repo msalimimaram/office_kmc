@@ -2,71 +2,281 @@ from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
+
+from accounts.access import (
+    active_assignments,
+    company_ids_for,
+    has_global_access,
+    has_role,
+    insurer_ids_for,
+    line_codes_for,
+)
+from accounts.models import RoleAssignment
+from django.utils import timezone
+
 
 PRIVILEGED = {"system_admin", "department_head"}
 INSURANCE_STAFF = PRIVILEGED | {"insurance_specialist"}
-CLAIM_WIDE_ROLES = PRIVILEGED | {"insurance_specialist", "auditor"}
 
 
 def role_required(*roles):
+    """Compatibility decorator backed by time-valid operational assignments."""
     def decorator(view):
         @login_required
         @wraps(view)
         def wrapped(request, *args, **kwargs):
-            if not request.user.is_superuser and request.user.role not in roles:
+            if not has_role(request.user, *roles):
                 raise PermissionDenied("شما مجوز دسترسی به این بخش را ندارید.")
             return view(request, *args, **kwargs)
         return wrapped
     return decorator
 
 
-def scoped_claims_for(user):
-    """Apply tenant and insurer scoping at the queryset boundary."""
+def _has_insured_identity(user):
+    """Check the canonical person link first, then legacy national-id mapping."""
+    from organizations.models import Person
+
+    return Person.objects.filter(
+        Q(user_id=user.pk) | Q(dependents__user_id=user.pk)
+    ).exists() or bool(getattr(user, "national_id", ""))
+
+
+def _insured_claim_filter(user):
     from claims.models import Claim
 
-    qs = Claim.objects.select_related("person", "person__company", "contract", "insurer")
-    if user.is_superuser or user.role in CLAIM_WIDE_ROLES:
+    if hasattr(user, "person_record"):
+        person_id = user.person_record.pk
+        return Q(person_id=person_id) | Q(person__employee_id=person_id)
+    national_id = getattr(user, "national_id", "")
+    if not national_id:
+        return Q(pk__in=[])
+    # Legacy-only fallback; the global Person.national_id uniqueness migration
+    # makes this lookup unambiguous after migration 0002.
+    return Q(person__national_id=national_id) | Q(person__employee__national_id=national_id)
+
+
+def scoped_claims_for(user):
+    """Union the claim scopes of all active roles held by the user."""
+    from claims.models import Claim
+
+    qs = Claim.objects.select_related(
+        "person", "person__company", "person__employee", "contract", "insurer"
+    )
+    if not getattr(user, "is_authenticated", False):
+        return qs.none()
+    if has_global_access(user):
         return qs
-    if user.role == "insurer":
-        if not user.insurer_id:
-            return qs.none()
-        from django.db.models import Q
-        # A contradictory claim row must not be visible to two insurers. Use the
-        # contract's insurer only when the claim has no explicit insurer recorded.
-        return qs.filter(
-            Q(insurer_id=user.insurer_id) |
-            Q(insurer__isnull=True, contract__insurer_id=user.insurer_id)
-        ).distinct()
-    if user.role == "subsidiary_rep":
-        return qs.filter(person__company_id=user.company_id) if user.company_id else qs.none()
-    if user.role == "employee":
-        # National IDs are constrained per company in the data model, so always
-        # combine the identity match with the employee's company boundary.
-        if not user.national_id or not user.company_id:
-            return qs.none()
-        from django.db.models import Q
-        return qs.filter(
-            Q(person__company_id=user.company_id, person__national_id=user.national_id) |
-            Q(person__company_id=user.company_id, person__employee__national_id=user.national_id)
-        ).distinct()
-    return qs.none()
+
+    allowed = Q(pk__in=[])
+
+    company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+    if company_ids:
+        from organizations.models import Person, PersonEmployment
+
+        # Historical claims remain visible to the company recorded at service
+        # time. The person's current company also receives permitted history.
+        today = timezone.localdate()
+        current_employment_people = (
+            PersonEmployment.objects.filter(
+                company_id__in=company_ids,
+                status="active",
+            )
+            .filter(Q(valid_from__isnull=True) | Q(valid_from__lte=today))
+            .filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+            .values_list("person_id", flat=True)
+        )
+        legacy_people = (
+            Person.objects.filter(
+                company_id__in=company_ids,
+                employments__isnull=True,
+            ).values_list("pk", flat=True)
+        )
+        allowed |= (
+            Q(company_snapshot_id__in=company_ids)
+            | Q(person_id__in=current_employment_people)
+            | Q(primary_insured_id__in=current_employment_people)
+            | Q(person_id__in=legacy_people)
+            | Q(primary_insured_id__in=legacy_people)
+        )
+
+    insurer_ids = insurer_ids_for(user)
+    if insurer_ids:
+        allowed |= (
+            Q(insurer_id__in=insurer_ids)
+            | Q(insurer__isnull=True, contract__insurer_id__in=insurer_ids)
+        )
+
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        if "*" in line_codes:
+            allowed |= Q(contract__isnull=False)
+        else:
+            concrete_lines = {code for code in line_codes if code}
+            if concrete_lines:
+                allowed |= Q(contract__line__in=concrete_lines)
+
+    if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        allowed |= _insured_claim_filter(user)
+
+    return qs.filter(allowed).distinct()
 
 
 def scoped_requests_for(user):
-    from django.db.models import Q
+    """Union the request scopes of all active roles held by the user."""
     from requests_portal.models import ServiceRequest
 
-    qs = ServiceRequest.objects.select_related("submitted_by", "company", "person", "assigned_to")
-    if user.is_superuser or user.role in PRIVILEGED:
+    qs = ServiceRequest.objects.select_related(
+        "submitted_by", "company", "person", "assigned_to"
+    )
+    if not getattr(user, "is_authenticated", False):
+        return qs.none()
+    if has_global_access(user):
         return qs
-    if user.role == "insurance_specialist":
-        # Confidential requests belong to the head/admin queue even if a legacy
-        # row was accidentally assigned to a specialist.
-        return qs.filter(is_confidential=False).filter(
-            Q(assigned_to=user) | Q(assigned_to__isnull=True)
-        ).distinct()
-    if user.role == "subsidiary_rep":
-        return qs.filter(company_id=user.company_id, is_confidential=False) if user.company_id else qs.none()
-    if user.role == "auditor":
-        return qs.filter(is_confidential=False)
-    return qs.filter(submitted_by=user)
+
+    allowed = Q(pk__in=[])
+
+    company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+    if company_ids:
+        allowed |= Q(company_id__in=company_ids, is_confidential=False)
+
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        # Requests reach a specialist through an explicit workflow assignment.
+        # There is no shared unassigned queue: the representative/manager chooses
+        # the authorized recipient and the workflow transfers ownership.
+        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
+
+    if has_role(user, RoleAssignment.Role.INSURER_REP):
+        # Insurer-side access is limited to work explicitly referred to this user.
+        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
+
+    if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        allowed |= Q(submitted_by_id=user.pk)
+
+    return qs.filter(allowed).distinct()
+
+
+def can_view_claim(user, claim):
+    return scoped_claims_for(user).filter(pk=claim.pk).exists()
+
+
+def can_view_request(user, item):
+    return scoped_requests_for(user).filter(pk=item.pk).exists()
+
+
+def can_process_request(user, item):
+    if has_global_access(user):
+        return True
+    if item.is_confidential:
+        return False
+    return (
+        has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+        or has_role(user, RoleAssignment.Role.INSURER_REP)
+    ) and item.assigned_to_id == user.pk
+
+
+def can_transition_request(user, item, target_status):
+    """Authorize legacy status changes without bypassing configured workflows.
+
+    Requests with a WorkflowCase must be handled by workflow.services.transition_case.
+    This compatibility path is only for older requests that predate workflow setup.
+    """
+    if (
+        not getattr(user, "is_authenticated", False)
+        or not getattr(user, "is_active", False)
+        or not can_process_request(user, item)
+    ):
+        return False
+
+    from django.contrib.contenttypes.models import ContentType
+    from requests_portal.models import ServiceRequest
+    from workflow.models import WorkflowCase
+
+    if not item.pk:
+        return False
+
+    content_type = ContentType.objects.get_for_model(item, for_concrete_model=False)
+    if WorkflowCase.objects.filter(
+        content_type=content_type, object_id=str(item.pk)
+    ).exists():
+        # Never let the legacy form mutate a request owned by the dynamic workflow.
+        return False
+
+    transitions = {
+        ServiceRequest.Status.SUBMITTED: {
+            ServiceRequest.Status.IN_REVIEW,
+            ServiceRequest.Status.NEEDS_INFO,
+            ServiceRequest.Status.REJECTED,
+        },
+        ServiceRequest.Status.IN_REVIEW: {
+            ServiceRequest.Status.NEEDS_INFO,
+            ServiceRequest.Status.APPROVED,
+            ServiceRequest.Status.REJECTED,
+            ServiceRequest.Status.COMPLETED,
+        },
+        ServiceRequest.Status.NEEDS_INFO: {
+            ServiceRequest.Status.IN_REVIEW,
+            ServiceRequest.Status.REJECTED,
+        },
+        ServiceRequest.Status.REFERRED: {
+            ServiceRequest.Status.IN_REVIEW,
+            ServiceRequest.Status.NEEDS_INFO,
+            ServiceRequest.Status.APPROVED,
+            ServiceRequest.Status.REJECTED,
+            ServiceRequest.Status.COMPLETED,
+        },
+        ServiceRequest.Status.APPROVED: {ServiceRequest.Status.COMPLETED},
+        ServiceRequest.Status.REJECTED: {ServiceRequest.Status.CLOSED},
+        ServiceRequest.Status.COMPLETED: {ServiceRequest.Status.CLOSED},
+        ServiceRequest.Status.CLOSED: set(),
+    }
+    if target_status not in transitions.get(item.status, set()):
+        return False
+
+    if has_global_access(user):
+        return True
+
+    # Insurer representatives may record progress or request missing information,
+    # but cannot approve, reject, complete, or close a request.
+    if has_role(user, RoleAssignment.Role.INSURER_REP):
+        return target_status in {
+            ServiceRequest.Status.IN_REVIEW,
+            ServiceRequest.Status.NEEDS_INFO,
+        }
+
+    # Legacy specialist screens do not expose a configurable decision authority.
+    # Approval/rejection therefore remains with the department head/admin.
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        return target_status in {
+            ServiceRequest.Status.IN_REVIEW,
+            ServiceRequest.Status.NEEDS_INFO,
+            ServiceRequest.Status.COMPLETED,
+            ServiceRequest.Status.CLOSED,
+        }
+
+    return False
+
+
+def can_edit_claim(user, claim):
+    if has_global_access(user):
+        return True
+    # Insurer representatives submit source data; accepted claim changes require staff approval.
+    return can_view_claim(user, claim) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+
+
+def can_decide_claim(user, claim):
+    if has_global_access(user):
+        return True
+    return can_view_claim(user, claim) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+
+
+def can_edit_iban(user, person):
+    # Sensitive financial attributes must be changed through an approved request.
+    if has_global_access(user):
+        return True
+    return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+
+
+def require_object_access(allowed, message="شما مجوز دسترسی به این رکورد را ندارید."):
+    if not allowed:
+        raise PermissionDenied(message)

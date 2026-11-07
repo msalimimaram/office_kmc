@@ -17,7 +17,7 @@ class RequirePasswordChangeMiddleware:
 
 
 class RestrictAdminAccessMiddleware:
-    """Keep the Django administration site limited to system administrators."""
+    """Keep the Django administration site limited to active system administrators."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -29,8 +29,11 @@ class RestrictAdminAccessMiddleware:
             and user is not None
             and user.is_authenticated
             and not user.is_superuser
-            and getattr(user, "role", None) != "system_admin"
         ):
-            from django.core.exceptions import PermissionDenied
-            raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه مجاز است.")
+            from accounts.access import has_global_access
+
+            allowed = has_global_access(user)
+            if not allowed:
+                from django.core.exceptions import PermissionDenied
+                raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه یا رئیس اداره بیمه مجاز است.")
         return self.get_response(request)

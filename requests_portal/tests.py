@@ -1,10 +1,15 @@
+from datetime import date
 from django.test import TestCase, Client
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from accounts.models import User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
-from core.permissions import scoped_requests_for
+from core.permissions import can_transition_request, scoped_requests_for
+
+NATIONAL_ID_A = "1" * 10
+NATIONAL_ID_B = "2" * 10
 
 
 class ServiceRequestTests(TestCase):
@@ -120,7 +125,7 @@ class ServiceRequestTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
 
-    def test_specialist_can_claim_unassigned_request_when_review_starts(self):
+    def test_specialist_can_process_only_explicitly_assigned_request(self):
         item = ServiceRequest.objects.create(
             reference="IB-QUEUE-1", kind=ServiceRequest.Kind.OTHER,
             submitted_by=self.user, company=self.company,
@@ -132,6 +137,14 @@ class ServiceRequestTests(TestCase):
         )
         client = Client()
         client.force_login(specialist)
+
+        # There is no shared, unassigned specialist queue. A specialist must
+        # receive an explicit assignment before the request becomes visible.
+        response = client.get(reverse("request_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 404)
+
+        item.assigned_to = specialist
+        item.save(update_fields=["assigned_to", "updated_at"])
         response = client.get(reverse("request_detail", args=[item.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "رسیدگی به درخواست")
@@ -173,15 +186,15 @@ class ServiceRequestTests(TestCase):
         self.assertIn("لطفاً اطلاعات تکمیلی ارائه شود", item.response)
 
     def test_employee_medical_request_must_select_self_or_insured_dependent(self):
-        self.user.national_id = "1111111111"
+        self.user.national_id = NATIONAL_ID_A
         self.user.save(update_fields=["national_id"])
         employee_person = Person.objects.create(
-            company=self.company, national_id="1111111111",
-            first_name="کارمند", last_name="آزمایشی",
+            company=self.company, national_id=NATIONAL_ID_A,
+            first_name="کارمند", last_name="آزمایشی", birth_date=date(1990, 1, 1),
         )
         dependent = Person.objects.create(
-            company=self.company, national_id="2222222222",
-            first_name="فرد", last_name="تحت تکفل",
+            company=self.company, national_id=NATIONAL_ID_B,
+            first_name="فرد", last_name="تحت تکفل", birth_date=date(2010, 1, 1),
             relationship="child", employee=employee_person,
         )
         client = Client()
@@ -198,11 +211,11 @@ class ServiceRequestTests(TestCase):
         self.assertTrue(item.is_confidential)
 
     def test_employee_cannot_link_medical_request_to_person_from_another_company(self):
-        self.user.national_id = "1111111111"
+        self.user.national_id = NATIONAL_ID_A
         self.user.save(update_fields=["national_id"])
         other_person = Person.objects.create(
-            company=self.other_company, national_id="1111111111",
-            first_name="شخص", last_name="شرکت دیگر",
+            company=self.other_company, national_id=NATIONAL_ID_B,
+            first_name="شخص", last_name="شرکت دیگر", birth_date=date(1992, 1, 1),
         )
         client = Client()
         client.force_login(self.user)
@@ -226,6 +239,65 @@ class ServiceRequestTests(TestCase):
                 client.force_login(user)
                 response = client.get(reverse("request_create"))
                 self.assertEqual(response.status_code, 403)
+
+
+
+class LegacyRequestTransitionPermissionTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="TRANSITION", name="شرکت گردش کار")
+        self.employee = User.objects.create_user(
+            username="transition-employee",
+            password="StrongPass!2026",
+            role="employee",
+            company=self.company,
+            must_change_password=False,
+        )
+        self.specialist = User.objects.create_user(
+            username="transition-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        self.item = ServiceRequest.objects.create(
+            reference="IB-TRANSITION-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.employee,
+            company=self.company,
+            assigned_to=self.specialist,
+            title="درخواست گردش کار",
+            description="شرح",
+        )
+
+    def test_assigned_specialist_can_start_review_but_cannot_make_decision(self):
+        self.assertTrue(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.IN_REVIEW
+            )
+        )
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.APPROVED
+            )
+        )
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.REJECTED
+            )
+        )
+
+    def test_requester_cannot_change_own_request_status(self):
+        self.assertFalse(
+            can_transition_request(
+                self.employee, self.item, ServiceRequest.Status.IN_REVIEW
+            )
+        )
+
+    def test_legacy_transition_graph_rejects_invalid_jump(self):
+        self.assertFalse(
+            can_transition_request(
+                self.specialist, self.item, ServiceRequest.Status.CLOSED
+            )
+        )
 
 
 
@@ -270,3 +342,83 @@ class MedicalRequestConfidentialityInvariantTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 ServiceRequest.objects.filter(pk=item.pk).update(is_confidential=False)
+
+
+
+class ServiceRequestAttachmentDownloadTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="ATT-A", name="شرکت پیوست")
+        self.other_company = Company.objects.create(code="ATT-B", name="شرکت دیگر پیوست")
+        self.owner = User.objects.create_user(
+            username="attachment-owner",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="employee",
+            company=self.company,
+        )
+        self.other_owner = User.objects.create_user(
+            username="attachment-other",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="employee",
+            company=self.other_company,
+        )
+        self.item = ServiceRequest.objects.create(
+            reference="IB-ATTACHMENT-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.owner,
+            company=self.company,
+            title="درخواست دارای پیوست",
+            description="شرح درخواست",
+            attachment=SimpleUploadedFile(
+                "supporting-document.pdf",
+                b"%PDF-1.4 test attachment",
+                content_type="application/pdf",
+            ),
+        )
+
+    def test_owner_can_download_request_attachment_and_download_is_audited(self):
+        from auditlog.models import AuditEvent
+
+        client = Client()
+        client.force_login(self.owner)
+        detail = client.get(reverse("request_detail", args=[self.item.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, reverse("request_attachment_download", args=[self.item.pk]))
+
+        response = client.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Disposition", "").split(";")[0], "attachment")
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4 test attachment")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.owner,
+                action="service_request_attachment_downloaded",
+                object_id=str(self.item.pk),
+            ).exists()
+        )
+
+    def test_attachment_download_is_denied_outside_request_visibility_scope(self):
+        client = Client()
+        client.force_login(self.other_owner)
+        response = client.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 404)
+
+        unauthenticated = Client()
+        response = unauthenticated.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_attachment_download_returns_404_when_request_has_no_file(self):
+        item_without_file = ServiceRequest.objects.create(
+            reference="IB-ATTACHMENT-2",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.owner,
+            company=self.company,
+            title="درخواست بدون پیوست",
+            description="شرح درخواست",
+        )
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(reverse("request_attachment_download", args=[item_without_file.pk]))
+        self.assertEqual(response.status_code, 404)

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}جزئیات گردش کار{% endblock %}
+{% block content %}
+<section class="page-heading"><div><h1>{{ case.definition.title }}</h1><p>شناسه رکورد: {{ case.object_id }} · وضعیت: {{ case.get_status_display }}</p></div></section>
+<div class="card"><p><strong>مرحله جاری:</strong> {{ case.current_step.title|default:"پایان گردش کار" }}</p><p><strong>مسئول:</strong> {{ case.current_assignee.get_full_name|default:case.current_assignee.username|default:"—" }}</p><p><strong>اولین مشاهده:</strong> {{ case.first_viewed_at|default:"ثبت نشده" }}</p><p><strong>اولین اقدام:</strong> {{ case.first_action_at|default:"ثبت نشده" }}</p><p><strong>مهلت SLA:</strong> {{ case.sla_due_at|default:"تعریف نشده" }}</p></div>
+<h2>تاریخچه اقدامات</h2>
+<div class="timeline">{% for event in events %}<article class="card"><p><strong>{{ event.get_event_type_display }}</strong> · {{ event.actor.get_full_name|default:event.actor.username }} · {{ event.sent_at }}</p>{% if event.from_step %}<p>از: {{ event.from_step.title }}</p>{% endif %}{% if event.to_step %}<p>به: {{ event.to_step.title }}</p>{% endif %}{% if event.to_assignee %}<p>گیرنده: {{ event.to_assignee.get_full_name|default:event.to_assignee.username }}</p>{% endif %}{% if event.note %}<p>{{ event.note|linebreaksbr }}</p>{% endif %}</article>{% empty %}<p>تاریخچه‌ای ثبت نشده است.</p>{% endfor %}</div>
+{% if not case.is_locked and case.status != "closed" %}
+<h2>ثبت اقدام / ارجاع</h2>
+{% for transition, recipients in transitions %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="{{ transition.action_code }}"><h3>{{ transition.title }}</h3>{% if recipients %}<label>گیرنده مجاز</label><select name="recipient"><option value="">واگذاری به خودم (در صورت مجاز بودن)</option>{% for recipient in recipients %}<option value="{{ recipient.pk }}">{{ recipient.get_full_name|default:recipient.username }}</option>{% endfor %}</select>{% endif %}<label>توضیحات {% if transition.requires_note %}(اجباری){% else %}(اختیاری){% endif %}</label><textarea name="note" rows="3"></textarea><button type="submit">ثبت اقدام</button></form>{% endfor %}
+{% if case.current_step.requires_acknowledgement %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="acknowledge"><label>توضیح تأیید مشاهده (اختیاری)</label><textarea name="note" rows="2"></textarea><button type="submit">تأیید رسمی مشاهده</button></form>{% endif %}
+{% endif %}
+{% if access.system_admin %}<form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="final_lock"><label>دلیل قفل نهایی</label><textarea name="note" required rows="2"></textarea><button type="submit">قفل نهایی و غیرقابل اعتراض</button></form>{% endif %}
+{% endblock %}

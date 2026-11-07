@@ -10,7 +10,7 @@
 - [ ] `python manage.py check --deploy` بررسی شده است.
 - [ ] `python manage.py makemigrations --check --dry-run` موفق است.
 - [ ] `python manage.py migrate --check` موفق است.
-- [ ] تست‌ها در CI و محیط staging موفق‌اند.
+- [ ] تست‌ها در محیط محلی و staging موفق‌اند.
 
 ## امنیت و داده
 - [ ] هیچ secret یا داده واقعی در Git/log/test fixture وجود ندارد.

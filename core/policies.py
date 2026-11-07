@@ -1,18 +1,32 @@
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
 
-from .permissions import PRIVILEGED, scoped_claims_for, scoped_requests_for
+from accounts.access import has_global_access, has_role
+from accounts.models import RoleAssignment
+from .permissions import scoped_claims_for, scoped_requests_for
 
 
-CLAIM_EDIT_ROLES = {"system_admin", "department_head", "insurance_specialist", "finance"}
-CLAIM_DECISION_ROLES = {"system_admin", "department_head", "insurance_specialist"}
-REQUEST_DECISION_ROLES = {"system_admin", "department_head"}
+CLAIM_EDIT_ROLES = {
+    RoleAssignment.Role.SYSTEM_ADMIN,
+    RoleAssignment.Role.DEPARTMENT_HEAD,
+    RoleAssignment.Role.INSURANCE_SPECIALIST,
+}
+CLAIM_DECISION_ROLES = {
+    RoleAssignment.Role.SYSTEM_ADMIN,
+    RoleAssignment.Role.DEPARTMENT_HEAD,
+    RoleAssignment.Role.INSURANCE_SPECIALIST,
+}
+REQUEST_DECISION_ROLES = {
+    RoleAssignment.Role.SYSTEM_ADMIN,
+    RoleAssignment.Role.DEPARTMENT_HEAD,
+}
 
+# Transitional state map for the legacy request page. The new Workflow app
+# will replace this hard-coded table with versioned definitions.
 REQUEST_TRANSITIONS = {
     "submitted": {"in_review", "needs_info", "referred", "rejected"},
     "in_review": {"needs_info", "referred", "approved", "rejected", "completed"},
-    "needs_info": {"in_review", "rejected"},
-    "referred": {"in_review", "approved", "rejected"},
+    "needs_info": {"in_review", "referred", "rejected"},
+    "referred": {"in_review", "needs_info", "approved", "rejected"},
     "approved": {"completed", "closed"},
     "rejected": {"closed"},
     "completed": {"closed"},
@@ -29,11 +43,19 @@ def can_view_request(user, item):
 
 
 def can_process_request(user, item):
-    if user.is_superuser or user.role in PRIVILEGED:
-        return not (item.is_confidential and user.role not in PRIVILEGED and not user.is_superuser)
-    if user.role != "insurance_specialist" or item.is_confidential:
+    if has_global_access(user):
+        return True
+    if item.is_confidential:
         return False
-    return item.assigned_to_id in (None, user.pk)
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        return item.assigned_to_id == user.pk
+    if has_role(user, RoleAssignment.Role.INSURER_REP):
+        return item.assigned_to_id == user.pk
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        return item.company_id in set(
+            scoped_requests_for(user).values_list("company_id", flat=True).distinct()
+        )
+    return False
 
 
 def can_transition_request(user, item, target_status):
@@ -43,27 +65,32 @@ def can_transition_request(user, item, target_status):
         return True
     if target_status not in REQUEST_TRANSITIONS.get(item.status, set()):
         return False
-    if user.role == "insurance_specialist" and target_status in {"approved", "rejected", "completed", "closed"}:
-        return False
+    if has_role(user, RoleAssignment.Role.INSURER_REP):
+        # Insurer staff may return responses but cannot approve or finally close.
+        return target_status not in {"approved", "rejected", "completed", "closed"}
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        return target_status not in {"approved", "rejected", "completed", "closed"}
     return True
 
 
 def can_edit_claim(user, claim):
-    return user.is_superuser or (
-        user.role in CLAIM_EDIT_ROLES and can_view_claim(user, claim)
+    return can_view_claim(user, claim) and any(
+        has_role(user, role)
+        for role in CLAIM_EDIT_ROLES
     )
 
 
 def can_decide_claim(user, claim):
-    return user.is_superuser or (
-        user.role in CLAIM_DECISION_ROLES and can_view_claim(user, claim)
+    return can_view_claim(user, claim) and any(
+        has_role(user, role)
+        for role in CLAIM_DECISION_ROLES
     )
 
 
 def can_edit_iban(user, person):
-    # IBAN is a sensitive financial attribute. It must never be edited directly
-    # by an employee or company representative; changes go through the request workflow.
-    return user.is_superuser or user.role in {"system_admin", "department_head", "finance"}
+    # Direct modification is restricted. Normal employee/representative flows
+    # must create an approved change request instead.
+    return has_global_access(user)
 
 
 def require_object_access(allowed, message="شما مجوز دسترسی به این رکورد را ندارید."):
