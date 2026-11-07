@@ -15,7 +15,7 @@ from accounts.models import RoleAssignment
 from auditlog.services import record_event
 from core.permissions import can_decide_claim, scoped_claims_for
 from .forms import ClaimObjectionForm, ClaimObjectionReviewForm
-from .models import Claim
+from .models import Claim, ClaimObjection
 
 
 @login_required
