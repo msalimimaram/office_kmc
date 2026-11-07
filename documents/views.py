@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,7 +23,11 @@ from core.permissions import scoped_claims_for
 from core.uploads import validate_uploaded_file
 from organizations.models import Company, Person, PersonEmployment
 from .models import DocumentRecord, DocumentVersion, DocumentLink
-from .services import create_document, record_document_access
+from .forms import DocumentLifecycleActionForm, DocumentVersionForm
+from .services import (
+    add_document_version, archive_document, create_document,
+    record_document_access, void_document,
+)
 
 
 def _visible_documents(user):
@@ -232,3 +236,80 @@ def document_download(request, pk):
         request=request,
     )
     return FileResponse(handle, as_attachment=True, filename=filename)
+
+
+
+@login_required
+def document_manage(request, pk):
+    """Manage versions and lifecycle of a document within the existing access scope."""
+    user = request.user
+    document = get_object_or_404(_visible_documents(user), pk=pk)
+    can_add_version = has_global_access(user) or has_role(
+        user, RoleAssignment.Role.INSURANCE_SPECIALIST
+    )
+    can_manage_lifecycle = has_global_access(user)
+
+    version_form = DocumentVersionForm()
+    lifecycle_form = DocumentLifecycleActionForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action", "").strip()
+        if action == "add_version":
+            if not can_add_version:
+                raise PermissionDenied
+            version_form = DocumentVersionForm(request.POST, request.FILES)
+            if version_form.is_valid():
+                upload = version_form.cleaned_data["file"]
+                error = validate_uploaded_file(upload, max_size=20 * 1024 * 1024)
+                if error:
+                    version_form.add_error("file", error)
+                else:
+                    try:
+                        add_document_version(
+                            document_id=document.pk,
+                            upload=upload,
+                            uploaded_by=user,
+                            change_reason=version_form.cleaned_data["change_reason"],
+                            request=request,
+                        )
+                    except ValidationError as exc:
+                        version_form.add_error(None, exc)
+                    else:
+                        messages.success(request, "نسخه جدید سند با موفقیت ثبت شد.")
+                        return redirect("document_manage", pk=document.pk)
+        elif action in {"archive", "void"}:
+            if not can_manage_lifecycle:
+                raise PermissionDenied
+            lifecycle_form = DocumentLifecycleActionForm(request.POST)
+            if lifecycle_form.is_valid():
+                reason = lifecycle_form.cleaned_data["reason"]
+                try:
+                    if action == "archive":
+                        archive_document(
+                            document_id=document.pk, actor=user, reason=reason, request=request
+                        )
+                        messages.success(request, "سند با دلیل ثبت‌شده بایگانی شد.")
+                    else:
+                        void_document(
+                            document_id=document.pk, actor=user, reason=reason, request=request
+                        )
+                        messages.success(request, "سند با دلیل ثبت‌شده باطل شد.")
+                except ValidationError as exc:
+                    lifecycle_form.add_error(None, exc)
+                else:
+                    return redirect("document_manage", pk=document.pk)
+        else:
+            raise PermissionDenied("عملیات درخواستی برای مدیریت سند معتبر نیست.")
+
+    document.refresh_from_db()
+    versions = document.versions.select_related("uploaded_by").order_by("-version_number")
+    return render(request, "documents/document_manage.html", {
+        "document": document,
+        "versions": versions,
+        "version_form": version_form,
+        "lifecycle_form": lifecycle_form,
+        "can_add_version": can_add_version and not document.is_archived and not document.is_void,
+        "can_manage_lifecycle": can_manage_lifecycle,
+        "can_archive": can_manage_lifecycle and not document.is_archived and not document.is_void,
+        "can_void": can_manage_lifecycle and not document.is_void,
+    })
