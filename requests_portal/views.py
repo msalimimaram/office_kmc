@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.http import FileResponse, Http404
 from django.db import models, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -189,3 +190,28 @@ def request_detail(request, pk):
         "statuses": allowed_statuses,
         "can_process": can_process,
     })
+
+
+
+@login_required
+def request_attachment_download(request, pk):
+    """Download a non-medical request attachment after applying the request's normal visibility scope."""
+    item = get_object_or_404(scoped_requests_for(request.user), pk=pk)
+    if not item.attachment:
+        raise Http404("برای این درخواست پیوستی ثبت نشده است.")
+
+    try:
+        attachment = item.attachment.open("rb")
+    except (FileNotFoundError, OSError):
+        raise Http404("فایل پیوست در دسترس نیست.")
+
+    filename = item.attachment.name.rsplit("/", 1)[-1]
+    record_event(
+        actor=request.user,
+        action="service_request_attachment_downloaded",
+        obj=item,
+        summary=f"پیوست درخواست {item.reference} دریافت شد",
+        metadata={"filename": filename},
+        request=request,
+    )
+    return FileResponse(attachment, as_attachment=True, filename=filename)
