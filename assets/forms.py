@@ -3,7 +3,9 @@ from insurance.models import Contract, Insurer
 from organizations.models import Company, Person
 from accounts.access import line_codes_for
 from accounts.models import RoleAssignment
-from .models import InsuredAsset
+from .models import (
+    AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle,
+)
 
 
 class InsuredAssetForm(forms.ModelForm):
@@ -35,6 +37,20 @@ class InsuredAssetForm(forms.ModelForm):
         self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
         self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
         self.line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        if self.instance.pk and self.instance.asset_type == InsuredAsset.Type.VEHICLE:
+            try:
+                vehicle = self.instance.vehicle_details
+            except Vehicle.DoesNotExist:
+                vehicle = None
+            if vehicle:
+                self.initial.update({
+                    "plate_number": vehicle.plate_number,
+                    "vin": vehicle.vin,
+                    "engine_number": vehicle.engine_number,
+                    "make": vehicle.make,
+                    "model_name": vehicle.model_name,
+                    "model_year": vehicle.model_year,
+                })
 
     def clean(self):
         cleaned = super().clean()
@@ -71,3 +87,65 @@ class InsuredAssetForm(forms.ModelForm):
             if not self.line_codes or not self.line_codes.intersection(permitted_lines):
                 self.add_error("asset_type", "Your active insurance-line assignment does not allow this asset type.")
         return cleaned
+
+
+
+class AssetValuationForm(forms.ModelForm):
+    class Meta:
+        model = AssetValuation
+        fields = [
+            "valuation_date", "market_value", "insured_value", "method",
+            "source_reference", "note",
+        ]
+        widgets = {
+            "valuation_date": forms.DateInput(attrs={"type": "date"}),
+            "note": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class AssetPolicyPeriodForm(forms.ModelForm):
+    class Meta:
+        model = AssetPolicyPeriod
+        fields = [
+            "insurer", "contract", "policy_number", "policy_start",
+            "policy_end", "source_reference", "note",
+        ]
+        widgets = {
+            "policy_start": forms.DateInput(attrs={"type": "date"}),
+            "policy_end": forms.DateInput(attrs={"type": "date"}),
+            "note": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, asset, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.asset = asset
+        self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
+        contracts = Contract.objects.filter(is_active=True).select_related("insurer")
+        company_id = asset.company_id or (asset.person.company_id if asset.person_id else None)
+        if company_id:
+            contracts = contracts.filter(companies__pk=company_id)
+        self.fields["contract"].queryset = contracts.distinct()
+
+    def clean(self):
+        cleaned = super().clean()
+        contract = cleaned.get("contract")
+        insurer = cleaned.get("insurer")
+        if contract and not insurer:
+            cleaned["insurer"] = contract.insurer
+        elif contract and insurer and contract.insurer_id != insurer.pk:
+            self.add_error("insurer", "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد.")
+        return cleaned
+
+
+class AssetPolicyEndorsementForm(forms.ModelForm):
+    class Meta:
+        model = AssetPolicyEndorsement
+        fields = ["policy_period", "endorsement_number", "effective_date", "description", "document"]
+        widgets = {
+            "effective_date": forms.DateInput(attrs={"type": "date"}),
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, asset, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["policy_period"].queryset = asset.policy_periods.select_related("insurer", "contract")
