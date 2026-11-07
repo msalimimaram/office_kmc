@@ -283,7 +283,10 @@ def asset_update(request, pk):
                 }
                 updated = form.save()
                 if updated.asset_type == InsuredAsset.Type.VEHICLE:
-                    vehicle, _ = Vehicle.objects.get_or_create(asset=updated)
+                    try:
+                        vehicle = Vehicle.objects.get(asset=updated)
+                    except Vehicle.DoesNotExist:
+                        vehicle = Vehicle(asset=updated)
                     vehicle.plate_number = form.cleaned_data["plate_number"]
                     vehicle.vin = form.cleaned_data.get("vin", "")
                     vehicle.engine_number = form.cleaned_data.get("engine_number", "")
