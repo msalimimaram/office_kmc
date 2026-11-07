@@ -35,7 +35,7 @@ class CorrespondenceScopeTests(TestCase):
 
 class CorrespondenceFollowUpFlowTests(TestCase):
     def setUp(self):
-        from accounts.models import User
+        from accounts.models import RoleAssignment, User
         from correspondence.models import Correspondence
         from correspondence.services import next_internal_number
 
@@ -52,6 +52,12 @@ class CorrespondenceFollowUpFlowTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
             role="employee",
+        )
+        RoleAssignment.objects.create(
+            user=self.assignee,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="کارشناس گیرنده برای آزمون ارجاع مکاتبه",
         )
         self.item = Correspondence.objects.create(
             internal_number=next_internal_number(),
