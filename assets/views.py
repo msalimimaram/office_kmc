@@ -106,6 +106,7 @@ def asset_list(request):
         "selected_type": asset_type,
         "asset_types": InsuredAsset.Type.choices,
         "can_create": can_create,
+        "can_update": can_create,
     })
 
 
