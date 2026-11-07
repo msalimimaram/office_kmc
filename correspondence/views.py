@@ -368,11 +368,3 @@ def correspondence_detail(request, pk):
         "link_form": link_form,
         "can_manage": can_manage,
     })
-
-
-    return render(request, "correspondence/correspondence_detail.html", {
-        "item": item,
-        "events": item.events.select_related("actor").all(),
-        "form": form,
-        "can_manage": can_manage,
-    })
