@@ -135,3 +135,109 @@ class ClaimVisibilityTests(TestCase):
         self.assertEqual(response.status_code, 302)
         objection = ClaimObjection.objects.get(claim=claim)
         self.assertEqual(objection.submitted_by, self.employee)
+
+
+class ClaimObjectionReviewFlowTests(TestCase):
+    def setUp(self):
+        from datetime import timedelta
+        from accounts.models import RoleAssignment
+        from insurance.models import Contract, Insurer
+        from claims.models import ClaimObjection
+
+        self.company = Company.objects.create(code="OBJ-A", name="شرکت اعتراض")
+        self.owner = User.objects.create_user(
+            username="objection-owner", password="StrongPass!2026", must_change_password=False,
+            role="employee", national_id=NATIONAL_ID_C,
+        )
+        self.person = Person.objects.create(
+            company=self.company, user=self.owner, national_id=NATIONAL_ID_C,
+            first_name="کارمند", last_name="اعتراض", birth_date=date(1990, 1, 1),
+        )
+        self.insurer = Insurer.objects.create(name="بیمه‌گر اعتراض")
+        today = timezone.localdate()
+        self.contract = Contract.objects.create(
+            code="OBJ-CONTRACT", title="قرارداد درمان", insurer=self.insurer,
+            line="health", start_date=today - timedelta(days=365), end_date=today + timedelta(days=365),
+        )
+        self.claim = Claim.objects.create(
+            claim_number="OBJ-CLAIM-1", person=self.person, contract=self.contract,
+            insurer=self.insurer, service_type="درمان", requested_amount=100,
+            result_sent_at=timezone.now() - timedelta(days=1),
+        )
+        self.objection = ClaimObjection.objects.create(
+            claim=self.claim, submitted_by=self.owner, description="اعتراض به مبلغ خسارت",
+        )
+        self.head = User.objects.create_user(
+            username="objection-head", password="StrongPass!2026", must_change_password=False,
+            role="department_head",
+        )
+        self.specialist = User.objects.create_user(
+            username="objection-specialist", password="StrongPass!2026", must_change_password=False,
+            role="insurance_specialist",
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist, role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health", valid_from=today, is_active=True,
+        )
+
+    def test_department_head_can_review_answer_reopen_and_close_objection_with_history(self):
+        client = Client()
+        client.force_login(self.head)
+        detail = client.get(reverse("claim_detail", args=[self.claim.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]))
+
+        first = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.IN_REVIEW, "response": "بررسی آغاز شد",
+        })
+        self.assertEqual(first.status_code, 302)
+        second = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.ANSWERED, "response": "نتیجه بررسی ثبت شد",
+        })
+        self.assertEqual(second.status_code, 302)
+        self.objection.refresh_from_db()
+        self.assertEqual(self.objection.status, ClaimObjection.Status.ANSWERED)
+        self.assertIn("بررسی آغاز شد", self.objection.response)
+        self.assertIn("نتیجه بررسی ثبت شد", self.objection.response)
+
+        close = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.CLOSED, "response": "",
+        })
+        self.assertEqual(close.status_code, 302)
+        self.objection.refresh_from_db()
+        self.assertEqual(self.objection.status, ClaimObjection.Status.CLOSED)
+
+    def test_specialist_can_answer_but_cannot_close_objection(self):
+        from claims.models import ClaimObjection
+        self.objection.status = ClaimObjection.Status.ANSWERED
+        self.objection.response = "پاسخ اولیه"
+        self.objection.save(update_fields=["status", "response", "updated_at"])
+
+        client = Client()
+        client.force_login(self.specialist)
+        denied = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.CLOSED, "response": "",
+        })
+        self.assertEqual(denied.status_code, 403)
+        allowed = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.IN_REVIEW, "response": "مدرک تکمیلی درخواست شد",
+        })
+        self.assertEqual(allowed.status_code, 302)
+        self.objection.refresh_from_db()
+        self.assertEqual(self.objection.status, ClaimObjection.Status.IN_REVIEW)
+        self.assertIn("پاسخ اولیه", self.objection.response)
+        self.assertIn("مدرک تکمیلی درخواست شد", self.objection.response)
+
+    def test_employee_cannot_review_own_objection_and_invalid_jump_is_rejected(self):
+        client = Client()
+        client.force_login(self.owner)
+        response = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.CLOSED, "response": "بستن",
+        })
+        self.assertEqual(response.status_code, 403)
+
+        client.force_login(self.head)
+        response = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
+            "status": ClaimObjection.Status.CLOSED, "response": "پرش وضعیت",
+        })
+        self.assertEqual(response.status_code, 403)
