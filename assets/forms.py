@@ -57,6 +57,8 @@ class InsuredAssetForm(forms.ModelForm):
         asset_type = cleaned.get("asset_type")
         if asset_type == InsuredAsset.Type.VEHICLE and not cleaned.get("plate_number"):
             self.add_error("plate_number", "برای خودرو، شماره پلاک الزامی است.")
+        if self.instance.pk and self.instance.asset_type == InsuredAsset.Type.VEHICLE and asset_type != InsuredAsset.Type.VEHICLE:
+            self.add_error("asset_type", "نوع دارایی خودروی دارای مشخصات را نمی‌توان به نوع دیگری تغییر داد.")
         if cleaned.get("policy_start") and cleaned.get("policy_end") and cleaned["policy_end"] < cleaned["policy_start"]:
             self.add_error("policy_end", "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد.")
 
