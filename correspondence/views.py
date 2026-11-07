@@ -7,6 +7,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils.text import get_valid_filename
 from django.db import models
+from django.db import transaction
 from django.core.paginator import Paginator
 
 from accounts.access import (
@@ -18,7 +19,7 @@ from accounts.access import (
 )
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
-from .forms import CorrespondenceForm
+from .forms import CorrespondenceForm, CorrespondenceFollowUpForm
 from .models import Correspondence, CorrespondenceEvent
 from .services import create_correspondence, add_correspondence_event
 
@@ -189,3 +190,59 @@ def correspondence_download(request, pk):
         request=request,
     )
     return FileResponse(handle, as_attachment=True, filename=filename)
+
+
+
+@login_required
+def correspondence_detail(request, pk):
+    user = request.user
+    item = get_object_or_404(_scope(user), pk=pk)
+    can_manage = (
+        has_global_access(user)
+        or item.assigned_to_id == user.pk
+        or (item.assigned_to_id is None and item.created_by_id == user.pk)
+    )
+    if request.method == "POST":
+        if not can_manage:
+            raise PermissionDenied("پس از ارجاع، اقدام فقط برای مسئول جاری یا مدیر مجاز است.")
+        form = CorrespondenceFollowUpForm(request.POST)
+        if form.is_valid():
+            with transaction.atomic():
+                locked = get_object_or_404(_scope(user).select_for_update(), pk=pk)
+                before_status = locked.follow_up_status
+                before_due = locked.follow_up_due
+                locked.follow_up_status = form.cleaned_data["follow_up_status"]
+                locked.follow_up_due = form.cleaned_data["follow_up_due"]
+                locked.save(update_fields=["follow_up_status", "follow_up_due", "updated_at"])
+                event_type = (
+                    CorrespondenceEvent.EventType.STATUS_CHANGED
+                    if before_status != locked.follow_up_status
+                    else CorrespondenceEvent.EventType.FOLLOW_UP
+                )
+                add_correspondence_event(
+                    correspondence=locked,
+                    actor=user,
+                    event_type=event_type,
+                    summary=form.cleaned_data["note"],
+                    metadata={
+                        "previous_status": before_status,
+                        "status": locked.follow_up_status,
+                        "previous_due": before_due.isoformat() if before_due else None,
+                        "follow_up_due": locked.follow_up_due.isoformat() if locked.follow_up_due else None,
+                    },
+                    request=request,
+                )
+            messages.success(request, "پیگیری مکاتبه ثبت شد.")
+            return redirect("correspondence_detail", pk=pk)
+    else:
+        form = CorrespondenceFollowUpForm(initial={
+            "follow_up_status": item.follow_up_status,
+            "follow_up_due": item.follow_up_due,
+        })
+
+    return render(request, "correspondence/correspondence_detail.html", {
+        "item": item,
+        "events": item.events.select_related("actor").all(),
+        "form": form,
+        "can_manage": can_manage,
+    })
