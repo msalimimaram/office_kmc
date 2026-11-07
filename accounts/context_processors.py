@@ -10,6 +10,16 @@ def access_flags(request):
     if not user or not user.is_authenticated:
         return {"access": {}}
     staff = is_insurance_staff(user)
+    today = timezone.localdate()
+    assigned_correspondence = PositionAssignment.objects.filter(
+        user=user,
+        is_active=True,
+        valid_from__lte=today,
+        position__level__in=[
+            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
+            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+        ],
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
     return {
         "access": {
             "staff": staff,
@@ -21,7 +31,7 @@ def access_flags(request):
             "claims": staff or has_role(user, RoleAssignment.Role.INSURED_PERSON) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "contracts": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "assets": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
-            "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
+            "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or assigned_correspondence,
             "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "leadership_titles": has_global_access(user) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
