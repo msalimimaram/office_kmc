@@ -118,6 +118,7 @@ class AssetOperationalWorkflowTests(TestCase):
 
     def test_specialist_can_open_asset_detail_and_add_immutable_valuation_record(self):
         from auditlog.models import AuditEvent
+        from django.core.exceptions import ValidationError
         from assets.models import AssetValuation
 
         client = Client()
@@ -148,7 +149,7 @@ class AssetOperationalWorkflowTests(TestCase):
                 object_id=str(self.asset.pk),
             ).exists()
         )
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             valuation.save()
 
     def test_specialist_can_create_draft_policy_period_and_endorsement_with_secure_download(self):
