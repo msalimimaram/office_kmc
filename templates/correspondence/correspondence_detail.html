@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}جزئیات مکاتبه | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">شماره داخلی {{ item.internal_number }}</p>
+    <h1>{{ item.subject }}</h1>
+    <p class="muted">{{ item.get_channel_display }} · {{ item.get_direction_display }} · {{ item.occurred_at|date:"Y/m/d H:i" }}</p>
+  </div>
+  <a class="btn secondary" href="{% url 'correspondence_list' %}">بازگشت به مکاتبات</a>
+</div>
+
+<section class="panel">
+  <h2>اطلاعات مکاتبه</h2>
+  <div class="detail-grid">
+    <div><small>شرکت</small><strong>{{ item.company|default:"—" }}</strong></div>
+    <div><small>بیمه‌گر</small><strong>{{ item.insurer|default:"—" }}</strong></div>
+    <div><small>قرارداد</small><strong>{{ item.contract|default:"—" }}</strong></div>
+    <div><small>ثبت‌کننده</small><strong>{{ item.created_by }}</strong></div>
+    <div><small>مسئول جاری</small><strong>{{ item.assigned_to|default:"تخصیص نیافته" }}</strong></div>
+    <div><small>وضعیت پیگیری</small><strong>{{ item.get_follow_up_status_display }}</strong></div>
+    <div><small>مهلت پیگیری</small><strong>{{ item.follow_up_due|default:"—" }}</strong></div>
+    <div><small>مرجع بیرونی</small><strong>{{ item.external_reference|default:"—" }}</strong></div>
+  </div>
+  <h3>خلاصه</h3>
+  <p class="long-text">{{ item.summary|linebreaksbr }}</p>
+  {% if item.attachment %}
+    <p><a href="{% url 'correspondence_download' item.pk %}">دریافت امن پیوست ←</a></p>
+  {% endif %}
+</section>
+
+{% if can_manage %}
+<section class="panel narrow">
+  <p class="eyebrow">ثبت اقدام</p>
+  <h2>به‌روزرسانی پیگیری</h2>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary" type="submit">ثبت پیگیری</button>
+  </form>
+</section>
+{% else %}
+<section class="panel">
+  <p class="muted">این مکاتبه به مسئول دیگری تخصیص داده شده است. شما می‌توانید تاریخچه را مشاهده کنید، اما تا ارجاع مجدد حق اقدام ندارید.</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>تاریخچه اقدامات</h2>
+  <div class="timeline">
+    {% for event in events %}
+      <article class="timeline-item">
+        <strong>{{ event.get_event_type_display }}</strong>
+        <small>{{ event.occurred_at|date:"Y/m/d H:i" }} · {{ event.actor }}</small>
+        {% if event.summary %}<p class="long-text">{{ event.summary|linebreaksbr }}</p>{% endif %}
+      </article>
+    {% empty %}
+      <p class="empty">رویدادی برای این مکاتبه ثبت نشده است.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
