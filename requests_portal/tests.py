@@ -1,5 +1,6 @@
 from datetime import date
 from django.test import TestCase, Client
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from accounts.models import User
@@ -341,3 +342,83 @@ class MedicalRequestConfidentialityInvariantTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 ServiceRequest.objects.filter(pk=item.pk).update(is_confidential=False)
+
+
+
+class ServiceRequestAttachmentDownloadTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="ATT-A", name="شرکت پیوست")
+        self.other_company = Company.objects.create(code="ATT-B", name="شرکت دیگر پیوست")
+        self.owner = User.objects.create_user(
+            username="attachment-owner",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="employee",
+            company=self.company,
+        )
+        self.other_owner = User.objects.create_user(
+            username="attachment-other",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="employee",
+            company=self.other_company,
+        )
+        self.item = ServiceRequest.objects.create(
+            reference="IB-ATTACHMENT-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.owner,
+            company=self.company,
+            title="درخواست دارای پیوست",
+            description="شرح درخواست",
+            attachment=SimpleUploadedFile(
+                "supporting-document.pdf",
+                b"%PDF-1.4 test attachment",
+                content_type="application/pdf",
+            ),
+        )
+
+    def test_owner_can_download_request_attachment_and_download_is_audited(self):
+        from auditlog.models import AuditEvent
+
+        client = Client()
+        client.force_login(self.owner)
+        detail = client.get(reverse("request_detail", args=[self.item.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, reverse("request_attachment_download", args=[self.item.pk]))
+
+        response = client.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Disposition", "").split(";")[0], "attachment")
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4 test attachment")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.owner,
+                action="service_request_attachment_downloaded",
+                object_id=str(self.item.pk),
+            ).exists()
+        )
+
+    def test_attachment_download_is_denied_outside_request_visibility_scope(self):
+        client = Client()
+        client.force_login(self.other_owner)
+        response = client.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 404)
+
+        unauthenticated = Client()
+        response = unauthenticated.get(reverse("request_attachment_download", args=[self.item.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_attachment_download_returns_404_when_request_has_no_file(self):
+        item_without_file = ServiceRequest.objects.create(
+            reference="IB-ATTACHMENT-2",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.owner,
+            company=self.company,
+            title="درخواست بدون پیوست",
+            description="شرح درخواست",
+        )
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(reverse("request_attachment_download", args=[item_without_file.pk]))
+        self.assertEqual(response.status_code, 404)
