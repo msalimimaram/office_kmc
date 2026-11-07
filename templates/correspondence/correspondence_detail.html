@@ -29,12 +29,37 @@
   {% endif %}
 </section>
 
+
+<section class="panel">
+  <h2>رکوردهای مرتبط</h2>
+  {% for link in links %}
+    <div class="timeline-item">
+      <strong>{{ link.content_type.name }}</strong>
+      <p>{{ link.content_object|default:"رکورد حذف/غیرفعال شده" }}</p>
+      <small>اتصال توسط {{ link.created_by }} · {{ link.created_at|date:"Y/m/d H:i" }}</small>
+    </div>
+  {% empty %}
+    <p class="empty">رکورد مرتبطی به این مکاتبه متصل نشده است.</p>
+  {% endfor %}
+  {% if can_manage %}
+    <h3>اتصال رکورد موجود</h3>
+    <p class="muted">شناسه رکورد فقط پس از بررسی دسترسی به شرکت، قرارداد، خسارت یا درخواست ثبت می‌شود.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_link">
+      {{ link_form.as_p }}
+      <button class="btn secondary" type="submit">اتصال رکورد</button>
+    </form>
+  {% endif %}
+</section>
+
 {% if can_manage %}
 <section class="panel narrow">
   <p class="eyebrow">ثبت اقدام</p>
   <h2>به‌روزرسانی پیگیری</h2>
   <form method="post">
     {% csrf_token %}
+    <input type="hidden" name="action" value="follow_up">
     {{ form.as_p }}
     <button class="btn primary" type="submit">ثبت پیگیری</button>
   </form>
