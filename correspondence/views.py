@@ -31,7 +31,9 @@ def _scope(user):
     if has_global_access(user):
         return qs
 
-    allowed = models.Q(pk__in=[])
+    # Explicit current assignment grants access to the assigned item even for a
+    # supervisor/responsible position that is not represented by an app role.
+    allowed = models.Q(assigned_to=user, is_confidential=False)
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
