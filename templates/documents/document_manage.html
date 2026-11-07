@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}مدیریت سند | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">مدیریت سند</p>
+    <h1>{{ document.title }}</h1>
+    <p class="muted">{{ document.category }} · {{ document.get_security_level_display }}</p>
+  </div>
+  <a class="btn secondary" href="{% url 'document_list' %}">بازگشت به اسناد</a>
+</div>
+
+<section class="panel">
+  <h2>وضعیت پرونده سند</h2>
+  <div class="detail-grid">
+    <div><small>نسخه جاری</small><strong>{% if document.current_version %}نسخه {{ document.current_version.version_number }}{% else %}ندارد{% endif %}</strong></div>
+    <div><small>وضعیت بایگانی</small><strong>{% if document.is_archived %}بایگانی شده{% else %}فعال{% endif %}</strong></div>
+    <div><small>وضعیت ابطال</small><strong>{% if document.is_void %}باطل شده{% else %}معتبر{% endif %}</strong></div>
+    <div><small>بارگذار</small><strong>{{ document.uploaded_by }}</strong></div>
+  </div>
+  {% if document.archive_reason %}<p><strong>دلیل بایگانی:</strong> {{ document.archive_reason }}</p>{% endif %}
+  {% if document.void_reason %}<p><strong>دلیل ابطال:</strong> {{ document.void_reason }}</p>{% endif %}
+  {% if document.current_version and not document.is_archived and not document.is_void %}
+    <p><a href="{% url 'document_download' document.pk %}">دریافت نسخه جاری امن ←</a></p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>تاریخچه نسخه‌ها</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>نسخه</th><th>تاریخ ثبت</th><th>ثبت‌کننده</th><th>شرح تغییر</th><th>SHA256</th><th>وضعیت</th></tr></thead>
+      <tbody>
+      {% for version in versions %}
+        <tr>
+          <td>v{{ version.version_number }}</td>
+          <td>{{ version.uploaded_at|date:"Y/m/d H:i" }}</td>
+          <td>{{ version.uploaded_by }}</td>
+          <td>{{ version.change_reason|default:"—" }}</td>
+          <td><code>{{ version.checksum_sha256|default:"—" }}</code></td>
+          <td>{% if version.is_current %}جاری{% else %}نسخه قبلی{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty">نسخه‌ای برای این سند ثبت نشده است.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if can_add_version %}
+<section class="panel narrow">
+  <p class="eyebrow">نسخه‌بندی</p>
+  <h2>ثبت نسخه جدید</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add_version">
+    {{ version_form.as_p }}
+    <button class="btn primary" type="submit">ثبت نسخه جدید</button>
+  </form>
+</section>
+{% endif %}
+
+{% if can_manage_lifecycle %}
+  {% if can_archive %}
+  <section class="panel narrow">
+    <h2>بایگانی سند</h2>
+    <p class="muted">سند بایگانی‌شده از مسیر دریافت عادی قابل دانلود نخواهد بود.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="archive">
+      {{ lifecycle_form.as_p }}
+      <button class="btn secondary" type="submit">بایگانی با ثبت دلیل</button>
+    </form>
+  </section>
+  {% endif %}
+  {% if can_void %}
+  <section class="panel narrow">
+    <h2>ابطال سند</h2>
+    <p class="muted">ابطال یک وضعیت ثبت‌شده و قابل ممیزی است و نسخه‌های قبلی را حذف نمی‌کند.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="void">
+      {{ lifecycle_form.as_p }}
+      <button class="btn secondary" type="submit">ابطال با ثبت دلیل</button>
+    </form>
+  </section>
+  {% endif %}
+{% endif %}
+{% endblock %}
