@@ -24,6 +24,7 @@ def access_flags(request):
             "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
+            "leadership_titles": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
             "tasks": staff or PositionAssignment.objects.filter(user=user, is_active=True, valid_from__lte=timezone.localdate()).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())).exists(),
             "imports": staff or has_role(user, RoleAssignment.Role.INSURER_REP),
         },
