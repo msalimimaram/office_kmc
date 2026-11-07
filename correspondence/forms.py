@@ -129,3 +129,22 @@ class CorrespondenceForm(forms.ModelForm):
             if error:
                 self.add_error("attachment", error)
         return cleaned
+
+
+
+class CorrespondenceFollowUpForm(forms.Form):
+    follow_up_status = forms.ChoiceField(
+        label="وضعیت پیگیری",
+        choices=Correspondence.FollowUp.choices,
+    )
+    follow_up_due = forms.DateField(
+        label="مهلت بعدی پیگیری",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    note = forms.CharField(
+        label="شرح اقدام / نتیجه پیگیری",
+        min_length=2,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
