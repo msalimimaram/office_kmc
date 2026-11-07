@@ -1,9 +1,13 @@
+from pathlib import Path
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import models, transaction
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, render, redirect
+from django.http import FileResponse, Http404
+from django.utils.text import get_valid_filename
 
 from accounts.access import (
     company_ids_for,
@@ -311,3 +315,29 @@ def asset_update(request, pk):
         "asset": asset,
         "is_update": True,
     })
+
+
+
+@login_required
+def asset_endorsement_download(request, pk):
+    endorsement = get_object_or_404(
+        AssetPolicyEndorsement.objects.select_related("policy_period__asset"),
+        pk=pk,
+    )
+    asset = get_object_or_404(_asset_scope(request.user), pk=endorsement.policy_period.asset_id)
+    if not endorsement.document:
+        raise Http404("فایل الحاقیه در دسترس نیست.")
+    try:
+        handle = endorsement.document.open("rb")
+    except (OSError, ValueError):
+        raise Http404("فایل الحاقیه در دسترس نیست.")
+    filename = get_valid_filename(Path(endorsement.document.name).name) or f"asset-endorsement-{endorsement.pk}"
+    record_event(
+        actor=request.user,
+        action="asset_policy_endorsement_downloaded",
+        obj=asset,
+        summary=f"دریافت فایل الحاقیه {endorsement.endorsement_number} دارایی {asset.asset_code}",
+        after_data={"endorsement_id": endorsement.pk, "policy_period_id": endorsement.policy_period_id},
+        request=request,
+    )
+    return FileResponse(handle, as_attachment=True, filename=filename)
