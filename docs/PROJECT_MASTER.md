@@ -1,6 +1,6 @@
 # سند جامع پروژه Office KMC
 > وضعیت سند: **ممیزی زنده — فاز شناخت و ممیزی ایستا در حال تکمیل؛ پذیرش اجرایی هنوز تأیید نشده است.**  
-> آخرین snapshot بررسی‌شده: `d0983f92daf2ae0d9298dad00ae0c89e901379af` روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
+> آخرین snapshot کد بررسی‌شده: `cf283941452d3b3e5ef4cdc0d337bae8ff218605` روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
 > این سند باید در همان commit/شاخهٔ پیاده‌سازی به‌روزرسانی شود؛ تغییرات آن به‌تنهایی جای تست runtime یا بازبینی مالک کسب‌وکار را نمی‌گیرد.
 
 ## 1. معرفی پروژه
@@ -25,9 +25,9 @@ Office KMC یک پورتال وب داخلی برای عملیات اداره ب
 | مدل User | `accounts.User` |
 | static/media | `static/`، `staticfiles/`، `private_media/`؛ قرار داشتن media در private_media به‌تنهایی کنترل دسترسی وب‌سرور را ثابت نمی‌کند |
 | تعداد اپ‌ها | ۱۵ اپ Django در `INSTALLED_APPS` |
-| فایل‌های template | ۲۶ فایل شامل base، صفحات، partial و دو template داخلی workflow |
+| فایل‌های template | ۳۰ فایل شامل base، صفحات، partial و دو template داخلی workflow |
 | فایل‌های migration | ۳۸ فایل migration شماره‌دار در snapshot |
-| فایل‌های تست | ۱۸ فایل؛ ۱۰۳ متد `test_*` از روی سورس |
+| فایل‌های تست | ۱۸ فایل؛ ۱۲۸ متد `test_*` از روی سورس |
 | CI | GitHub Actions عمداً در پروژه تعریف نشده است |
 
 ### 2.1 ساختار سطح اول
@@ -236,7 +236,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | workflow | `workflow/` | workflow_case_list | workflow_case_list | `workflow/workflow_case_list.html` |
 | workflow | `workflow/<int:pk>/` | workflow_case_detail | workflow_case_detail | POST برای acknowledge/transition/final-lock؛ `workflow/workflow_case_detail.html` |
 
-**تعداد routeهای سفارشی ثبت‌شده:** ۲۵ در ۱۱ فایل `urls.py` اپ‌ها، به‌علاوه ۶ مسیر root (شامل Admin، auth و dashboard). شمارش pathهای نهایی با resolve/runtime هنوز اجرا نشده است.
+**تعداد routeهای سفارشی ثبت‌شده:** ۳۳ در ۱۱ فایل `urls.py` اپ‌ها، به‌علاوه ۶ مسیر root (شامل Admin، auth و dashboard). شمارش pathهای نهایی با resolve/runtime هنوز اجرا نشده است.
 
 ### 7.3 ناوبری base
 
@@ -434,3 +434,74 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 
 ---
 **قاعده نگهداری:** هر اصلاح یا آزمون جدید باید در بخش مربوط همین سند ثبت شود: commit SHA، فایل‌های تغییرکرده، route/template، نام تست واقعی و نتیجه واقعی اجرای آن.
+
+
+## 16. الحاقات ممیزی و تکمیل پس از snapshot اولیه (2026-11-07)
+
+این بخش وضعیت اجزایی را ثبت می‌کند که پس از نسخه اولیه این سند به شاخه پیاده‌سازی وصل شده‌اند. این بخش بر ردیف‌های قدیمی و متناقض جدول شکاف بخش ۱۳ مقدم است. HEAD کد بررسی‌شده پیش از commit همین به‌روزرسانی سند: cf283941452d3b3e5ef4cdc0d337bae8ff218605.
+
+### 16.1 routeها و جریان‌های اضافه‌شده
+
+| App | Method | Path | Name | View | Template / نقطه اتصال | وضعیت کد |
+|---|---|---|---|---|---|---|
+| requests_portal | GET | /requests/<pk>/attachment/ | request_attachment_download | request_attachment_download | لینک در request_detail.html فقط در صورت وجود attachment | پیاده‌سازی شده؛ تست runtime معلق |
+| claims | POST | /claims/<pk>/objections/<objection_pk>/review/ | claim_objection_review | claim_objection_review | فرم اقدام در claim_detail.html | پاسخ/وضعیت/بستن برای نقش مجاز؛ ارجاع بیمه‌گر هنوز کامل نیست |
+| documents | GET/POST | /documents/<pk>/manage/ | document_manage | document_manage | document_manage.html؛ لینک از document_list.html | نسخه‌بندی، بایگانی، ابطال؛ تست runtime معلق |
+| organizations | GET/POST | /organizations/leadership-titles/ | company_leadership_titles | company_leadership_titles | leadership_titles.html؛ منوی base و ستون در people list | پیاده‌سازی شده؛ scope شرکت |
+| correspondence | GET/POST | /correspondence/<pk>/ | correspondence_detail | correspondence_detail | correspondence_detail.html؛ subject فهرست به جزئیات لینک است | ثبت پیگیری/وضعیت و history append-only؛ تست runtime معلق |
+| assets | GET | /assets/<pk>/ | asset_detail | asset_detail | asset_detail.html؛ لینک از فهرست | جزئیات دارایی و سوابق؛ تست runtime معلق |
+| assets | GET/POST | /assets/<pk>/edit/ | asset_update | asset_update | asset_form.html در حالت update | ویرایش دارایی و Vehicle؛ تست runtime معلق |
+| assets | GET | /assets/endorsements/<pk>/download/ | asset_endorsement_download | asset_endorsement_download | لینک از asset detail | دانلود امن پس از scope دارایی + ممیزی؛ تست runtime معلق |
+
+### 16.2 فرم‌ها و templateهای اضافه‌شده
+
+| App | فرم | اعتبارسنجی/دامنه | Template |
+|---|---|---|---|
+| claims | ClaimObjectionReviewForm | وضعیت از choices مدل؛ برای ANSWERED پاسخ غیرخالی لازم است | claim_detail.html |
+| documents | DocumentVersionForm | فایل و شرح تغییر؛ signature/type/size در view با validate_uploaded_file | document_manage.html |
+| documents | DocumentLifecycleActionForm | دلیل حداقل ۳ حرف و حداکثر ۵۰۰۰ کاراکتر | document_manage.html |
+| organizations | CompanyLeadershipTitleForm | شرکت/شخص در محدوده انتصاب شرکت و اشتغال معتبر؛ title و بازه اعتبار مدل validate می‌شوند | leadership_titles.html |
+| correspondence | CorrespondenceFollowUpForm | status از choices مدل؛ تاریخ پیگیری اختیاری؛ شرح اقدام ۲ تا ۲۰۰۰ کاراکتر | correspondence_detail.html |
+| assets | AssetValuationForm | مقادیر منفی توسط مدل و قید DB رد می‌شوند؛ سابقه ارزیابی immutable است | asset_detail.html |
+| assets | AssetPolicyPeriodForm | قرارداد محدود به شرکت مالک؛ بیمه‌گر باید با قرارداد یکسان باشد؛ status در view به draft تنظیم می‌شود | asset_detail.html |
+| assets | AssetPolicyEndorsementForm | دوره بیمه‌نامه محدود به همان دارایی؛ فایل با signature/type/size اعتبارسنجی می‌شود | asset_detail.html |
+
+### 16.3 وضعیت شکاف‌های قبلی پس از تغییرات
+
+| App | Capability | Verdict قبلی | وضعیت کد پس از این دور | آزمون تعریف‌شده (اجرا نشده) |
+|---|---|---|---|---|
+| requests_portal | دریافت امن پیوست درخواست | PARTIAL | view/route/link و ممیزی دانلود اضافه شد؛ بستهٔ کد کامل، runtime تأیید نشده | ServiceRequestAttachmentDownloadTests (۳ تست) |
+| claims | رسیدگی به اعتراض | PARTIAL | فرم/view/route و انتقال‌های محدود وضعیت و پاسخ append به متن قبلی اضافه شد؛ رفت‌وبرگشت به بیمه‌گر و مسئول ارجاع جداگانه هنوز موجود نیست | ClaimObjectionReviewFlowTests (۳ تست) |
+| claims | پرداخت دستی/برگشت پرداخت | PARTIAL / BLOCKED | record_payment و reverse_payment سرویس دارند ولی pending approval state یا endpoint workflow ندارند؛ از ساخت فرم یک‌مرحله‌ای که تأییدکننده را صوری کند خودداری شده | آزمون‌های service موجود در claims/test_payments.py؛ endpoint test وجود ندارد |
+| documents | نسخه جدید سند | PARTIAL | route مدیریت و add_document_version به فرم/صفحه وصل شد؛ runtime تأیید نشده | DocumentManagementFlowTests.test_specialist_can_add_document_version_and_current_version_is_updated |
+| documents | آرشیو/ابطال سند | PARTIAL | route مدیریت و سرویس‌های archive/void با دلیل و دسترسی global وصل شدند؛ runtime تأیید نشده | DocumentManagementFlowTests (۵ تست مرتبط) |
+| organizations | اعلام سمت مدیریتی شرکت | ORPHAN-MODEL | form/view/route/template/navigation/people-list وصل شد؛ عنوان هیچ permissionی ایجاد نمی‌کند؛ runtime تأیید نشده | CompanyLeadershipTitleFlowTests (۴ تست) |
+| correspondence | پیگیری مکاتبه و مشاهده تاریخچه | PARTIAL | جزئیات و ثبت follow-up/status event اضافه شد؛ explicit assignee می‌تواند مکاتبه را ببیند/اقدام کند؛ runtime تأیید نشده | CorrespondenceFollowUpFlowTests (۴ تست) |
+| assets | ثبت و ویرایش دارایی پایه | PARTIAL | جزئیات، edit route و vehicle edit وصل شد؛ runtime تأیید نشده | AssetOperationalWorkflowTests.test_specialist_can_update_asset_and_vehicle_details_through_scoped_route |
+| assets | valuation | PARTIAL | ثبت/نمایش سابقه immutable وصل شد؛ تأییدکننده/مرجع تأیید در ACL روشن نیست | AssetOperationalWorkflowTests.test_specialist_can_open_asset_detail_and_add_immutable_valuation_record |
+| assets | دوره بیمه‌نامه و الحاقیه | PARTIAL | ثبت پیش‌نویس دوره، الحاقیه و دانلود امن به دارایی وصل شد؛ تأیید/فعال‌سازی همچنان BLOCKED | AssetOperationalWorkflowTests.test_specialist_can_create_draft_policy_period_and_endorsement_with_secure_download و test_user_from_another_company_cannot_download_asset_endorsement |
+
+### 16.4 محدودیت‌ها و تصمیم‌های رعایت‌شده
+
+1. CompanyLeadershipTitle: ثبت سمت مطابق چرخه بخش ۳ کاتالوگ انجام شده است؛ چون سند قواعد تصریح می‌کند سمت مدیریتی به‌تنهایی مجوز داده‌ای ایجاد نمی‌کند، نه view و نه context processor آن را برای authorization استفاده نمی‌کنند.
+2. Correspondence: بعد از ارجاع به assignee دیگر، ایجادکننده حق POST ندارد؛ مسئول فعلی یا دسترسی سراسری مجاز است. موقعیت Supervisor/Responsible با PositionAssignment زمان‌دار در منوی مکاتبات نمایش داده می‌شود.
+3. Documents: افزودن نسخه برای کارشناس/نقش سراسری؛ archive/void در این پیاده‌سازی محافظه‌کارانه به global scope محدود شده‌اند. این محدودیت تا تعیین مجوز جزئی‌تر در ماتریس حفظ می‌شود.
+4. Assets: ثبت/ویرایش پایه، ارزیابی، دوره و الحاقیه برای کارشناس رشته مجاز است. ارزیابی append-only می‌ماند. دوره جدید با وضعیت draft ایجاد می‌شود و approved_by خالی است. هیچ صفحه/دکمه‌ای دوره را فعال یا تأییدشده نشان نمی‌دهد. این عملیات تا تعیین مرجع تأیید و state transition صریح BLOCKED هستند.
+5. Claim payment: هر دو سرویس پرداخت دستی و برگشت نیازمند تأییدکننده مستقل‌اند؛ مدل فعلی وضعیت درخواست تأیید/صف reviewer ندارد. افزودن view تک‌مرحله‌ای که یک نام را به‌عنوان تأییدکننده انتخاب کند، تأیید واقعی نیست و مجاز به پیاده‌سازی نیست.
+6. Claim objection: وضعیت و response به‌روزرسانی می‌شود و response قبلی در متن حفظ می‌شود؛ اما route/assignee/رویداد دامنه‌ای مستقل برای ارسال به بیمه‌گر و بازگشت به اداره در مدل فعلی موجود نیست.
+7. PersonChangeRequestForm: هنوز یتیم است. آن را به عنوان ویرایش مستقیم Person متصل نکرده‌ایم، چون قواعد مصوب تغییر موبایل/شبا/اطلاعات حساس را به گردش تأیید بیمه‌شده ← نماینده شرکت ← بیمه‌گر ← نماینده شرکت محدود کرده‌اند و مدل درخواست اختصاصی با old/new values و timestamps لازم در schema فعلی دیده نشد.
+8. Workflow: موتور workflow فعلی در درخواست‌ها استفاده می‌شود؛ اتصال عمومی به claims/contracts/objections/correspondence/assets هنوز کامل نیست. اتصال بدون mapping معتبر ContentType، definition و scope انجام نمی‌شود.
+
+### 16.5 تست‌ها و وضعیت اجرای واقعی
+
+- تعداد متدهای تست از روی سورس فعلی: ۱۲۸ در ۱۸ فایل. این عدد تعداد تعریف‌هاست، نه تعداد اجراشده.
+- در این محیط checkout محلی و شبکه دسترسی به GitHub برای دریافت clone وجود نداشت؛ manage.py check، showmigrations، test، runserver روی HEAD جاری اجرا نشدند.
+- تست‌های بالا فقط در source اضافه شده‌اند؛ وضعیت همه آنها NOT RUN / نیازمند اجرای واقعی روی سیستم توسعه‌دهنده است.
+- هیچ migration جدیدی در این موج اضافه نشده است؛ چون تغییرات فقط view/form/template/url/test بوده‌اند. بااین‌حال، makemigrations --check --dry-run برای HEAD فعلی نیز اجرا نشده و باید در محیط محلی اجرا شود.
+- main همچنان دست‌نخورده و PR #1 باز و Draft است.
+
+### 16.6 snapshot و commits این موج
+
+- HEAD کد پیش از این commit سند: cf283941452d3b3e5ef4cdc0d337bae8ff218605.
+- commit اصلاح تکمیلی پس از بازبینی مسیر ویرایش خودرو: cf283941452d3b3e5ef4cdc0d337bae8ff218605 (fix(assets): populate vehicle data before initial save).
+- پس از ثبت این سند، SHA جدید commit سند باید از نتیجه GitHub ثبت شود.
