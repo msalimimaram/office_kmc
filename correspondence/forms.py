@@ -148,3 +148,15 @@ class CorrespondenceFollowUpForm(forms.Form):
         max_length=2000,
         widget=forms.Textarea(attrs={"rows": 4}),
     )
+
+
+
+class CorrespondenceLinkForm(forms.Form):
+    TARGET_CHOICES = (
+        ("company", "شرکت"),
+        ("contract", "قرارداد"),
+        ("claim", "خسارت"),
+        ("request", "درخواست"),
+    )
+    target_type = forms.ChoiceField(label="نوع رکورد مرتبط", choices=TARGET_CHOICES)
+    target_id = forms.IntegerField(label="شناسه رکورد", min_value=1)
