@@ -601,7 +601,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | tasks | دارد | دارد | دارد | دارد | دارد؛ فقط‌خواندنی | 5 | task_list، task_form، task_update |
 | workflow | دارد | دارد؛ POST action در view | فایل forms.py ندارد | دارد | دارد؛ پیکربندی تعریف‌ها | 12 | workflow_case_list، workflow_case_detail |
 
-- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 139 (پس از افزودن 5 تست HTTP/جریان در فاز ۴).
+- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 146 در snapshot فعلی (شمارش static؛ نتایج اجرا در 17.19 ثبت شده است).
 - 13 اپ دارای `models.py` و 13 اپ دارای `views.py` هستند؛ `core` و `dashboard` عمداً مدل ندارند.
 - 10 اپ دارای `forms.py`، 11 اپ دارای `urls.py` و 13 اپ دارای `admin.py` هستند.
 - 30 فایل HTML موجود است: 28 فایل در `templates/` و 2 فایل در `workflow/templates/workflow/`. `templates/base.html` و `templates/includes/pagination.html` مشترک‌اند.
@@ -737,7 +737,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 
 ### 17.14 فهرست کامل URLها
 
-شش مسیر ریشه و ۳۳ مسیر اپی (۳۹ الگوی `path()`) در سورس ثبت شده‌اند. روش HTTP بر اساس decorator و مصرف request در view گزارش شده است؛ این فهرست جایگزین اجرای `resolve()` در محیط Django نیست.
+شش مسیر ریشه و ۳۵ مسیر اپی (۴۱ الگوی `path()`) در snapshot فعلی ثبت شده‌اند. روش HTTP بر اساس decorator و مصرف request در view گزارش شده است؛ این فهرست جایگزین اجرای `resolve()` در محیط Django نیست.
 
 | App | Path | URL name | Method | View |
 |---|---|---|---|---|
@@ -1015,4 +1015,10 @@ Commits:
 - PR #1: Open، Draft، unmerged؛ 364 commit ahead و 0 behind در snapshot پیش از همین commit مستنداتی؛ changed files=131. مقدار ahead پس از این commit سند یک واحد افزایش می‌یابد.
 - working tree محلی ویندوز از GitHub remote قابل مشاهده نیست؛ هیچ ادعایی درباره clean بودن clone کاربر ثبت نمی‌شود.
 - دو تلاش برای ایجاد checkout قابل اجرا در محیط این نشست به‌خاطر DNS/عدم materialization شکست خوردند؛ اجرای `manage.py` ممکن نبود. این محدودیت محیط با وضعیت سلامت خود پروژه یا پایگاه داده یکی نیست.
+
+
+
+### 17.24 اصلاح تعداد route و test در خلاصهٔ اولیه
+
+در snapshot نهایی پس از اتصال دفترکل پرداخت، claims دو مسیر POST جدید دارد؛ بنابراین تعداد کل URLها از ۳۹ به ۴۱ رسیده است (۳۵ مسیر اپی + ۶ مسیر root). تعداد تعریف‌های test نیز پس از افزودن تست‌های document link، payment ledger و task timing به ۱۴۶ رسیده است. جدول‌های تفصیلی 17.14 و 17.17 و گزارش اجرای شروط 17.19 بر همین شمارش به‌روز متکی‌اند. این مقادیر شمارش سورس‌اند و تعداد تست اجراشده نیستند.
 
