@@ -27,7 +27,7 @@ Office KMC یک پورتال وب داخلی برای عملیات اداره ب
 | تعداد اپ‌ها | ۱۵ اپ Django در `INSTALLED_APPS` |
 | فایل‌های template | ۳۰ فایل شامل base، صفحات، partial و دو template داخلی workflow |
 | فایل‌های migration | ۳۸ فایل migration شماره‌دار در snapshot |
-| فایل‌های تست | ۱۸ فایل؛ ۱۳۶ متد `test_*` از روی سورس |
+| فایل‌های تست | ۱۸ فایل؛ ۱۳۹ متد `test_*` از روی سورس |
 | CI | GitHub Actions عمداً در پروژه تعریف نشده است |
 
 ### 2.1 ساختار سطح اول
@@ -601,7 +601,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | tasks | دارد | دارد | دارد | دارد | دارد؛ فقط‌خواندنی | 5 | task_list، task_form، task_update |
 | workflow | دارد | دارد؛ POST action در view | فایل forms.py ندارد | دارد | دارد؛ پیکربندی تعریف‌ها | 12 | workflow_case_list، workflow_case_detail |
 
-- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 136 (پس از افزودن 5 تست HTTP/جریان در فاز ۴).
+- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 139 (پس از افزودن 5 تست HTTP/جریان در فاز ۴).
 - 13 اپ دارای `models.py` و 13 اپ دارای `views.py` هستند؛ `core` و `dashboard` عمداً مدل ندارند.
 - 10 اپ دارای `forms.py`، 11 اپ دارای `urls.py` و 13 اپ دارای `admin.py` هستند.
 - 30 فایل HTML موجود است: 28 فایل در `templates/` و 2 فایل در `workflow/templates/workflow/`. `templates/base.html` و `templates/includes/pagination.html` مشترک‌اند.
@@ -676,7 +676,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 
 ### 17.12 وضعیت فعلی اجرای Phase 4 و محدودیت محیط
 
-- تعریف تست‌ها در سورس از 131 به 136 رسیده؛ در requests_portal از 18 به 21 و در organizations از 7 به 9 افزایش یافته است. این شمارش static است، نه اجرای suite.
+- تعریف تست‌ها در سورس از 131 به 139 رسیده؛ در requests_portal از 18 به 21 و در organizations از 7 به 9 افزایش یافته است. این شمارش static است، نه اجرای suite.
 - تلاش اول برای checkout محلی با `git clone` با خطای DNS `Could not resolve host: github.com` متوقف شد.
 - تلاش دوم برای materialize کردن archive مخزن نیز checkout قابل اجرا نساخت؛ محیط همچنان فایل‌های پروژه/دیتابیس را در اختیار نمی‌گذارد.
 - به همین دلیل هیچ تست جدید، تست اپ، full suite یا `manage.py check/showmigrations/runserver` اجرا نشده است. دو تلاش دسترسی به checkout شکست خورده و هر دو patch تا آزمون واقعی BLOCKED باقی می‌مانند.
@@ -906,7 +906,7 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 |---:|---|---|---|
 | 1 | `python manage.py check` | اجرا نشد؛ checkout محلی و محیط پروژه در دسترس نیست | FAIL / NOT VERIFIED |
 | 2 | `showmigrations` بدون migration معلق | اجرا نشد؛ وضعیت دیتابیس قابل مشاهده نیست | FAIL / NOT VERIFIED |
-| 3 | full test suite صفر failure/error | 136 تعریف تست در سورس؛ هیچ‌کدام در این runtime اجرا نشده‌اند | FAIL / NOT VERIFIED |
+| 3 | full test suite صفر failure/error | 139 تعریف تست در سورس؛ هیچ‌کدام در این runtime اجرا نشده‌اند | FAIL / NOT VERIFIED |
 | 4 | `runserver` بدون خطا | اجرا نشد؛ checkout/runtime در دسترس نیست | FAIL / NOT VERIFIED |
 | 5 | هیچ orphan model | در بررسی static هر مدل به view/form/admin یا نقش زیرساختی متصل است؛ `PersonEmployment` و `DocumentLink` flow ناقص دارند و در gaps هستند، نه orphan قطعی | NOT VERIFIED |
 | 6 | هیچ orphan view | viewهای 35گانه به route root/app وصل شده‌اند؛ تست URL resolver اجرا نشده | NOT VERIFIED |
@@ -918,3 +918,26 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 | 12 | هیچ BLOCKED بدون دلیل | تمام 20 gap و 5 exclusion ثبت شده؛ 3 patch جدید دلیل BLOCKED runtime دارند؛ 17 gap دیگر هنوز کد/test اجراشده ندارند و در ادامهٔ کار باید per-item تعیین تکلیف شوند | PASS در ثبت دلیل، نه در تکمیل محصول |
 | 13 | HEAD و commitها روی main/master و working tree پاک | HEAD و commitهای implementation ثبت شده‌اند؛ PR #1 هنوز Draft/Open و 347 commit جلوتر از main است؛ main ادغام نشده و working tree محلی ویندوز قابل مشاهده نیست | FAIL |
 
+
+
+### 17.20 تکمیل سورس Gap #13 — اتصال سند به رکوردهای دامنه
+
+در آخرین موج فاز ۴، قابلیت از پیش طراحی‌شدهٔ `DocumentLinkForm` به صفحهٔ موجود مدیریت سند وصل شد؛ صفحه یا الگوی معماری تازه ایجاد نشد.
+
+- `documents/views.py`: فرم `DocumentLinkForm` import و در POST با `action=add_link` مصرف می‌شود.
+- دسترسی مقصد از scope موجود خود اپ استفاده می‌کند: `scoped_claims_for`، `scoped_requests_for`، `correspondence.views._scope`، `insurance.views._contract_scope`، `assets.views._asset_scope` و `tasks.views._visible_tasks`.
+- تطبیق مالکیت سند با مقصد کنترل می‌شود: سند شرکتی فقط به رکوردی با همان شرکت/شرکت‌های مجاز و سند شخصی فقط به رکوردی با همان شخص قابل اتصال است.
+- مقصد خارج از scope یافت نمی‌شود؛ اتصال تکراری قبل از درج کنترل می‌شود؛ رویداد `document_link_created` در AuditEvent ذخیره می‌شود.
+- ارتباط‌های قبلی فقط در صورتی در صفحه نشان داده می‌شوند که مقصد همچنان در scope قابل مشاهدهٔ کاربر باشد.
+- `templates/documents/document_manage.html`: فرم اتصال و فهرست لینک‌های قابل مشاهده در صفحهٔ موجود اضافه شد. ورودی طبیعی کاربر از دکمهٔ مدیریت سند در فهرست اسناد است.
+- `documents/tests.py`: سه تست HTTP افزوده شد:
+  - `DocumentLinkFlowTests.test_global_operator_can_link_document_to_an_existing_request_and_view_link`
+  - `DocumentLinkFlowTests.test_specialist_can_link_only_a_request_in_their_visible_assignment_scope`
+  - `DocumentLinkFlowTests.test_duplicate_document_target_link_is_not_created_twice`
+
+Commitهای این قابلیت:
+- `cc14e16c1219a42d82268c75ac59b1b297ed3d68` — اتصال view/service در صفحهٔ مدیریت سند.
+- `78fbbf1368f455fc61089ea263379acd27121bb0` — فرم و جدول ارتباط در template موجود.
+- `99988dfbd42d4ff0cfd9e3f3660f8da7e9c0e560` — تست‌های HTTP اتصال scoped.
+
+تعریف‌های تست static از 136 به **139** رسید؛ فایل documents/tests.py از 10 به 13 متد test رسید. هیچ‌یک از این سه تست در محیط Django اجرا نشده‌اند؛ بنابراین Gap #13 از حیث پیاده‌سازی سورس تکمیل‌شده اما از حیث تأیید runtime همچنان **BLOCKED** است و CLOSED محسوب نمی‌شود.
