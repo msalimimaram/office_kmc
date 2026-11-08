@@ -1,4 +1,35 @@
-{% extends "base.html" %}{% block title %}جزئیات خسارت{% endblock %}
+{% extends "base.html" %}{% block title %}جزئیات خسارت
+{% if can_manage_payments %}
+<section class="panel">
+  <p class="eyebrow">دفترکل مالی خسارت</p>
+  <h2>ثبت رویداد پرداخت</h2>
+  <p class="muted">این بخش فقط سابقه پرداخت اعلام‌شده را ثبت می‌کند و هیچ انتقال وجه بانکی انجام نمی‌دهد. ثبت‌کننده و تأییدکننده باید دو کاربر مستقل و مجاز باشند.</p>
+  <form method="post" action="{% url 'claim_payment_create' claim.pk %}" class="form-grid">
+    {% csrf_token %}
+    {{ payment_form.as_p }}
+    <button class="btn primary" type="submit">ثبت پرداخت با تأیید مستقل</button>
+  </form>
+  <h2>تاریخچه پرداخت و اصلاح</h2>
+  {% for payment in payment_entries %}
+    <div class="timeline-item">
+      <strong>{% if payment.entry_type == "payment" %}پرداخت{% else %}برگشت/اصلاح{% endif %} · {{ payment.amount|floatformat:0 }}</strong>
+      <small>{{ payment.paid_at|default:payment.created_at }} · ثبت‌کننده: {{ payment.recorded_by }} · تأییدکننده: {{ payment.confirmed_by }}</small>
+      {% if payment.source_reference %}<p>مرجع منبع: {{ payment.source_reference }}</p>{% endif %}
+      {% if payment.note %}<p>{{ payment.note }}</p>{% endif %}
+      {% if payment.entry_type == "payment" %}
+        <form method="post" action="{% url 'claim_payment_reverse' claim.pk payment.pk %}" class="form-grid">
+          {% csrf_token %}
+          {{ reversal_form.as_p }}
+          <button class="btn secondary" type="submit">ثبت برگشت با تأیید مستقل</button>
+        </form>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="empty">هنوز رویدادی در دفترکل پرداخت ثبت نشده است.</p>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
 {% block content %}<div class="page-heading"><div><p class="eyebrow">پرونده خسارت</p><h1>{{ claim.claim_number }}</h1><p class="muted">{{ claim.person }} · {{ claim.service_type }}</p></div><a class="btn secondary" href="{% url 'claim_list' %}">بازگشت به فهرست</a></div>
 <section class="stats"><article class="stat"><div><span class="muted">مبلغ ثبت‌شده</span><strong>{{ claim.requested_amount|floatformat:0 }}</strong></div></article><article class="stat"><div><span class="muted">مبلغ تأییدشده</span><strong>{{ claim.assessed_amount|floatformat:0 }}</strong></div></article><article class="stat"><div><span class="muted">قابل پرداخت</span><strong>{{ claim.payable_amount|floatformat:0 }}</strong></div></article><article class="stat"><div><span class="muted">پرداخت‌شده</span><strong>{{ claim.paid_amount|floatformat:0 }}</strong></div></article></section>
 <section class="panel"><h2>اطلاعات خسارت</h2><div class="detail-grid"><div><small>تاریخ خدمت</small><strong>{{ claim.service_date|default:"—" }}</strong></div><div><small>تاریخ ثبت</small><strong>{{ claim.registered_date|default:"—" }}</strong></div><div><small>تاریخ پرداخت</small><strong>{{ claim.payment_date|default:"—" }}</strong></div><div><small>وضعیت</small><strong>{{ claim.get_status_display }}</strong></div></div><p class="muted">این سامانه تصویر مدارک پزشکی نگهداری نمی‌کند. نوع خدمت و اطلاعات ساختاریافته نمایش داده می‌شوند.</p></section>
