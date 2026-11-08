@@ -61,6 +61,38 @@
 </section>
 {% endif %}
 
+
+{% if can_add_version and not document.is_archived and not document.is_void %}
+<section class="panel narrow">
+  <p class="eyebrow">ارتباط پرونده‌ها</p>
+  <h2>اتصال سند به رکورد عملیاتی</h2>
+  <p class="muted">رکورد مقصد فقط در محدوده دسترسی شما قابل انتخاب است و با شرکت یا شخص متصل به سند تطبیق داده می‌شود.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add_link">
+    {{ link_form.as_p }}
+    <button class="btn primary" type="submit">اتصال سند به رکورد</button>
+  </form>
+  {% if visible_links %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>نوع ارتباط</th><th>رکورد مقصد</th><th>ثبت‌کننده</th><th>تاریخ</th></tr></thead>
+        <tbody>
+          {% for item in visible_links %}
+          <tr>
+            <td>{{ item.link.content_type }}</td>
+            <td>{{ item.target }}</td>
+            <td>{{ item.link.created_by }}</td>
+            <td>{{ item.link.created_at|date:"Y/m/d H:i" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if can_manage_lifecycle %}
   {% if can_archive %}
   <section class="panel narrow">
