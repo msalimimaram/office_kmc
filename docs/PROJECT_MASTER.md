@@ -864,3 +864,57 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 
 تعداد templateها در Git tree برابر ۳۰ است: ۲۸ در پوشه سراسری و ۲ در ریشه template اپ workflow. اتصال render/include در سورس بررسی شده؛ برای رد قطعی orphan runtime لازم است template rendering در test client اجرا شود.
 
+
+
+### 17.17 خلاصهٔ ممیزی per اپ و وضعیت شکاف‌ها
+
+شمار مدل/view/form/template/URL از فایل‌های سورس در snapshot و فهرست‌های همین سند استخراج شده است. ستون Forms تعداد کلاس‌های فرم تعریف‌شده در `forms.py` را می‌شمارد؛ فرم‌های درون view (مانند document upload) جداگانه در جدول view ثبت شده‌اند. شمار USED عمداً عددگذاری نشده، چون «استفاده واقعی» نیازمند اجرای جریان و تست client است و در این محیط runtime تأیید نشده است.
+
+| App | Models | Views | Forms | Templates | URLs در app | USED | UNLINKED | ORPHAN model/view/template/URL | PARTIAL | BROKEN | MISSING |
+|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| accounts | 5 | 1 | 1 | 2 | 0* | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 1 |
+| announcements | 1 | 3 | 1 | 2 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 0 |
+| assets | 5 | 5 | 4 | 3 | 5 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
+| auditlog | 1 | 0 | 0 | 0 | 0 | سرویس داخلی؛ runtime نامشخص | 0 | 0 (مدل در Admin readonly) | 0 | 0 | 0 |
+| claims | 3 | 3 | 2 | 2 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 3 | 0 | 0 |
+| core | 0 | 0 | 0 | 0 | 0 | helper زیرساختی؛ runtime نامشخص | 0 | 0 | 0 | 0 | 1 |
+| correspondence | 4 | 4 | 3 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 0 |
+| dashboard | 0 | 1 | 0 | 1 | 0* | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 2 |
+| documents | 4 | 4 | 3 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
+| imports | 1 | 2 | 1 | 1 | 2 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 1 |
+| insurance | 3 | 1 | 0 | 1 | 1 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
+| organizations | 4 | 2 | 2 | 2 | 2 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 1 | 1 |
+| requests_portal | 1 | 4 | 1 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 1 | 0 |
+| tasks | 2 | 3 | 1 | 3 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
+| workflow | 7 | 2 | 0 | 2 | 2 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 1 |
+| **جمع** | **41** | **35** | **19** | **28 app templates** | **29 در اپ‌ها** | **تأیید runtime نشده** | **0 مورد قطعی** | **0 مدل/view/template/URL قطعی** | **10** | **2** | **7** |
+
+* مسیرهای accounts و dashboard در `config/urls.py` ریشه ثبت شده‌اند، نه در `accounts/urls.py` یا `dashboard/urls.py`. ۶ مسیر ریشه شامل Admin، login/logout/password-change و دو مسیر dashboard هستند. مجموع الگوهای URL برابر ۳۹ است: ۳۳ مسیر اپی به‌اضافه ۶ مسیر root؛ عدد ۲۹ در جمع جدول بالا تعداد مسیرهای app-level برای اپ‌های دارای `urls.py` است و ۴ مسیر اختصاصی Admin/auth در root به حساب آن افزوده می‌شود، همراه با دو dashboard route.
+
+مجموع ۲۸ template داخل اپ‌ها/صفحه‌هاست؛ دو فایل مشترک `templates/base.html` و `templates/includes/pagination.html` آن را به ۳۰ فایل واقعی می‌رسانند. صفر بودن UNLINKED و ORPHAN فقط نتیجهٔ بررسی static view/URL/template/model است؛ آزمون runtime برای قطعیت لازم است. دو فرم یتیم از نظر اتصال، در خود Gap #6 (`PersonChangeRequestForm`) و Gap #13 (`DocumentLinkForm`) مستند شده‌اند و به‌عنوان قابلیت USED شمرده نشده‌اند.
+
+### 17.18 پیوندهای ورود به اپ و وضعیت اتصال
+
+- navigation مشترک در `templates/base.html` به‌صورت role/context-aware برای داشبورد، خسارت، قراردادها، دارایی، اطلاعیه، ارجاعات، مکاتبات، اسناد، درخواست، اشخاص، وظایف، واردات Excel و خروج/تغییر رمز بررسی شد.
+- نقطه ورود جدیدی به navigation مشترک در این موج اضافه نشد؛ دو مسیر Admin به‌جای افزودن منو، فقط سطح تغییر مستقیم را محدود کردند.
+- مسیرهای جدید/تکمیل‌شده‌ای که در snapshot کد وجود دارند و در 17.16 ثبت شده‌اند: مدیریت سمت مدیریتی شرکت، جزئیات/پیگیری/پیوند مکاتبه، جزئیات/ویرایش دارایی و دانلود پیوست درخواست/الحاقیه. پیاده‌سازی و linkهای HTML آن‌ها در سورس دیده شد؛ runtime flow آن‌ها در این نشست اجرا نشد.
+- `PersonChangeRequestForm` و `DocumentLinkForm` هنوز صفحه/مسیر کاربری ندارند؛ علت باقی ماندن gapهای #6 و #13 همین است.
+
+### 17.19 صورت‌جلسهٔ پذیرش فاز ۵ (snapshot فعلی)
+
+| # | شرط DoD | نتیجهٔ قابل استناد | حکم |
+|---:|---|---|---|
+| 1 | `python manage.py check` | اجرا نشد؛ checkout محلی و محیط پروژه در دسترس نیست | FAIL / NOT VERIFIED |
+| 2 | `showmigrations` بدون migration معلق | اجرا نشد؛ وضعیت دیتابیس قابل مشاهده نیست | FAIL / NOT VERIFIED |
+| 3 | full test suite صفر failure/error | 136 تعریف تست در سورس؛ هیچ‌کدام در این runtime اجرا نشده‌اند | FAIL / NOT VERIFIED |
+| 4 | `runserver` بدون خطا | اجرا نشد؛ checkout/runtime در دسترس نیست | FAIL / NOT VERIFIED |
+| 5 | هیچ orphan model | در بررسی static هر مدل به view/form/admin یا نقش زیرساختی متصل است؛ `PersonEmployment` و `DocumentLink` flow ناقص دارند و در gaps هستند، نه orphan قطعی | NOT VERIFIED |
+| 6 | هیچ orphan view | viewهای 35گانه به route root/app وصل شده‌اند؛ تست URL resolver اجرا نشده | NOT VERIFIED |
+| 7 | هیچ orphan template | 30 فایل به render/include یا base/partial متصل‌اند؛ رندر runtime همه صفحات اجرا نشده | NOT VERIFIED |
+| 8 | هیچ URL شکسته | 39 الگوی path در سورس موجود؛ `resolve/reverse` و GET/POST همه مسیرها در Django اجرا نشده | NOT VERIFIED |
+| 9 | تمام journeyهای اصلی E2E | 20 gap ثبت شده؛ چند چرخه اصلی قرارداد، تغییر هویت، پرداخت و Excel پویا ناقص‌اند؛ تست E2E نهایی اجرا نشده | FAIL |
+| 10 | همه قابلیت‌ها از navigation قابل دسترسی | منوی base برای قابلیت‌های پیاده‌شده بررسی شد؛ gapهای فرم/قابلیت بی‌مسیر #6 و #13 و دیگر چرخه‌های MISSING/PARTIAL پابرجا هستند | FAIL |
+| 11 | سند جامع کامل و همخوان با کد | `docs/PROJECT_MASTER.md` دارای 19 بخش اصلی/الحاقی با مدل‌ها، viewها، فرم‌ها، URLها و templateهاست؛ sync runtime و شمارش نهایی linkها هنوز نیازمند اجرای محلی است | PARTIAL / NOT VERIFIED |
+| 12 | هیچ BLOCKED بدون دلیل | تمام 20 gap و 5 exclusion ثبت شده؛ 3 patch جدید دلیل BLOCKED runtime دارند؛ 17 gap دیگر هنوز کد/test اجراشده ندارند و در ادامهٔ کار باید per-item تعیین تکلیف شوند | PASS در ثبت دلیل، نه در تکمیل محصول |
+| 13 | HEAD و commitها روی main/master و working tree پاک | HEAD و commitهای implementation ثبت شده‌اند؛ PR #1 هنوز Draft/Open و 347 commit جلوتر از main است؛ main ادغام نشده و working tree محلی ویندوز قابل مشاهده نیست | FAIL |
+
