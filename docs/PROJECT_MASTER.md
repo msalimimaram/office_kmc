@@ -363,7 +363,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | insurance/tests.py | ۲ | بازه تاریخ قرارداد |
 | organizations/tests.py | ۹ | scope فهرست اشخاص، dependent-company integrity، اشتغال فعال یکتا |
 | requests_portal/tests.py | ۲۱ | create/visibility/confidentiality، status، assignment، تاریخچه پاسخ، medical dependent، transition graph |
-| tasks/tests.py | ۵ | فیلتر درخواست محرمانه، assigneeهای مجاز، رد specialist و پذیرش head |
+| tasks/tests.py | ۸ | فیلتر درخواست محرمانه، assigneeهای مجاز، رد specialist و پذیرش head |
 | workflow/tests.py | ۱۲ | start/transition، note، SLA، append-only، immutability، scope، calendar، role/recipient |
 
 تعداد ۱۳۱ تعریف `test_*` در ۱۸ فایل از روی سورس snapshot محاسبه شده است؛ تعداد تست‌های اجراشده، تعداد pass/fail و نتیجهٔ runtime در این محیط هنوز **قابل تأیید نیست**.
@@ -973,3 +973,23 @@ Commits:
 
 تعداد تعریف‌های تست از 139 به **143** رسیده است: `claims/test_payments.py` از 8 به 12 متد افزایش یافته. این تست‌ها اجرا نشده‌اند؛ بنابراین Gap #2 از نظر اتصال سورس پیاده‌سازی شده ولی runtime verification آن **BLOCKED** است و CLOSED نیست.
 
+
+
+### 17.22 تکمیل سورس Gap #19 — ثبت اولین مشاهده و اولین اقدام وظیفه
+
+از مدل append-only موجود `TaskEvent` استفاده شد؛ schema field جدیدی اضافه نشده و migration جدید لازم نیست. فقط دو مقدار به `TaskEvent.EventType` افزوده شدند: `first_viewed` و `first_action`.
+
+- در GET صفحهٔ مجاز `task_update`، اولین مشاهده تحت transaction و lock وظیفه ثبت می‌شود؛ درخواست‌های مشاهدهٔ بعدی رویداد تکراری ایجاد نمی‌کنند.
+- در POST معتبر، اگر وضعیت تغییر کند یا یادداشت ثبت شود، اولین اقدام واقعی یک‌بار ثبت می‌شود. انتقال نامعتبر یا POST بدون تغییر/یادداشت، first_action ایجاد نمی‌کند.
+- template تاریخچه، label جدید را از `get_event_type_display` موجود نشان می‌دهد؛ صفحه/مدل جدید ساخته نشده است.
+- سه تست HTTP در `tasks/tests.py`:
+  - `TaskFirstViewActionFlowTests.test_first_view_is_recorded_once_for_the_first_viewer`
+  - `TaskFirstViewActionFlowTests.test_first_valid_status_change_records_first_action_once`
+  - `TaskFirstViewActionFlowTests.test_invalid_transition_does_not_record_first_action`
+
+Commits:
+- `f44eda20985ec2b6d5fa19fd48bd6360bf0b38b5` — event typeهای جدید بدون migration.
+- `d500a56be3c95ab68f962b1471ad924a3d1a5131` — ثبت اولین مشاهده/اقدام در view موجود.
+- `00c2e390af5b28ff82a716dc56e9dc630df8984e` — تست‌های HTTP.
+
+تعریف تست‌های static از 143 به **146** رسیده؛ `tasks/tests.py` از 5 به 8 متد رسیده است. این تست‌ها در محیط Django اجرا نشده‌اند؛ Gap #19 همچنان **BLOCKED runtime verification** است، نه CLOSED.
