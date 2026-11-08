@@ -45,6 +45,8 @@ class TaskEvent(models.Model):
         STATUS = "status", "تغییر وضعیت"
         COMMENT = "comment", "یادداشت"
         DUE_CHANGED = "due_changed", "تغییر مهلت"
+        FIRST_VIEWED = "first_viewed", "اولین مشاهده"
+        FIRST_ACTION = "first_action", "اولین اقدام"
 
     task = models.ForeignKey(InternalTask, on_delete=models.PROTECT, related_name="events")
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
