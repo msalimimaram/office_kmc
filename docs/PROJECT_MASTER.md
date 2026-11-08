@@ -1,6 +1,6 @@
 # سند جامع پروژه Office KMC
 > وضعیت سند: **ممیزی زنده — فاز شناخت و ممیزی ایستا در حال تکمیل؛ پذیرش اجرایی هنوز تأیید نشده است.**  
-> آخرین snapshot کد بررسی‌شده: `cf283941452d3b3e5ef4cdc0d337bae8ff218605` روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
+> آخرین snapshot کد بررسی‌شده: `091495cf35bf2e667a3d00647256ebbe06fc6894` روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
 > این سند باید در همان commit/شاخهٔ پیاده‌سازی به‌روزرسانی شود؛ تغییرات آن به‌تنهایی جای تست runtime یا بازبینی مالک کسب‌وکار را نمی‌گیرد.
 
 ## 1. معرفی پروژه
@@ -27,7 +27,7 @@ Office KMC یک پورتال وب داخلی برای عملیات اداره ب
 | تعداد اپ‌ها | ۱۵ اپ Django در `INSTALLED_APPS` |
 | فایل‌های template | ۳۰ فایل شامل base، صفحات، partial و دو template داخلی workflow |
 | فایل‌های migration | ۳۸ فایل migration شماره‌دار در snapshot |
-| فایل‌های تست | ۱۸ فایل؛ ۱۲۸ متد `test_*` از روی سورس |
+| فایل‌های تست | ۱۸ فایل؛ ۱۳۱ متد `test_*` از روی سورس |
 | CI | GitHub Actions عمداً در پروژه تعریف نشده است |
 
 ### 2.1 ساختار سطح اول
@@ -350,19 +350,19 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | accounts/test_access.py | ۵ | scope شرکت، انقضای انتصاب، scope رشته، global admin، insurer scope |
 | accounts/tests.py | ۶ | تغییر رمز اولیه، محدودیت Admin، login throttling |
 | announcements/tests.py | ۱ | فیلتر انتشار و audience |
-| assets/tests.py | ۳ | scope شرکت، جلوگیری از ثبت دارایی شرکت دیگر، مبلغ/تاریخ |
+| assets/tests.py | ۸ | scope شرکت، جلوگیری از ثبت دارایی شرکت دیگر، مبلغ/تاریخ |
 | auditlog/tests.py | ۴ | append-only، منع update/delete، نگهداری actor |
-| claims/tests.py | ۹ | visibility claim، انتقال تاریخی شرکت، شناسه ملی، مبلغ، مجوز اعتراض |
+| claims/tests.py | ۱۲ | visibility claim، انتقال تاریخی شرکت، شناسه ملی، مبلغ، مجوز اعتراض |
 | claims/test_payments.py | ۸ | پرداخت قسطی، سقف payable، تأیید مستقل، برگشت، immutability، پرداخت اعلامی بیمه‌گر |
 | core/test_permissions.py | ۱ | عدم نمایش درخواست محرمانه به specialist حتی با assignment |
 | core/tests.py | ۶ | امضای فایل، پسوند، حجم، فایل Office |
-| correspondence/tests.py | ۲ | scope شرکت و بیمه‌گر |
+| correspondence/tests.py | ۹ | scope شرکت و بیمه‌گر |
 | dashboard/tests.py | ۴ | dashboard نقش‌ها، جلوگیری از افشای داده دیگران/تعداد task محرمانه |
-| documents/tests.py | ۴ | scope اتصال سند، مدرک پزشکی، دانلود محرمانه، immutability |
+| documents/tests.py | ۱۰ | scope اتصال سند، مدرک پزشکی، دانلود محرمانه، immutability |
 | imports/tests.py | ۱۳ | مبلغ/تاریخ فارسی و میلادی، اعتبارسنجی فایل، تأیید مستقل batch و پرداخت |
 | insurance/tests.py | ۲ | بازه تاریخ قرارداد |
-| organizations/tests.py | ۳ | scope فهرست اشخاص، dependent-company integrity، اشتغال فعال یکتا |
-| requests_portal/tests.py | ۱۵ | create/visibility/confidentiality، status، assignment، تاریخچه پاسخ، medical dependent، transition graph |
+| organizations/tests.py | ۷ | scope فهرست اشخاص، dependent-company integrity، اشتغال فعال یکتا |
+| requests_portal/tests.py | ۱۸ | create/visibility/confidentiality، status، assignment، تاریخچه پاسخ، medical dependent، transition graph |
 | tasks/tests.py | ۵ | فیلتر درخواست محرمانه، assigneeهای مجاز، رد specialist و پذیرش head |
 | workflow/tests.py | ۱۲ | start/transition، note، SLA، append-only، immutability، scope، calendar، role/recipient |
 
@@ -494,7 +494,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 
 ### 16.5 تست‌ها و وضعیت اجرای واقعی
 
-- تعداد متدهای تست از روی سورس فعلی: ۱۲۸ در ۱۸ فایل. این عدد تعداد تعریف‌هاست، نه تعداد اجراشده.
+- تعداد متدهای تست از روی سورس فعلی: ۱۳۱ در ۱۸ فایل. این عدد تعداد تعریف‌هاست، نه تعداد اجراشده.
 - در این محیط checkout محلی و شبکه دسترسی به GitHub برای دریافت clone وجود نداشت؛ manage.py check، showmigrations، test، runserver روی HEAD جاری اجرا نشدند.
 - تست‌های بالا فقط در source اضافه شده‌اند؛ وضعیت همه آنها NOT RUN / نیازمند اجرای واقعی روی سیستم توسعه‌دهنده است.
 - هیچ migration جدیدی در این موج اضافه نشده است؛ چون تغییرات فقط view/form/template/url/test بوده‌اند. بااین‌حال، makemigrations --check --dry-run برای HEAD فعلی نیز اجرا نشده و باید در محیط محلی اجرا شود.
@@ -505,3 +505,63 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 - HEAD کد پیش از این commit سند: cf283941452d3b3e5ef4cdc0d337bae8ff218605.
 - commit اصلاح تکمیلی پس از بازبینی مسیر ویرایش خودرو: cf283941452d3b3e5ef4cdc0d337bae8ff218605 (fix(assets): populate vehicle data before initial save).
 - پس از ثبت این سند، SHA جدید commit سند باید از نتیجه GitHub ثبت شود.
+
+
+## 17. بازبینی مجدد snapshot شاخه در 2026-11-08
+
+این بخش به‌روزرسانی‌های پس از آخرین ثبت قبلی در سند را پوشش می‌دهد و در تعارض شمارشی/وضعیتی، مرجع جدیدتر است.
+
+### 17.1 وضعیت GitHub در زمان بازبینی
+
+- مخزن: `msalimimaram/office_kmc`؛ شاخهٔ جاری این ممیزی: `implementation/insurance-platform-core-2026-11-04`.
+- HEAD مشاهده‌شده: `091495cf35bf2e667a3d00647256ebbe06fc6894`؛ آخرین پیام: `Expose documents: add scoped generic link form`؛ زمان commit: 2026-11-07 13:37:53 UTC.
+- `main`: `a944760c8d442ee61015ea96cca135ea61fa0dac`.
+- مقایسهٔ شاخه: implementation به‌اندازهٔ 333 commit جلوتر و صفر commit عقب‌تر از main است؛ PR شمارهٔ 1 باز و Draft و ادغام‌نشده است. 129 فایل در PR تغییر کرده‌اند.
+- شاخهٔ `audit/project-assessment-2026-10-29` نیز در فهرست branchها وجود دارد؛ در این مرحله نه ادغام و نه حذف نشده است.
+- در snapshot شاخهٔ implementation، 15 اپ در `INSTALLED_APPS`، 38 فایل migration شماره‌دار، 30 فایل HTML، 18 فایل تست و 131 تابع `test_*` مشاهده شد. شمار متدهای تست با خواندن فایل‌های تست در همین snapshot مجدداً محاسبه شد؛ این عدد به‌معنی اجرای تست‌ها نیست.
+- فایل workflow مربوط به GitHub Actions در درخت این شاخه وجود ندارد؛ متن `docs/TESTING.md` که وجود workflow CI را ادعا می‌کند با ساختار فعلی مخزن هم‌خوان نیست و باید اصلاح شود.
+
+### 17.2 تغییرهای بعد از snapshot قبلی
+
+- در اپ `correspondence`، فرم اتصال رکورد موجود به مکاتبه در جزئیات مکاتبه اضافه شده است. مسیر موجود `/correspondence/<pk>/` عملیات POST با `action=add_link` را می‌پذیرد؛ نوع‌های مقصد مجاز در فرم شامل company، contract، claim و request هستند. تابع بررسی مقصد، scope کاربر و سازگاری شرکت/بیمه‌گر مکاتبه و رکورد مقصد را کنترل می‌کند. لینک در `CorrespondenceLink` ذخیره و رویداد ممیزی ثبت می‌شود. تمپلیت جزئیات، فهرست ارتباط‌ها و فرم اتصال را نمایش می‌دهد.
+- برای این قابلیت سه تست HTTP در `CorrespondenceLinkFlowTests` تعریف شده‌اند: اتصال موفق و persistence، رد شرکت خارج از scope، و رد هدف ناسازگار با شرکت مکاتبه. این تست‌ها در این محیط اجرا نشده‌اند.
+- در اپ `documents`، کلاس `DocumentLinkForm` با مقصدهای claim، request، correspondence، contract، asset و task به `documents/forms.py` اضافه شده است. اما در HEAD فعلی، `documents/views.py` این فرم را import یا مصرف نمی‌کند؛ `documents/urls.py` مسیر اتصال ندارد؛ و `templates/documents/document_manage.html` فرم یا فهرست لینک‌ها را نمایش نمی‌دهد. بنابراین صرف وجود فرم، قابلیت اتصال سند به رکورد را کامل نمی‌کند. این مورد برای بررسی فاز ۱/۳ ثبت می‌شود و هنوز به‌عنوان قابلیت متصل‌شده شمرده نمی‌شود.
+
+### 17.3 شمارش فعلی تست‌ها بر اساس سورس
+
+| فایل | تعداد تعریف `test_*` |
+|---|---:|
+| accounts/tests.py | 6 |
+| accounts/test_access.py | 5 |
+| announcements/tests.py | 1 |
+| assets/tests.py | 8 |
+| auditlog/tests.py | 4 |
+| claims/tests.py | 12 |
+| claims/test_payments.py | 8 |
+| core/tests.py | 6 |
+| core/test_permissions.py | 1 |
+| correspondence/tests.py | 9 |
+| dashboard/tests.py | 4 |
+| documents/tests.py | 10 |
+| imports/tests.py | 13 |
+| insurance/tests.py | 2 |
+| organizations/tests.py | 7 |
+| requests_portal/tests.py | 18 |
+| tasks/tests.py | 5 |
+| workflow/tests.py | 12 |
+| **مجموع** | **131** |
+
+این جدول شمار تعریف‌های آزمون از روی کد است؛ اجرا، pass/fail و پوشش runtime هنوز جداگانه باید تأیید شوند.
+
+### 17.4 محدودیت اجرای محلی در این نشست
+
+- تلاش برای clone مستقیم شاخه با GitHub انجام شد، اما محیط اجرا نتوانست دامنهٔ `github.com` را resolve کند (`Could not resolve host: github.com`). checkout محلی پروژه در این محیط ایجاد نشد.
+- در نتیجه در این نشست `python manage.py check`، `showmigrations`، `test`، `runserver`، `makemigrations --check --dry-run` و اجرای migration واقعاً انجام نشده‌اند.
+- نتیجهٔ قدیمی `check` روی commit قبلی یا ادعای داخل سند را نمی‌توان به HEAD فعلی تعمیم داد. همهٔ این موارد برای پذیرش فاز ۵ باز هستند.
+- وضعیت working tree ویندوز کاربر از GitHub قابل مشاهده نیست؛ فقط commit/branch راه دور قابل بررسی است.
+
+### 17.5 وضعیت سند و قواعد نگهداری
+
+- این سند موجود، `docs/PROJECT_MASTER.md`، سند جامع زندهٔ پروژه است؛ در این ممیزی سند موازی یا جایگزین ساخته نشده است.
+- هر حکم CLOSED در فاز تکمیل باید هم نام تست اجراشده، هم نتیجهٔ واقعی اجرای تست و هم commit حاوی تغییر را داشته باشد. تعریف تست در سورس، به‌تنهایی CLOSED نیست.
+- شکاف‌های قدیمی جدول بخش ۱۳ و وضعیت‌های بخش ۱۶ باید با نتایج ممیزی جزءبه‌جزء این snapshot همسان شوند؛ مواردی که صرفاً در فاز بعد از نظر UI/flow بررسی شوند نباید زودتر USED اعلام شوند.
