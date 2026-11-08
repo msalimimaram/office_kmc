@@ -910,7 +910,7 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 |---:|---|---|---|
 | 1 | `python manage.py check` | اجرا نشد؛ checkout محلی و محیط پروژه در دسترس نیست | FAIL / NOT VERIFIED |
 | 2 | `showmigrations` بدون migration معلق | اجرا نشد؛ وضعیت دیتابیس قابل مشاهده نیست | FAIL / NOT VERIFIED |
-| 3 | full test suite صفر failure/error | 139 تعریف تست در سورس؛ هیچ‌کدام در این runtime اجرا نشده‌اند | FAIL / NOT VERIFIED |
+| 3 | full test suite صفر failure/error | 146 تعریف تست در سورس؛ هیچ‌کدام در این runtime اجرا نشده‌اند | FAIL / NOT VERIFIED |
 | 4 | `runserver` بدون خطا | اجرا نشد؛ checkout/runtime در دسترس نیست | FAIL / NOT VERIFIED |
 | 5 | هیچ orphan model | در بررسی static هر مدل به view/form/admin یا نقش زیرساختی متصل است؛ `PersonEmployment` و `DocumentLink` flow ناقص دارند و در gaps هستند، نه orphan قطعی | NOT VERIFIED |
 | 6 | هیچ orphan view | viewهای 35گانه به route root/app وصل شده‌اند؛ تست URL resolver اجرا نشده | NOT VERIFIED |
@@ -993,3 +993,26 @@ Commits:
 - `00c2e390af5b28ff82a716dc56e9dc630df8984e` — تست‌های HTTP.
 
 تعریف تست‌های static از 143 به **146** رسیده؛ `tasks/tests.py` از 5 به 8 متد رسیده است. این تست‌ها در محیط Django اجرا نشده‌اند؛ Gap #19 همچنان **BLOCKED runtime verification** است، نه CLOSED.
+
+
+### 17.23 وضعیت نهایی این نشست پس از آخرین snapshot
+
+**آخرین تغییرات سورس این نشست** (همه در شاخهٔ implementation، بدون تغییر main):
+- ServiceRequest Admin view-only و Person Admin protected.
+- request_create خطای پیکربندی گیرنده workflow را کنترل و تراکنش را rollback می‌کند.
+- DocumentLinkForm از صفحه مدیریت سند با scope شش نوع مقصد استفاده می‌شود.
+- claim payment/reversal از سرویس ledger موجود، با فرم تأییدکننده مستقل، route POST و نمایش تاریخچه استفاده می‌کند.
+- task eventهای first_viewed و first_action به تاریخچه موجود اضافه شده‌اند، بدون تغییر schema/نیاز migration.
+- import کمبود ValidationError در claims.views اصلاح شده است.
+
+**وضعیت شکاف‌ها:** از ۲۰ شکاف فاز ۳، کد و تست برای ۶ مورد (#2، #8، #9، #11، #13، #19) در شاخه اضافه شده است؛ هیچ‌کدام به دلیل اجرا نشدن تست runtime، CLOSED نیستند. ۱۴ مورد دیگر (#1، #3، #4، #5، #6، #7، #10، #12، #14، #15، #16، #17، #18، #20) همچنان باز و بدون پیاده‌سازی کامل باقی‌اند. برای این موارد، migration/data/security/workflow changes بدون محیط Django و امکان اجرای تست/rollback در این نشست ایمن نیست؛ دلیل و دامنه دقیق هرکدام در جدول بخش ۱۳ آمده است. این ۱۴ مورد باید در ادامه یا تکمیل شوند یا با شواهد/وابستگی مشخص BLOCKED شوند.
+
+**شمارش نهایی static:**
+- ۱۵ اپ Django؛ ۴۱ مدل persistence؛ ۳۷ view؛ ۲۱ کلاس فرم؛ ۳۰ template؛ ۴۱ الگوی URL (۳۵ app routes + ۶ root); ۱۸ فایل تست؛ ۱۴۶ تعریف `test_*`.
+- ۳۸ migration شماره‌دار در سورس. وجود فایل migration معادل applied بودن آن در دیتابیس نیست.
+- هیچ GitHub Actions workflow وجود ندارد؛ عمداً مطابق تصمیم محصول.
+- HEAD قابل مشاهده در زمان به‌روزرسانی این بخش: `7aa47d0819a29b033e4dd5a0ce72058175fca86a`؛ `main`: `a944760c8d442ee61015ea96cca135ea61fa0dac`.
+- PR #1: Open، Draft، unmerged؛ 364 commit ahead و 0 behind در snapshot پیش از همین commit مستنداتی؛ changed files=131. مقدار ahead پس از این commit سند یک واحد افزایش می‌یابد.
+- working tree محلی ویندوز از GitHub remote قابل مشاهده نیست؛ هیچ ادعایی درباره clean بودن clone کاربر ثبت نمی‌شود.
+- دو تلاش برای ایجاد checkout قابل اجرا در محیط این نشست به‌خاطر DNS/عدم materialization شکست خوردند؛ اجرای `manage.py` ممکن نبود. این محدودیت محیط با وضعیت سلامت خود پروژه یا پایگاه داده یکی نیست.
+
