@@ -2,7 +2,8 @@ from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, Client
+from django.urls import reverse
 
 from accounts.models import RoleAssignment, User
 from claims.models import Claim, ClaimPayment
@@ -181,3 +182,113 @@ class ClaimPaymentLedgerTests(TestCase):
                 submitted_by=submitter,
                 reviewed_by=submitter,
             )
+
+
+class ClaimPaymentViewFlowTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="PAY-HTTP", name="شرکت آزمون پرداخت")
+        self.person = Person.objects.create(
+            company=self.company,
+            national_id="2222222222",
+            first_name="بیمه‌شده",
+            last_name="پرداخت",
+            birth_date=date(1990, 1, 1),
+        )
+        self.operator = self._user("payment-http-operator", RoleAssignment.Role.SYSTEM_ADMIN)
+        self.reviewer = self._user("payment-http-reviewer", RoleAssignment.Role.DEPARTMENT_HEAD)
+        self.employee = User.objects.create_user(
+            username="payment-http-employee",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="employee",
+            company=self.company,
+            national_id=self.person.national_id,
+        )
+        self.person.user = self.employee
+        self.person.save()
+        self.claim = Claim.objects.create(
+            claim_number="PAY-HTTP-CLAIM",
+            person=self.person,
+            company_snapshot=self.company,
+            service_type="درمان",
+            requested_amount=Decimal("1000"),
+            assessed_amount=Decimal("800"),
+            payable_amount=Decimal("800"),
+        )
+
+    def _user(self, username, role):
+        user = User.objects.create_user(
+            username=username,
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(user=user, role=role, reason="تست مسیر پرداخت")
+        return user
+
+    def test_authorised_operator_records_payment_with_independent_reviewer(self):
+        client = Client()
+        client.force_login(self.operator)
+        self.assertEqual(client.get(reverse("claim_detail", args=[self.claim.pk])).status_code, 200)
+        response = client.post(reverse("claim_payment_create", args=[self.claim.pk]), {
+            "amount": "300",
+            "paid_at": "2026-11-02",
+            "source_reference": "VOUCHER-HTTP-1",
+            "confirmed_by": str(self.reviewer.pk),
+            "note": "پرداخت مرحله اول",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.claim.refresh_from_db()
+        payment = self.claim.payments.get()
+        self.assertEqual(self.claim.paid_amount, Decimal("300"))
+        self.assertEqual(payment.recorded_by_id, self.operator.pk)
+        self.assertEqual(payment.confirmed_by_id, self.reviewer.pk)
+
+    def test_user_cannot_confirm_own_payment(self):
+        client = Client()
+        client.force_login(self.operator)
+        response = client.post(reverse("claim_payment_create", args=[self.claim.pk]), {
+            "amount": "300",
+            "confirmed_by": str(self.operator.pk),
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.claim.payments.count(), 0)
+
+    def test_employee_cannot_open_or_submit_payment_actions(self):
+        client = Client()
+        client.force_login(self.employee)
+        detail = client.get(reverse("claim_detail", args=[self.claim.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, "ثبت رویداد پرداخت")
+        response = client.post(reverse("claim_payment_create", args=[self.claim.pk]), {
+            "amount": "100",
+            "confirmed_by": str(self.operator.pk),
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.claim.payments.count(), 0)
+
+    def test_authorised_operator_reverses_payment_as_a_separate_ledger_entry(self):
+        original = record_payment(
+            claim_id=self.claim.pk,
+            amount="400",
+            actor=self.operator,
+            confirmed_by=self.reviewer,
+            note="پرداخت اصلی",
+        )
+        client = Client()
+        client.force_login(self.operator)
+        response = client.post(
+            reverse("claim_payment_reverse", args=[self.claim.pk, original.pk]),
+            {
+                "amount": "100",
+                "reason": "اصلاح بخشی از مبلغ",
+                "confirmed_by": str(self.reviewer.pk),
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.paid_amount, Decimal("300"))
+        self.assertEqual(self.claim.payments.count(), 2)
+        reversal = self.claim.payments.exclude(pk=original.pk).get()
+        self.assertEqual(reversal.entry_type, ClaimPayment.EntryType.REVERSAL)
+        self.assertEqual(reversal.reverses_payment_id, original.pk)
+        self.assertEqual(reversal.confirmed_by_id, self.reviewer.pk)
