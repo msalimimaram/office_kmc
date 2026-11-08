@@ -271,3 +271,135 @@ class DocumentManagementFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.document.refresh_from_db()
         self.assertFalse(self.document.is_archived)
+
+
+class DocumentLinkFlowTests(TestCase):
+    def setUp(self):
+        from requests_portal.models import ServiceRequest
+        from documents.models import DocumentLink
+        from documents.services import create_document
+
+        self.admin = User.objects.create_user(
+            username="document-link-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون اتصال سند",
+        )
+        self.specialist = User.objects.create_user(
+            username="document-link-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="کارشناس درمان برای آزمون اتصال سند",
+        )
+        self.company = Company.objects.create(code="DOC-LINK", name="شرکت ارتباط سند")
+        self.document = create_document(
+            title="سند قابل اتصال",
+            category="general",
+            upload=SimpleUploadedFile(
+                "document-link.pdf", b"%PDF-1.7\\nlink test", content_type="application/pdf"
+            ),
+            uploaded_by=self.admin,
+        )
+        self.request = ServiceRequest.objects.create(
+            reference="IB-DOC-LINK-001",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.admin,
+            company=self.company,
+            assigned_to=self.specialist,
+            title="درخواست مرتبط",
+            description="درخواست برای آزمون اتصال سند",
+        )
+        self.DocumentLink = DocumentLink
+        self.ServiceRequest = ServiceRequest
+
+    def test_global_operator_can_link_document_to_an_existing_request_and_view_link(self):
+        client = Client()
+        client.force_login(self.admin)
+        url = reverse("document_manage", args=[self.document.pk])
+        page = client.get(url)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "اتصال سند به رکورد عملیاتی")
+
+        response = client.post(url, {
+            "action": "add_link",
+            "target_type": "request",
+            "target_id": str(self.request.pk),
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            self.DocumentLink.objects.filter(
+                document=self.document,
+                object_id=str(self.request.pk),
+            ).exists()
+        )
+        self.assertTrue(
+            __import__("auditlog.models", fromlist=["AuditEvent"]).AuditEvent.objects.filter(
+                actor=self.admin,
+                action="document_link_created",
+                object_id=str(self.document.pk),
+            ).exists()
+        )
+
+    def test_specialist_can_link_only_a_request_in_their_visible_assignment_scope(self):
+        other_company = Company.objects.create(code="DOC-LINK-OTHER", name="شرکت خارج از scope")
+        foreign_request = self.ServiceRequest.objects.create(
+            reference="IB-DOC-LINK-002",
+            kind=self.ServiceRequest.Kind.OTHER,
+            submitted_by=self.admin,
+            company=other_company,
+            title="درخواست خارج از محدوده",
+            description="نباید قابل اتصال باشد",
+        )
+        client = Client()
+        client.force_login(self.specialist)
+        url = reverse("document_manage", args=[self.document.pk])
+
+        allowed = client.post(url, {
+            "action": "add_link",
+            "target_type": "request",
+            "target_id": str(self.request.pk),
+        })
+        self.assertEqual(allowed.status_code, 302)
+        self.assertTrue(self.DocumentLink.objects.filter(
+            document=self.document, object_id=str(self.request.pk)
+        ).exists())
+
+        denied = client.post(url, {
+            "action": "add_link",
+            "target_type": "request",
+            "target_id": str(foreign_request.pk),
+        })
+        self.assertEqual(denied.status_code, 200)
+        self.assertFalse(self.DocumentLink.objects.filter(
+            document=self.document, object_id=str(foreign_request.pk)
+        ).exists())
+
+    def test_duplicate_document_target_link_is_not_created_twice(self):
+        from django.contrib.contenttypes.models import ContentType
+        content_type = ContentType.objects.get_for_model(self.ServiceRequest)
+        self.DocumentLink.objects.create(
+            document=self.document,
+            content_type=content_type,
+            object_id=str(self.request.pk),
+            created_by=self.admin,
+        )
+        client = Client()
+        client.force_login(self.admin)
+        response = client.post(reverse("document_manage", args=[self.document.pk]), {
+            "action": "add_link",
+            "target_type": "request",
+            "target_id": str(self.request.pk),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.DocumentLink.objects.filter(
+            document=self.document, content_type=content_type, object_id=str(self.request.pk)
+        ).count(), 1)
