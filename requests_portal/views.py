@@ -2,7 +2,7 @@ import secrets
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.http import FileResponse, Http404
 from django.db import models, transaction
@@ -77,51 +77,57 @@ def request_create(request):
     if request.method == "POST":
         form = ServiceRequestForm(request.POST, request.FILES, user=user)
         if form.is_valid():
-            with transaction.atomic():
-                item = form.save(commit=False)
-                item.submitted_by = user
-                item.company_id = company_id or getattr(user, "company_id", None)
-                item.person = form.cleaned_data.get("person")
-                item.reference = "IB-" + secrets.token_hex(5).upper()
-                item.is_confidential = item.kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE
-                if has_role(user, RoleAssignment.Role.INSURED_PERSON) and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
-                    item.assigned_to = _first_company_representative(item.company_id)
-                item.save()
-                active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
-                if active_definition:
-                    initial_assignee = resolve_initial_assignee(
-                        definition=active_definition,
-                        company_id=item.company_id,
-                        line_code="health" if item.kind in {
-                            ServiceRequest.Kind.MEDICAL_ASSISTANCE,
-                            ServiceRequest.Kind.ANONYMOUS_PLAN,
-                            ServiceRequest.Kind.EXCESS_COVERAGE,
-                            ServiceRequest.Kind.ADD_COVERAGE,
-                            ServiceRequest.Kind.REMOVE_COVERAGE,
-                            ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
-                        } else None,
-                        owner_user_id=user.pk,
-                        exclude_user_id=user.pk,
+            try:
+                with transaction.atomic():
+                    item = form.save(commit=False)
+                    item.submitted_by = user
+                    item.company_id = company_id or getattr(user, "company_id", None)
+                    item.person = form.cleaned_data.get("person")
+                    item.reference = "IB-" + secrets.token_hex(5).upper()
+                    item.is_confidential = item.kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE
+                    if has_role(user, RoleAssignment.Role.INSURED_PERSON) and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+                        item.assigned_to = _first_company_representative(item.company_id)
+                    item.save()
+                    active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
+                    if active_definition:
+                        initial_assignee = resolve_initial_assignee(
+                            definition=active_definition,
+                            company_id=item.company_id,
+                            line_code="health" if item.kind in {
+                                ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+                                ServiceRequest.Kind.ANONYMOUS_PLAN,
+                                ServiceRequest.Kind.EXCESS_COVERAGE,
+                                ServiceRequest.Kind.ADD_COVERAGE,
+                                ServiceRequest.Kind.REMOVE_COVERAGE,
+                                ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
+                            } else None,
+                            owner_user_id=user.pk,
+                            exclude_user_id=user.pk,
+                        )
+                        start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
+                        item.assigned_to = initial_assignee
+                        item.save(update_fields=["assigned_to", "updated_at"])
+                    record_event(
+                        actor=user,
+                        action="service_request_created",
+                        obj=item,
+                        summary=f"درخواست {item.reference} ثبت شد",
+                        after_data={
+                            "reference": item.reference,
+                            "kind": item.kind,
+                            "company_id": item.company_id,
+                            "person_id": item.person_id,
+                            "assigned_to_id": item.assigned_to_id,
+                        },
+                        request=request,
                     )
-                    start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
-                    item.assigned_to = initial_assignee
-                    item.save(update_fields=["assigned_to", "updated_at"])
-                record_event(
-                    actor=user,
-                    action="service_request_created",
-                    obj=item,
-                    summary=f"درخواست {item.reference} ثبت شد",
-                    after_data={
-                        "reference": item.reference,
-                        "kind": item.kind,
-                        "company_id": item.company_id,
-                        "person_id": item.person_id,
-                        "assigned_to_id": item.assigned_to_id,
-                    },
-                    request=request,
-                )
-            messages.success(request, f"درخواست شما با شماره پیگیری {item.reference} ثبت شد.")
-            return redirect("request_list")
+            except ValidationError as exc:
+                # A broken workflow definition/recipient assignment must never
+                # produce a half-created request or an unhandled server error.
+                form.add_error(None, exc)
+            else:
+                messages.success(request, f"درخواست شما با شماره پیگیری {item.reference} ثبت شد.")
+                return redirect("request_list")
     else:
         form = ServiceRequestForm(user=user)
     return render(request, "requests_portal/request_form.html", {"form": form})
