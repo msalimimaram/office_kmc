@@ -14,8 +14,14 @@ from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
 from core.permissions import can_decide_claim, scoped_claims_for
-from .forms import ClaimObjectionForm, ClaimObjectionReviewForm
-from .models import Claim, ClaimObjection
+from .forms import (
+    ClaimObjectionForm,
+    ClaimObjectionReviewForm,
+    ClaimPaymentForm,
+    ClaimPaymentReversalForm,
+)
+from .models import Claim, ClaimObjection, ClaimPayment
+from .services import record_payment, reverse_payment
 
 
 @login_required
@@ -42,6 +48,13 @@ def claim_list(request):
         "selected_status": status,
         "statuses": Claim.Status.choices,
     })
+
+
+def _can_manage_claim_payments(user, claim):
+    line_code = claim.contract.line if claim.contract_id else "health"
+    return has_global_access(user) or has_role(
+        user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line_code
+    )
 
 
 @login_required
@@ -86,6 +99,17 @@ def claim_detail(request, pk):
             return redirect("claim_detail", pk=claim.pk)
     else:
         form = ClaimObjectionForm()
+    can_manage_payments = _can_manage_claim_payments(user, claim)
+    payment_entries = []
+    payment_form = None
+    reversal_form = None
+    if can_manage_payments:
+        payment_entries = claim.payments.select_related(
+            "recorded_by", "confirmed_by", "source_insurer", "reverses_payment"
+        ).order_by("-created_at", "-pk")
+        payment_form = ClaimPaymentForm(claim=claim, user=user)
+        reversal_form = ClaimPaymentReversalForm(claim=claim, user=user)
+
     return render(request, "claims/claim_detail.html", {
         "claim": claim,
         "objections": objections,
@@ -93,6 +117,10 @@ def claim_detail(request, pk):
         "can_submit_objection": can_submit_objection,
         "can_review_objections": can_review_objections,
         "is_global_reviewer": has_global_access(user),
+        "can_manage_payments": can_manage_payments,
+        "payment_entries": payment_entries,
+        "payment_form": payment_form,
+        "reversal_form": reversal_form,
     })
 
 
@@ -157,4 +185,72 @@ def claim_objection_review(request, pk, objection_pk):
             request=request,
         )
     messages.success(request, "وضعیت اعتراض به‌روزرسانی شد.")
+    return redirect("claim_detail", pk=claim.pk)
+
+
+
+@login_required
+@require_POST
+def claim_payment_create(request, pk):
+    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
+    if not _can_manage_claim_payments(request.user, claim):
+        raise PermissionDenied
+
+    form = ClaimPaymentForm(request.POST, claim=claim, user=request.user)
+    if not form.is_valid():
+        messages.error(request, "اطلاعات ثبت پرداخت معتبر نیست: " + " ".join(
+            str(error) for error in form.errors.values()
+        ))
+        return redirect("claim_detail", pk=claim.pk)
+
+    try:
+        record_payment(
+            claim_id=claim.pk,
+            amount=form.cleaned_data["amount"],
+            paid_at=form.cleaned_data["paid_at"],
+            source_reference=form.cleaned_data["source_reference"],
+            source_insurer=form.cleaned_data["source_insurer"],
+            actor=request.user,
+            confirmed_by=form.cleaned_data["confirmed_by"],
+            note=form.cleaned_data["note"],
+            request=request,
+        )
+    except ValidationError as exc:
+        messages.error(request, "ثبت پرداخت انجام نشد: " + " ".join(exc.messages))
+    else:
+        messages.success(request, "رویداد پرداخت با تأیید مستقل ثبت شد.")
+    return redirect("claim_detail", pk=claim.pk)
+
+
+@login_required
+@require_POST
+def claim_payment_reverse(request, pk, payment_pk):
+    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
+    if not _can_manage_claim_payments(request.user, claim):
+        raise PermissionDenied
+    payment = get_object_or_404(
+        claim.payments.filter(entry_type=ClaimPayment.EntryType.PAYMENT),
+        pk=payment_pk,
+    )
+    form = ClaimPaymentReversalForm(request.POST, claim=claim, user=request.user)
+    if not form.is_valid():
+        messages.error(request, "اطلاعات برگشت پرداخت معتبر نیست: " + " ".join(
+            str(error) for error in form.errors.values()
+        ))
+        return redirect("claim_detail", pk=claim.pk)
+
+    try:
+        reverse_payment(
+            payment_id=payment.pk,
+            amount=form.cleaned_data["amount"],
+            actor=request.user,
+            confirmed_by=form.cleaned_data["confirmed_by"],
+            reason=form.cleaned_data["reason"],
+            paid_at=form.cleaned_data["paid_at"],
+            request=request,
+        )
+    except ValidationError as exc:
+        messages.error(request, "برگشت پرداخت انجام نشد: " + " ".join(exc.messages))
+    else:
+        messages.success(request, "رویداد برگشت با تأیید مستقل ثبت شد.")
     return redirect("claim_detail", pk=claim.pk)
