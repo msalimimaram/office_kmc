@@ -328,7 +328,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | App | مدل‌های ثبت‌شده | تنظیمات/کنترل مهم |
 |---|---|---|
 | accounts | User، RoleAssignment، OrganizationalUnit، OrganizationalPosition، PositionAssignment | list/search؛ کنترل سطح module/view/add/change/delete در ModelAdmin |
-| organizations | Company، Person | Company list/search؛ Person ثبت ساده؛ PersonEmployment و CompanyLeadershipTitle ثبت نشده‌اند |
+| organizations | Company، Person | Company list/search؛ Person ثبت ساده و قابل‌ویرایش پیش‌فرض؛ PersonEmployment و CompanyLeadershipTitle ثبت نشده‌اند |
 | insurance | Insurer سفارشی؛ Contract و ContractRevision ثبت عمومی | Insurer list/search؛ قراردادها generic admin |
 | claims | Claim، ClaimPayment، ClaimObjection | list/filter/search؛ همه فیلدهای مدل readonly و عملیات add/change/delete محدود/غیرفعال |
 | announcements | Announcement | list/filter/search؛ فیلدها readonly؛ عملیات مستقیم admin محدود |
@@ -339,7 +339,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | imports | ImportBatch | list/filter/search؛ readonly و CRUD مستقیم محدود |
 | tasks | InternalTask، TaskEvent | task inline event؛ فیلدها readonly و permission سفارشی |
 | workflow | WorkflowDefinition/Step/Transition، WorkflowCase، WorkflowEvent، BusinessCalendar، CalendarHoliday | step/transition inline؛ published definitions/children محافظت‌شده؛ case/event/calendar با کنترل global |
-| core / dashboard / requests_portal | ثبت مدل در admin ندارند | core/dashboard بدون مدل؛ درخواست‌ها در Admin ثبت سفارشی مشاهده‌شده ندارند |
+| core / dashboard | مدل قابل ثبت در admin ندارند | core/dashboard زیرساختی/نمایشی و بدون مدل persistence هستند؛ requests_portal در admin به‌شکل ثبت ساده و بدون محدودیت ثبت شده و در شکاف #8 بررسی می‌شود |
 
 **قاعده:** وجود ثبت در Admin به معنی وجود جریان کاربری کامل در سایت نیست. Admin برای داده‌های پایه و بررسی داخلی استفاده می‌شود؛ مسیر عملیاتی مورد انتظار کاربر از template و view جدا سنجیده می‌شود.
 
@@ -366,34 +366,46 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | tasks/tests.py | ۵ | فیلتر درخواست محرمانه، assigneeهای مجاز، رد specialist و پذیرش head |
 | workflow/tests.py | ۱۲ | start/transition، note، SLA، append-only، immutability، scope، calendar، role/recipient |
 
-تعداد ۱۰۳ از نام‌گذاری تست‌ها در سورس محاسبه شده است؛ تعداد تست‌های اجراشده، تعداد pass/fail و نتیجهٔ runtime در snapshot فعلی هنوز **قابل تأیید نیست**.
+تعداد ۱۳۱ تعریف `test_*` در ۱۸ فایل از روی سورس snapshot محاسبه شده است؛ تعداد تست‌های اجراشده، تعداد pass/fail و نتیجهٔ runtime در این محیط هنوز **قابل تأیید نیست**.
 
-## 13. شکاف‌های کشف‌شده تا این مرحله
+## 13. فهرست نهایی شکاف‌ها — دامنهٔ بستهٔ فاز ۳
 
-حکم‌ها بر اساس اتصال واقعی view/form/template/url/admin هستند، نه صرفاً وجود مدل. Severity با قواعد محصول و اثر بر جریان کاربر تعیین می‌شود.
+این فهرست پس از تطبیق `WORKFLOW_CATALOG.md`، قواعد کسب‌وکار و سورس کد snapshot `091495cf35bf2e667a3d00647256ebbe06fc6894` تثبیت شده است. تعداد شکاف‌ها **۲۰ مورد** است. این فهرست دامنهٔ فاز ۴ است و پس از این نقطه شکاف جدیدی به آن افزوده نمی‌شود؛ کشف مورد تازه خارج از این دامنه، بدون بازگشایی رسمی فاز ۳ اجرا نخواهد شد. موارد USED عمداً در جدول نیامده‌اند.
 
-| # | App | قابلیت | حکم | شکاف دقیق مشاهده‌شده | اولویت پیشنهادی |
-|---:|---|---|---|---|---|
-| 1 | claims | پرداخت مرحله‌ای دستی و برگشت پرداخت | PARTIAL | `record_payment` و `reverse_payment` در `claims/services.py` وجود دارند ولی از view کاربر فراخوانی نمی‌شوند؛ ClaimPayment Admin readonly/غیرفعال است؛ فقط ورود پرداخت اعلامی در imports مصرف می‌شود | BLOCKER |
-| 2 | claims | رسیدگی به اعتراض و ثبت پاسخ/وضعیت | PARTIAL | claim_detail فقط form ثبت اعتراض دارد؛ فیلدهای `ClaimObjection.response/status` مسیر POST برای رسیدگی ندارند | IMPORTANT |
-| 3 | requests_portal | دریافت امن پیوست درخواست | PARTIAL | فایل روی ServiceRequest ذخیره می‌شود ولی request_detail template لینک دانلود ندارد و urls.py مسیر دانلود ندارد | IMPORTANT |
-| 4 | documents | نسخه جدید سند | PARTIAL | سرویس `add_document_version` وجود دارد ولی view/form/url برای نسخه جدید وجود ندارد؛ Admin نسخه‌ها readonly است | IMPORTANT |
-| 5 | documents | آرشیو/ابطال سند | PARTIAL | `archive_document` و `void_document` در service وجود دارند ولی هیچ view/url/form کاربری آن‌ها را فراخوانی نمی‌کند | IMPORTANT |
-| 6 | correspondence | پیوند مکاتبه به پرونده‌های دامنه | PARTIAL | CorrespondenceLink مدل/Admin دارد ولی flow یا فرم ایجاد link در viewها دیده نشد | IMPORTANT |
-| 7 | correspondence | مدیریت follow-up/event مکاتبه | PARTIAL | فرم/لیست/دانلود وجود دارد؛ صفحه جزئیات/POST برای تکمیل پیگیری، ارجاع و پاسخ ندارد؛ add_correspondence_event صرفاً در مسیرهای موجود محدود مصرف می‌شود | IMPORTANT |
-| 8 | organizations | اعلام سمت مدیریتی اشخاص شرکت | ORPHAN-MODEL | CompanyLeadershipTitle مدل شده ولی form/view/admin اتصال‌دهنده پیدا نشد؛ سند گردش کار ثبت سمت را مقرر می‌کند | IMPORTANT |
-| 9 | organizations | درخواست اصلاح اطلاعات شخص | ORPHAN-FORM / MISSING FLOW | PersonChangeRequestForm وجود دارد اما هیچ view از آن استفاده نمی‌کند؛ تغییر مستقیم mobile/IBAN در مسیر مصوب request/approval دیده نشد | BLOCKER |
-| 10 | organizations | مدیریت تاریخچه اشتغال از رابط | PARTIAL | PersonEmployment در scope و import مصرف می‌شود اما CRUD/approval view یا Admin اختصاصی و قابل استفاده کاربر ندارد | IMPORTANT |
-| 11 | assets | valuation و policy-period و endorsement از رابط عملیاتی | PARTIAL | مدل‌ها و Admin ثبت شده‌اند، اما URL/view/form/template عملیاتی برای ایجاد/تأیید valuation، دوره بیمه‌نامه یا الحاقیه وجود ندارد | IMPORTANT |
-| 12 | insurance | ایجاد/اصلاح/نسخه‌بندی قرارداد از رابط عملیاتی | PARTIAL | view فقط contract_list دارد؛ Contract و ContractRevision در Admin عمومی هستند؛ فرم و مسیر عملیاتی create/revision وجود ندارد | IMPORTANT |
-| 13 | workflow | اتصال موتور workflow به همه دامنه‌های تعریف‌شده | PARTIAL | start_workflow در حال حاضر از request_create مصرف می‌شود؛ موتور generic است اما اتصال claim/contract/objection/correspondence/asset در view/service دامنه‌ای مشاهده نشد | BLOCKER |
-| 14 | imports | قالب Excel پویا، نسخه‌دار و merge/replace/ignore | MISSING (مستند هدف) | کد فعلی ImportBatch ثابت برای claims است؛ FieldDefinition/ExcelTemplate/ImportRow/ImportDecision مدل یا UI ندارند | BLOCKER |
-| 15 | dashboard | گزارش‌ساز و گردش تأیید گزارش | MISSING (مستند هدف) | dashboard KPIهای مشخص دارد؛ ReportDefinition/ReportRun و report-builder مورد انتظار در محصول پیاده نشده‌اند | IMPORTANT |
-| 16 | accounts | MFA واقعی | PARTIAL (مستند/مدل) | فقط mfa_enabled در User دیده شد؛ flow/enrollment/challenge/recovery و تست احراز دومرحله‌ای مشاهده نشد | IMPORTANT |
-| 17 | accounts | مدیریت self-service/ثبت‌نام/بازیابی حساب در سایت | PARTIAL | ورود و تغییر رمز وجود دارد؛ registration/reset workflow در URL/template فعلی ثبت نشده است؛ docs نیازمندی آن را در سطح امنیت ذکر می‌کند | MINOR / نیازمند تصمیم |
+| # | App | Capability | Verdict | Exact gap | Proposed fix | Severity |
+|---:|---|---|---|---|---|---|
+| 1 | claims | ثبت دستی/اصلاح/بازبینی اولیه خسارت | PARTIAL | ثبت اولیه از Excel انجام می‌شود؛ ClaimForm و مسیر کاربری برای ثبت دستی و اصلاح دادهٔ منبع/تخصصی وجود ندارد؛ Claim admin فقط‌خواندنی است | فرم و view متناسب با نقش، ثبت before/after و اتصال به گردشِ تأیید بدون حدس خودکار duplicate | BLOCKER |
+| 2 | claims | ثبت، تأیید مستقل و برگشت پرداخت | PARTIAL | سرویس‌های `record_payment`، `reverse_payment` و مدل immutable وجود دارند؛ اما view/form/URL کاربری برای ثبت و تأیید مستقل وجود ندارد؛ import فقط پرداخت منبع را وارد می‌کند | اتصال فرم و view به سرویس‌های تراکنشی، کنترل جدایی ثبت‌کننده/تأییدکننده و تست برگشت/سقف/تکرار | BLOCKER |
+| 3 | claims | گردش چندمرحله‌ای اعتراض به خسارت | PARTIAL | ثبت اعتراض و تغییر وضعیت/پاسخ ساده پیاده شده؛ ارجاع به بیمه‌گر، پاسخ بیمه‌گر، رفت‌وبرگشت چندمرحله‌ای و نهایی‌سازی اداره به Workflow متصل نیست | تعریف workflow اعتراض با نقش‌های مقصد، تاریخچه و ۶۰ روز تقویمی؛ جلوگیری از بستن توسط بیمه‌گر | IMPORTANT |
+| 4 | insurance | چرخه عمر قرارداد/بیمه‌نامه | PARTIAL | فقط فهرست قرارداد در Template UI وجود دارد؛ ایجاد، پیش‌نویس، تأیید، نسخه/الحاقیه، فسخ زمان‌مند، اثر بر پوشش/خسارت باز و هشدار سررسید به view/form متصل نیست | پیاده‌سازی مسیرهای تعریف‌شده در کاتالوگ با تأیید رئیس/مدیر، تاریخ اثر و نسخهٔ immutable | BLOCKER |
+| 5 | assets | تأیید valuation، دوره بیمه‌نامه و الحاقیه | PARTIAL | ثبت valuation، policy period و endorsement از detail page انجام می‌شود؛ دوره پیش‌نویس می‌ماند و هیچ عملیات تأیید/رد/فعال‌سازی برای فیلدهای approved_by وجود ندارد | افزودن مرحلهٔ تأیید با مرجع مجاز پس از تثبیت اختیار نقش‌ها؛ حفظ تاریخچه و کنترل دانلود | IMPORTANT |
+| 6 | organizations | اصلاح موبایل، شبا و اطلاعات هویتی/وابستگان | MISSING | `PersonChangeRequestForm` مصرف‌کننده ندارد؛ ServiceRequest فقط شرح عمومی دارد؛ old/new، مرحله/عامل/زمان‌های لازم برای گردش تغییر ساخته نشده است | ساخت درخواست تغییر ساخت‌یافته، اتصال به نماینده شرکت/بیمه‌گر/مرجع داخلی و به‌روزرسانی Person فقط پس از تأیید | BLOCKER |
+| 7 | organizations | مدیریت چرخه سوابق اشتغال و انتقال شرکت | PARTIAL | `PersonEmployment` در scope و import مصرف می‌شود؛ UI و فرم تأیید/خاتمه/انتقال برای ثبت دستی و مشاهدهٔ گردش اشتغال وجود ندارد | تکمیل فرم/view محدود به شرکت و نقش مجاز، اعتبار زمانی و ثبت عامل/تأییدکننده؛ حفظ اشتغال تاریخی | IMPORTANT |
+| 8 | requests_portal | جلوگیری از دور زدن workflow از Django Admin | BROKEN | `ServiceRequest` با admin پیش‌فرض ثبت شده؛ کاربر staff مجاز به Admin می‌تواند status/assignee/response را مستقیم عوض کند و از `transition_case` و ثبت ممیزی دامنه‌ای عبور کند | تبدیل Admin به مشاهدهٔ فقط‌خواندنی و بستن add/change/delete؛ تمام تغییرها از view/workflow عبور کنند؛ تست POST منفی | IMPORTANT |
+| 9 | organizations | جلوگیری از ویرایش مستقیم دادهٔ شخص از Admin | BROKEN | `Person` با admin پیش‌فرض ثبت شده و فیلدهای mobile/IBAN/identity بدون گردش مصوب قابل تغییرند | حفظ مشاهده و ایجاد اولیهٔ مجاز، محدودکردن تغییر مستقیم داده‌های هویتی/تماس/مالی تا اتصال گردش اصلاح؛ تست عدم تغییر | IMPORTANT |
+| 10 | workflow | اتصال گردش کار به دامنه‌های غیر از درخواست عمومی | PARTIAL | `start_workflow` در جریان ایجاد ServiceRequest متصل است؛ claim، objection، contract، person change، asset و چرخه‌های دیگر تعریف/اتصال دامنه‌ای ندارند | اتصال هر نوع فقط طبق Workflow Catalog، با تعریف نسخه‌دار، نقش/دامنه و تست end-to-end همان جریان | BLOCKER |
+| 11 | requests_portal / workflow | مدیریت پیکربندی ناقص گیرندهٔ مرحله آغازین | PARTIAL | اگر تعریف فعال موجود باشد اما گیرندهٔ واجد انتصاب پیدا نشود، `resolve_initial_assignee`، `ValidationError` می‌دهد؛ request_create آن را به خطای قابل‌فهم فرم/پیام تبدیل نمی‌کند | اعتبارسنجی publish/config و مدیریت اتمیک خطا در request_create؛ تست عدم ثبت رکورد نیمه‌کاره و پاسخ کنترل‌شده | IMPORTANT |
+| 12 | imports | فیلدهای پویا و قالب Excel نسخه‌دار با تصمیم فیلدبه‌فیلد | MISSING | `ImportBatch` فقط import ثابت خسارت دارد؛ FieldDefinition/ExcelTemplate/نسخه قالب، تولید نمونه، merge/replace/ignore و تاریخچه مقادیر قدیمی وجود ندارد | ساخت تعریف فیلد و قالب با مجوز مدیر سامانه، پیش‌نمایش و تصمیم‌های تراکنشیِ تعریف‌شده در کاتالوگ | BLOCKER |
+| 13 | documents | اتصال سند به رکوردهای دامنه | PARTIAL | `DocumentLinkForm` برای claim/request/correspondence/contract/asset/task تعریف شده، اما view آن را import/مصرف نمی‌کند؛ URL و UI اتصال و دامنهٔ visibility برای همه مقصدها کامل نیست | اتصال form→view→template، کنترل مجوز روی target و دانلود، نمایش linkها و تست هر target و tenant | IMPORTANT |
+| 14 | dashboard | گزارش‌ساز سفارشی و گردش تأیید/انتشار گزارش | MISSING | فقط KPIهای ثابت وجود دارد؛ تعریف گزارش، فیلترهای مجاز، زنجیره تأیید، نسخه/خروجی و گزارش بیمه‌گر پیاده نشده‌اند | پیاده‌سازی مدل/فرم/report run و approval طبق چرخه ۱۶ کاتالوگ و محدودیت scope | IMPORTANT |
+| 15 | dashboard / workflow | گزارش SLA، زمان مشاهده/اقدام/ارجاع و هشدار تأخیر | MISSING | WorkflowCase زمان‌های موردی را دارد، ولی گزارش تجمیعی SLA، زمان انتظار به تفکیک نقش/واحد و job/هشدار تأخیر در UI وجود ندارد | query/service گزارش SLA و اعلان‌های نقش‌محور بدون توقف SLA؛ آزمون با تقویم کاری ایران | IMPORTANT |
+| 16 | accounts | احراز هویت چندعاملی واقعی | PARTIAL | فقط `User.mfa_enabled` موجود است؛ enrollment، challenge، factor، recovery code و تست ورود دومرحله‌ای وجود ندارد | انتخاب روش MFA و عامل‌های پشتیبانی‌شده با تأیید مالک/امنیت، سپس پیاده‌سازی و آزمون | IMPORTANT |
+| 17 | accounts | بازیابی امن رمز عبور | MISSING | Login و تغییر رمز اجباری وجود دارند؛ route/template/process برای بازیابی امن حساب و احراز هویت مجدد وجود ندارد | تعریف کانال تأیید هویت و انقضای توکن با مالک/امنیت؛ سپس جریان reset و تست سوءاستفاده | IMPORTANT |
+| 18 | core / deployment | اسکن بدافزار و قرنطینهٔ فایل بارگذاری‌شده | MISSING | اعتبارسنجی پسوند/امضا/ساختار/حجم وجود دارد؛ اسکن بدافزار و قرنطینه در مستند امنیت صریحاً نیازمند تکمیل است | اتصال به موتور اسکن مورد تأیید زیرساخت، قرنطینهٔ پیش از انتشار و fail-closed؛ نیازمند تصمیم/سرویس زیرساخت | BLOCKER |
+| 19 | tasks | رویداد اولین مشاهده و زمان اقدام/تکمیل وظیفه | PARTIAL | TaskEvent ایجاد/تخصیص/تغییر وضعیت را ثبت می‌کند؛ در GET صفحه، first-view/acknowledgement و KPI مدت مشاهده تا اقدام در مدل/گزارش دیده نمی‌شود | افزودن رویدادهای زمانی سازگار با کاتالوگ و ثبت اتمیک زمان اولین مشاهده/اقدام؛ تست تکرار مشاهده و انتقال | IMPORTANT |
+| 20 | workflow / feedback | چرخه رضایت‌سنجی پس از پایان پرونده | MISSING | چرخه اختیاری نظرسنجی پس از پایان، ثبت امتیاز/نظر و گزارش نرخ مشارکت در مدل/view/template وجود ندارد | فقط با حفظ اختیاری‌بودن و عدم اثر بر دسترسی/بستن پرونده؛ مدل، فرم و گزارش با scope | MINOR |
 
-### 13.1 شکاف‌هایی که هنوز در این دور تعیین تکلیف اجرایی نشده‌اند
-این فهرست هنوز بسته نهایی فاز شکاف نیست. پیش از شروع تغییر کد باید تک‌تک ردیف‌ها با تست جریان و permission موجود تطبیق نهایی شوند. هیچ قابلیت USED نباید برای رفع این موارد بازنویسی شود.
+### 13.1 موارد EXCLUDED-BY-DECISION
+
+| App | Capability | Verdict | دلیل قفل‌شده |
+|---|---|---|---|
+| accounts / all | نقش‌های Finance، Legal و Auditor | EXCLUDED-BY-DECISION | در تصمیم‌های محصول حذف شده‌اند و نباید به RoleAssignment، منو یا policy برگردند. |
+| claims / all | انتقال وجه یا پرداخت بانکی از داخل سامانه | EXCLUDED-BY-DECISION | سامانه فقط سابقهٔ پرداخت اعلام‌شده را نگه می‌دارد؛ درگاه یا تراکنش بانکی ندارد. |
+| claims | تشخیص قطعی duplicate با شباهت‌سنجی خودکار | EXCLUDED-BY-DECISION | duplicate فقط با اعلام بیمه‌گر منبع ثبت می‌شود؛ تطبیق سامانه صرفاً ابزار جست‌وجو است. |
+| organizations | حساب مستقل برای فرد تحت تکفل | EXCLUDED-BY-DECISION | فرد وابسته زیر حساب بیمه‌شده اصلی مشاهده می‌شود. |
+| repository / CI | افزودن GitHub Actions | EXCLUDED-BY-DECISION | راهنمای تست پروژه تصریح می‌کند CI workflow عمداً وجود ندارد؛ تست محلی توسط توسعه‌دهنده اجرا می‌شود. |
+
+**تثبیت فاز ۳:** ۲۰ شکاف قابل اقدام در جدول بالا؛ ۵ مورد EXCLUDED-BY-DECISION جداگانه ثبت شد؛ هیچ قابلیت USED وارد فهرست نشده است. این دو جدول دامنهٔ بستهٔ کار فاز ۴ هستند.
 
 ## 14. وضعیت اعتبارسنجی و محدودیت شواهد
 
