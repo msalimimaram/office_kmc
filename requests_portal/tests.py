@@ -3,10 +3,11 @@ from django.test import TestCase, Client
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import RoleAssignment, User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from core.permissions import can_transition_request, scoped_requests_for
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep
 
 NATIONAL_ID_A = "1" * 10
 NATIONAL_ID_B = "2" * 10
@@ -468,3 +469,52 @@ class ServiceRequestAdminIsolationTests(TestCase):
         self.item.refresh_from_db()
         self.assertEqual(self.item.status, ServiceRequest.Status.SUBMITTED)
         self.assertIsNone(self.item.assigned_to_id)
+
+
+class RequestWorkflowConfigurationFailureTests(TestCase):
+    def test_missing_initial_recipient_returns_form_error_and_rolls_back_request(self):
+        company = Company.objects.create(code="WF-EMPTY", name="شرکت بدون گیرنده")
+        submitter = User.objects.create_user(
+            username="wf-submit",
+            password="StrongPass!2026",
+            role="employee",
+            company=company,
+            must_change_password=False,
+        )
+        administrator = User.objects.create_user(
+            username="wf-admin",
+            password="StrongPass!2026",
+            role="system_admin",
+            is_staff=True,
+            must_change_password=False,
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="گردش آزمایشی بدون گیرنده",
+            created_by=administrator,
+            approved_by=administrator,
+            is_active=False,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="company-review",
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(submitter)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست با تعریف ناقص",
+            "description": "این ثبت باید به‌صورت کنترل‌شده رد شود.",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "گیرنده‌ای با انتصاب معتبر")
+        self.assertEqual(ServiceRequest.objects.filter(submitted_by=submitter).count(), 0)
+        self.assertEqual(WorkflowCase.objects.count(), 0)
