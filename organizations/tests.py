@@ -163,3 +163,49 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         client.force_login(employee)
         response = client.get(reverse("company_leadership_titles"))
         self.assertEqual(response.status_code, 403)
+
+
+
+class PersonAdminChangeProtectionTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="ADM-PER", name="شرکت حفاظت اطلاعات")
+        self.person = Person.objects.create(
+            company=self.company,
+            national_id="1234509876",
+            first_name="شخص",
+            last_name="آزمایشی",
+            birth_date=date(1990, 1, 1),
+            mobile="09120000000",
+            iban="IR120000000000000000000000",
+        )
+        self.admin = User.objects.create_user(
+            username="person-admin",
+            password="StrongPass!2026",
+            role="system_admin",
+            is_staff=True,
+            must_change_password=False,
+        )
+        self.client.force_login(self.admin)
+
+    def test_global_operator_can_view_and_create_person_but_cannot_edit_or_delete_existing_person(self):
+        changelist = reverse("admin:organizations_person_changelist")
+        detail = reverse("admin:organizations_person_change", args=[self.person.pk])
+        add = reverse("admin:organizations_person_add")
+        delete = reverse("admin:organizations_person_delete", args=[self.person.pk])
+
+        self.assertEqual(self.client.get(changelist).status_code, 200)
+        self.assertEqual(self.client.get(detail).status_code, 200)
+        self.assertEqual(self.client.get(add).status_code, 200)
+        self.assertEqual(self.client.get(delete).status_code, 403)
+
+    def test_admin_post_cannot_bypass_person_change_workflow(self):
+        detail = reverse("admin:organizations_person_change", args=[self.person.pk])
+        response = self.client.post(detail, {
+            "mobile": "09129999999",
+            "iban": "IR990000000000000000000000",
+            "_save": "ذخیره",
+        })
+        self.assertEqual(response.status_code, 403)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.mobile, "09120000000")
+        self.assertEqual(self.person.iban, "IR120000000000000000000000")
