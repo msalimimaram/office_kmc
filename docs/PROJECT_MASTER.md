@@ -353,7 +353,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | assets/tests.py | ۸ | scope شرکت، جلوگیری از ثبت دارایی شرکت دیگر، مبلغ/تاریخ |
 | auditlog/tests.py | ۴ | append-only، منع update/delete، نگهداری actor |
 | claims/tests.py | ۱۲ | visibility claim، انتقال تاریخی شرکت، شناسه ملی، مبلغ، مجوز اعتراض |
-| claims/test_payments.py | ۸ | پرداخت قسطی، سقف payable، تأیید مستقل، برگشت، immutability، پرداخت اعلامی بیمه‌گر |
+| claims/test_payments.py | ۱۲ | پرداخت قسطی، سقف payable، تأیید مستقل، برگشت، immutability، پرداخت اعلامی بیمه‌گر |
 | core/test_permissions.py | ۱ | عدم نمایش درخواست محرمانه به specialist حتی با assignment |
 | core/tests.py | ۶ | امضای فایل، پسوند، حجم، فایل Office |
 | correspondence/tests.py | ۹ | scope شرکت و بیمه‌گر |
@@ -753,6 +753,8 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | claims | `/claims/` | claim_list | GET | claim_list |
 | claims | `/claims/<int:pk>/` | claim_detail | GET/POST | claim_detail |
 | claims | `/claims/<int:pk>/objections/<int:objection_pk>/review/` | claim_objection_review | POST | claim_objection_review |
+| claims | `/claims/<int:pk>/payments/new/` | claim_payment_create | POST | claim_payment_create |
+| claims | `/claims/<int:pk>/payments/<int:payment_pk>/reverse/` | claim_payment_reverse | POST | claim_payment_reverse |
 | requests_portal | `/requests/` | request_list | GET | request_list |
 | requests_portal | `/requests/new/` | request_create | GET/POST | request_create |
 | requests_portal | `/requests/<int:pk>/` | request_detail | GET/POST | request_detail |
@@ -797,6 +799,8 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 | claims | claim_list | FBV | claims/ | login؛ scoped_claims_for | claims/claim_list |
 | claims | claim_detail | FBV | claims/<pk>/ | login و scope؛ اعتراض فقط نقش/پرونده واجدشرایط؛ ClaimObjectionForm | claims/claim_detail |
 | claims | claim_objection_review | FBV | objections/<objection_pk>/review | POST؛ can_decide_claim؛ ClaimObjectionReviewForm | redirect به claim_detail |
+| claims | claim_payment_create | FBV | claims/<pk>/payments/new/ | POST؛ فقط رئیس/مدیر یا کارشناس همان رشته؛ ClaimPaymentForm؛ تأییدکننده مستقل | redirect به claim_detail |
+| claims | claim_payment_reverse | FBV | claims/<pk>/payments/<payment_pk>/reverse/ | POST؛ همان scope و تأیید مستقل؛ ClaimPaymentReversalForm؛ برگشت append-only | redirect به claim_detail |
 | requests_portal | request_list | FBV | requests/ | login؛ scoped_requests_for | requests_portal/request_list |
 | requests_portal | request_create | FBV | requests/new/ | insured/company rep/global؛ ServiceRequestForm؛ شروع workflow اختیاری | requests_portal/request_form |
 | requests_portal | request_detail | FBV | requests/<pk>/ | login؛ scoped request؛ workflow assignee/global یا legacy policy | requests_portal/request_detail |
@@ -876,7 +880,7 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 | announcements | 1 | 3 | 1 | 2 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 0 |
 | assets | 5 | 5 | 4 | 3 | 5 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
 | auditlog | 1 | 0 | 0 | 0 | 0 | سرویس داخلی؛ runtime نامشخص | 0 | 0 (مدل در Admin readonly) | 0 | 0 | 0 |
-| claims | 3 | 3 | 2 | 2 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 3 | 0 | 0 |
+| claims | 3 | 5 | 4 | 2 | 5 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 3 | 0 | 0 |
 | core | 0 | 0 | 0 | 0 | 0 | helper زیرساختی؛ runtime نامشخص | 0 | 0 | 0 | 0 | 1 |
 | correspondence | 4 | 4 | 3 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 0 |
 | dashboard | 0 | 1 | 0 | 1 | 0* | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 0 | 0 | 2 |
@@ -887,9 +891,9 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 | requests_portal | 1 | 4 | 1 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 1 | 0 |
 | tasks | 2 | 3 | 1 | 3 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
 | workflow | 7 | 2 | 0 | 2 | 2 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 1 |
-| **جمع** | **41** | **35** | **19** | **28 app templates** | **33** | **تأیید runtime نشده** | **0 مورد قطعی** | **0 مدل/view/template/URL قطعی** | **11** | **2** | **7** |
+| **جمع** | **41** | **37** | **21** | **28 app templates** | **35** | **تأیید runtime نشده** | **0 مورد قطعی** | **0 مدل/view/template/URL قطعی** | **11** | **2** | **7** |
 
-* مسیرهای accounts و dashboard در `config/urls.py` ریشه ثبت شده‌اند، نه در `accounts/urls.py` یا `dashboard/urls.py`. ۶ مسیر ریشه شامل Admin، login/logout/password-change و دو مسیر dashboard هستند. مجموع الگوهای URL برابر ۳۹ است: ۳۳ مسیر اپی به‌اضافه ۶ مسیر root (چهار مسیر Admin/auth و دو مسیر dashboard).
+* مسیرهای accounts و dashboard در `config/urls.py` ریشه ثبت شده‌اند، نه در `accounts/urls.py` یا `dashboard/urls.py`. ۶ مسیر ریشه شامل Admin، login/logout/password-change و دو مسیر dashboard هستند. پس از اضافه‌شدن دو مسیر دفترکل پرداخت، مجموع الگوهای URL برابر ۴۱ است: ۳۵ مسیر اپی به‌اضافه ۶ مسیر root (چهار مسیر Admin/auth و دو مسیر dashboard).
 
 مجموع ۲۸ template داخل اپ‌ها/صفحه‌هاست؛ دو فایل مشترک `templates/base.html` و `templates/includes/pagination.html` آن را به ۳۰ فایل واقعی می‌رسانند. صفر بودن UNLINKED و ORPHAN فقط نتیجهٔ بررسی static view/URL/template/model است؛ آزمون runtime برای قطعیت لازم است. دو فرم یتیم از نظر اتصال، در خود Gap #6 (`PersonChangeRequestForm`) و Gap #13 (`DocumentLinkForm`) مستند شده‌اند و به‌عنوان قابلیت USED شمرده نشده‌اند.
 
@@ -941,3 +945,31 @@ Commitهای این قابلیت:
 - `99988dfbd42d4ff0cfd9e3f3660f8da7e9c0e560` — تست‌های HTTP اتصال scoped.
 
 تعریف‌های تست static از 136 به **139** رسید؛ فایل documents/tests.py از 10 به 13 متد test رسید. هیچ‌یک از این سه تست در محیط Django اجرا نشده‌اند؛ بنابراین Gap #13 از حیث پیاده‌سازی سورس تکمیل‌شده اما از حیث تأیید runtime همچنان **BLOCKED** است و CLOSED محسوب نمی‌شود.
+
+
+### 17.21 تکمیل سورس Gap #2 — دفترکل پرداخت در جریان Template
+
+سرویس‌های دامنهٔ موجود `record_payment` و `reverse_payment` در مسیرهای وب مصرف شدند؛ منطق محاسبه و قیدهای append-only در `claims/services.py` حفظ شده و دوباره‌نویسی نشده‌اند.
+
+- `claims/forms.py`: `ClaimPaymentForm` و `ClaimPaymentReversalForm` اضافه شدند. فهرست تأییدکنندگان فقط کاربران فعال، مجاز در همان رشته و متفاوت از ثبت‌کننده را نمایش می‌دهد؛ بیمه‌گر منبع نیز به بیمه‌گر خسارت محدود است.
+- `claims/views.py`: دو FBV جدید، `claim_payment_create` و `claim_payment_reverse`، با login، claim scope، مجوز global/کارشناس همان رشته، POST-only و مدیریت ValidationError اضافه شدند.
+- `templates/claims/claim_detail.html`: فرم ثبت پرداخت، تاریخچه دفترکل و فرم برگشت برای هر رکورد پرداخت در همان صفحه نمایش داده می‌شود؛ فقط کاربران مجاز آن را می‌بینند.
+- `claims/urls.py`: دو مسیر POST جدید ثبت شده‌اند.
+- هر ثبت/برگشت از سرویس موجود استفاده می‌کند؛ ثبت‌کننده و تأییدکننده باید مستقل باشند؛ سقف payable و برگشت بیشتر از مانده پرداخت اصلی از طرف service enforce می‌شود؛ برگشت به‌صورت رکورد جدید می‌ماند و حذف/ویرایش مستقیم فعال نشده است.
+- هیچ درگاه یا انتقال بانکی اضافه نشده؛ این سیستم فقط ledger اعلامی را نگهداری می‌کند.
+
+چهار تست HTTP افزوده‌شده در `claims/test_payments.py`:
+- `ClaimPaymentViewFlowTests.test_authorised_operator_records_payment_with_independent_reviewer`
+- `ClaimPaymentViewFlowTests.test_user_cannot_confirm_own_payment`
+- `ClaimPaymentViewFlowTests.test_employee_cannot_open_or_submit_payment_actions`
+- `ClaimPaymentViewFlowTests.test_authorised_operator_reverses_payment_as_a_separate_ledger_entry`
+
+Commits:
+- `f9b2a45e85ed38991b221bcb9e069494d7d27b26` — فرم‌های ثبت و برگشت با تأیید مستقل.
+- `309ca826d024db25bc7c57886d2ab1ff3d33073f` — viewهای POST و اتصال به سرویس ledger.
+- `39c52195ec355bfd4df9f94cd1aaa2abfb5dde38` — URLهای پرداخت و برگشت.
+- `cecc46b47fc1daa4e1da4f6d9d6dfd49faf1bf44` — فرم‌ها و جدول ledger در claim detail.
+- `20e7f462a08b6ec47240b8e29ba755aec713d706` — تست‌های HTTP.
+
+تعداد تعریف‌های تست از 139 به **143** رسیده است: `claims/test_payments.py` از 8 به 12 متد افزایش یافته. این تست‌ها اجرا نشده‌اند؛ بنابراین Gap #2 از نظر اتصال سورس پیاده‌سازی شده ولی runtime verification آن **BLOCKED** است و CLOSED نیست.
+
