@@ -887,9 +887,9 @@ Logout فقط POST است و در فرم خروج base template مصرف می‌
 | requests_portal | 1 | 4 | 1 | 3 | 4 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 1 | 0 |
 | tasks | 2 | 3 | 1 | 3 | 3 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 0 |
 | workflow | 7 | 2 | 0 | 2 | 2 | نامشخص تا اجرای جریان | 0 یافت‌شده | 0 یافت‌شده | 1 | 0 | 1 |
-| **جمع** | **41** | **35** | **19** | **28 app templates** | **29 در اپ‌ها** | **تأیید runtime نشده** | **0 مورد قطعی** | **0 مدل/view/template/URL قطعی** | **10** | **2** | **7** |
+| **جمع** | **41** | **35** | **19** | **28 app templates** | **33** | **تأیید runtime نشده** | **0 مورد قطعی** | **0 مدل/view/template/URL قطعی** | **11** | **2** | **7** |
 
-* مسیرهای accounts و dashboard در `config/urls.py` ریشه ثبت شده‌اند، نه در `accounts/urls.py` یا `dashboard/urls.py`. ۶ مسیر ریشه شامل Admin، login/logout/password-change و دو مسیر dashboard هستند. مجموع الگوهای URL برابر ۳۹ است: ۳۳ مسیر اپی به‌اضافه ۶ مسیر root؛ عدد ۲۹ در جمع جدول بالا تعداد مسیرهای app-level برای اپ‌های دارای `urls.py` است و ۴ مسیر اختصاصی Admin/auth در root به حساب آن افزوده می‌شود، همراه با دو dashboard route.
+* مسیرهای accounts و dashboard در `config/urls.py` ریشه ثبت شده‌اند، نه در `accounts/urls.py` یا `dashboard/urls.py`. ۶ مسیر ریشه شامل Admin، login/logout/password-change و دو مسیر dashboard هستند. مجموع الگوهای URL برابر ۳۹ است: ۳۳ مسیر اپی به‌اضافه ۶ مسیر root (چهار مسیر Admin/auth و دو مسیر dashboard).
 
 مجموع ۲۸ template داخل اپ‌ها/صفحه‌هاست؛ دو فایل مشترک `templates/base.html` و `templates/includes/pagination.html` آن را به ۳۰ فایل واقعی می‌رسانند. صفر بودن UNLINKED و ORPHAN فقط نتیجهٔ بررسی static view/URL/template/model است؛ آزمون runtime برای قطعیت لازم است. دو فرم یتیم از نظر اتصال، در خود Gap #6 (`PersonChangeRequestForm`) و Gap #13 (`DocumentLinkForm`) مستند شده‌اند و به‌عنوان قابلیت USED شمرده نشده‌اند.
 
