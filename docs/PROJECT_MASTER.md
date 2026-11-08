@@ -1,6 +1,6 @@
 # سند جامع پروژه Office KMC
 > وضعیت سند: **ممیزی زنده — فاز شناخت و ممیزی ایستا در حال تکمیل؛ پذیرش اجرایی هنوز تأیید نشده است.**  
-> آخرین snapshot کد بررسی‌شده: `091495cf35bf2e667a3d00647256ebbe06fc6894` روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
+> آخرین HEAD کدِ به‌روزشده در این ممیزی: `e3a394ce3ac79d6ea0b95a5630dff93ecd7d264f` (بر پایهٔ ممیزی ایستای `091495...` و اصلاحات فاز ۴) روی شاخه `implementation/insurance-platform-core-2026-11-04` (2026-11-07).  
 > این سند باید در همان commit/شاخهٔ پیاده‌سازی به‌روزرسانی شود؛ تغییرات آن به‌تنهایی جای تست runtime یا بازبینی مالک کسب‌وکار را نمی‌گیرد.
 
 ## 1. معرفی پروژه
@@ -27,7 +27,7 @@ Office KMC یک پورتال وب داخلی برای عملیات اداره ب
 | تعداد اپ‌ها | ۱۵ اپ Django در `INSTALLED_APPS` |
 | فایل‌های template | ۳۰ فایل شامل base، صفحات، partial و دو template داخلی workflow |
 | فایل‌های migration | ۳۸ فایل migration شماره‌دار در snapshot |
-| فایل‌های تست | ۱۸ فایل؛ ۱۳۱ متد `test_*` از روی سورس |
+| فایل‌های تست | ۱۸ فایل؛ ۱۳۶ متد `test_*` از روی سورس |
 | CI | GitHub Actions عمداً در پروژه تعریف نشده است |
 
 ### 2.1 ساختار سطح اول
@@ -328,7 +328,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | App | مدل‌های ثبت‌شده | تنظیمات/کنترل مهم |
 |---|---|---|
 | accounts | User، RoleAssignment، OrganizationalUnit، OrganizationalPosition، PositionAssignment | list/search؛ کنترل سطح module/view/add/change/delete در ModelAdmin |
-| organizations | Company، Person | Company list/search؛ Person ثبت ساده و قابل‌ویرایش پیش‌فرض؛ PersonEmployment و CompanyLeadershipTitle ثبت نشده‌اند |
+| organizations | Company، Person | Company list/search؛ PersonAdmin اجازهٔ مشاهده و ایجاد اولیهٔ مجاز می‌دهد و تغییر/حذف مستقیم را می‌بندد؛ PersonEmployment و CompanyLeadershipTitle ثبت نشده‌اند |
 | insurance | Insurer سفارشی؛ Contract و ContractRevision ثبت عمومی | Insurer list/search؛ قراردادها generic admin |
 | claims | Claim، ClaimPayment، ClaimObjection | list/filter/search؛ همه فیلدهای مدل readonly و عملیات add/change/delete محدود/غیرفعال |
 | announcements | Announcement | list/filter/search؛ فیلدها readonly؛ عملیات مستقیم admin محدود |
@@ -361,8 +361,8 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | documents/tests.py | ۱۰ | scope اتصال سند، مدرک پزشکی، دانلود محرمانه، immutability |
 | imports/tests.py | ۱۳ | مبلغ/تاریخ فارسی و میلادی، اعتبارسنجی فایل، تأیید مستقل batch و پرداخت |
 | insurance/tests.py | ۲ | بازه تاریخ قرارداد |
-| organizations/tests.py | ۷ | scope فهرست اشخاص، dependent-company integrity، اشتغال فعال یکتا |
-| requests_portal/tests.py | ۱۸ | create/visibility/confidentiality، status، assignment، تاریخچه پاسخ، medical dependent، transition graph |
+| organizations/tests.py | ۹ | scope فهرست اشخاص، dependent-company integrity، اشتغال فعال یکتا |
+| requests_portal/tests.py | ۲۱ | create/visibility/confidentiality، status، assignment، تاریخچه پاسخ، medical dependent، transition graph |
 | tasks/tests.py | ۵ | فیلتر درخواست محرمانه، assigneeهای مجاز، رد specialist و پذیرش head |
 | workflow/tests.py | ۱۲ | start/transition، note، SLA، append-only، immutability، scope، calendar، role/recipient |
 
@@ -601,7 +601,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 | tasks | دارد | دارد | دارد | دارد | دارد؛ فقط‌خواندنی | 5 | task_list، task_form، task_update |
 | workflow | دارد | دارد؛ POST action در view | فایل forms.py ندارد | دارد | دارد؛ پیکربندی تعریف‌ها | 12 | workflow_case_list، workflow_case_detail |
 
-- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 131.
+- مجموع فایل‌های آزمون: 18؛ مجموع تعریف‌های `test_*`: 136 (پس از افزودن 5 تست HTTP/جریان در فاز ۴).
 - 13 اپ دارای `models.py` و 13 اپ دارای `views.py` هستند؛ `core` و `dashboard` عمداً مدل ندارند.
 - 10 اپ دارای `forms.py`، 11 اپ دارای `urls.py` و 13 اپ دارای `admin.py` هستند.
 - 30 فایل HTML موجود است: 28 فایل در `templates/` و 2 فایل در `workflow/templates/workflow/`. `templates/base.html` و `templates/includes/pagination.html` مشترک‌اند.
@@ -654,3 +654,32 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 - commitهای مستنداتی این ممیزی روی شاخهٔ implementation ثبت شده‌اند؛ آخرین commit سند در زمان این الحاق باید از refs شاخه دریافت شود و با HEAD کد بررسی‌شده اشتباه نشود.
 - `main` بدون تغییر باقی مانده است. 333 commit اختلاف PR مربوط به snapshot کد اولیه است؛ commitهای مستنداتی این نشست پس از آن به شاخه اضافه شده‌اند.
 - در نبود checkout محلی و اجرای تست روی HEAD، هیچ آیتمی صرفاً بر اساس وجود view/template/test به وضعیت CLOSED ارتقا داده نمی‌شود.
+
+
+### 17.11 اصلاحات فاز ۴ — کد و تست‌های افزوده‌شده (2026-11-08)
+
+این اصلاحات فقط روی شکاف‌های از پیش ثبت‌شدهٔ #8، #9 و #11 انجام شده‌اند؛ هیچ capability جدیدی به دامنه اضافه نشده است.
+
+| Gap # | فایل‌های تغییرکرده | رفتار تغییریافته | تست HTTP افزوده‌شده | وضعیت |
+|---:|---|---|---|---|
+| 8 | `requests_portal/admin.py`, `requests_portal/tests.py` | ServiceRequest در Admin برای مدیر/رئیس قابل مشاهده است؛ add/change/delete بسته شد تا وضعیت، مسئول یا پاسخ از مسیر خارج از Workflow تغییر نکند | `ServiceRequestAdminIsolationTests.test_global_operator_can_view_requests_but_cannot_add_change_or_delete`; `test_admin_post_cannot_change_request_status_or_assignment` | پیاده‌سازی شد؛ اجرا نشده؛ BLOCKED verification |
+| 9 | `organizations/admin.py`, `organizations/tests.py` | Person در Admin قابل مشاهده و ایجاد اولیه توسط اپراتور global است؛ ویرایش و حذف مستقیم ممنوع شد تا تغییر هویت/تماس/شبا از مسیر مصوب انجام شود | `PersonAdminChangeProtectionTests.test_global_operator_can_view_and_create_person_but_cannot_edit_or_delete_existing_person`; `test_admin_post_cannot_bypass_person_change_workflow` | پیاده‌سازی شد؛ اجرا نشده؛ BLOCKED verification |
+| 11 | `requests_portal/views.py`, `requests_portal/tests.py` | ایجاد درخواست و شروع workflow در یک تراکنش قرار گرفت؛ ValidationError ناشی از تعریف/گیرنده نامعتبر به خطای فرم تبدیل می‌شود و هیچ درخواست نیمه‌کاره‌ای باقی نمی‌ماند | `RequestWorkflowConfigurationFailureTests.test_missing_initial_recipient_returns_form_error_and_rolls_back_request_creation` | پیاده‌سازی شد؛ اجرا نشده؛ BLOCKED verification |
+
+**Commitهای کد و تست فاز ۴:**
+- `a5dd319d02207d9f2fff36e4ff8b666feb751f27` — محدودسازی ServiceRequest Admin به مشاهده.
+- `50ad6fc9b36725fa4c7dc5bd758b41d8cf171c67` — حفاظت از Person در Admin.
+- `7882ea4166e0209a85e4e3e12faf31b6b2ff6185` — تست دسترسی/عدم تغییر ServiceRequest در Admin.
+- `dfe5e0dc417ed5776f804263da1e5ab48dae3fa1` — تست محدودیت ویرایش مستقیم Person.
+- `fc75cfaa7e717cb520a9c223cbca50d98f04b742` — مدیریت اتمیک خطای گیرندهٔ workflow در request_create.
+- `e3a394ce3ac79d6ea0b95a5630dff93ecd7d264f` — تست rollback برای workflow بدون گیرنده.
+
+### 17.12 وضعیت فعلی اجرای Phase 4 و محدودیت محیط
+
+- تعریف تست‌ها در سورس از 131 به 136 رسیده؛ در requests_portal از 18 به 21 و در organizations از 7 به 9 افزایش یافته است. این شمارش static است، نه اجرای suite.
+- تلاش اول برای checkout محلی با `git clone` با خطای DNS `Could not resolve host: github.com` متوقف شد.
+- تلاش دوم برای materialize کردن archive مخزن نیز checkout قابل اجرا نساخت؛ محیط همچنان فایل‌های پروژه/دیتابیس را در اختیار نمی‌گذارد.
+- به همین دلیل هیچ تست جدید، تست اپ، full suite یا `manage.py check/showmigrations/runserver` اجرا نشده است. دو تلاش دسترسی به checkout شکست خورده و هر دو patch تا آزمون واقعی BLOCKED باقی می‌مانند.
+- Gap #8/#9/#11 از نظر سورس اصلاح شده‌اند ولی CLOSED نیستند؛ باید روی checkout واقعی، تست‌های نام‌برده و تست‌های موجود همان اپ اجرا شوند. اگر تست رد شود، حداکثر یک تلاش اصلاحی دیگر مجاز است؛ پس از شکست تلاش دوم، دلیل دقیق BLOCKED حفظ می‌شود.
+- آخرین HEAD راه دور پس از اصلاحات: `e3a394ce3ac79d6ea0b95a5630dff93ecd7d264f`.
+- PR #1 هنوز Draft و Open و ادغام‌نشده است؛ implementation نسبت به main در این snapshot 345 commit جلوتر و 0 عقب‌تر است؛ 131 فایل در PR تغییر کرده‌اند. `main` تغییر نکرده است.
