@@ -422,3 +422,49 @@ class ServiceRequestAttachmentDownloadTests(TestCase):
         client.force_login(self.owner)
         response = client.get(reverse("request_attachment_download", args=[item_without_file.pk]))
         self.assertEqual(response.status_code, 404)
+
+
+
+class ServiceRequestAdminIsolationTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="ADM-REQ", name="شرکت آزمون ادمین")
+        self.admin = User.objects.create_user(
+            username="request-admin",
+            password="StrongPass!2026",
+            role="system_admin",
+            is_staff=True,
+            must_change_password=False,
+        )
+        self.item = ServiceRequest.objects.create(
+            reference="IB-ADM-001",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.admin,
+            company=self.company,
+            title="درخواست فقط‌خواندنی",
+            description="آزمون جلوگیری از دور زدن گردش کار",
+            status=ServiceRequest.Status.SUBMITTED,
+        )
+        self.client.force_login(self.admin)
+
+    def test_global_operator_can_view_requests_but_cannot_add_change_or_delete(self):
+        changelist = reverse("admin:requests_portal_servicerequest_changelist")
+        detail = reverse("admin:requests_portal_servicerequest_change", args=[self.item.pk])
+        add = reverse("admin:requests_portal_servicerequest_add")
+        delete = reverse("admin:requests_portal_servicerequest_delete", args=[self.item.pk])
+
+        self.assertEqual(self.client.get(changelist).status_code, 200)
+        self.assertEqual(self.client.get(detail).status_code, 200)
+        self.assertEqual(self.client.get(add).status_code, 403)
+        self.assertEqual(self.client.get(delete).status_code, 403)
+
+    def test_admin_post_cannot_change_request_status_or_assignment(self):
+        detail = reverse("admin:requests_portal_servicerequest_change", args=[self.item.pk])
+        response = self.client.post(detail, {
+            "status": ServiceRequest.Status.CLOSED,
+            "assigned_to": "",
+            "_save": "ذخیره",
+        })
+        self.assertEqual(response.status_code, 403)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.status, ServiceRequest.Status.SUBMITTED)
+        self.assertIsNone(self.item.assigned_to_id)
