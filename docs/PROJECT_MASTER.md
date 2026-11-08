@@ -683,3 +683,184 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 - Gap #8/#9/#11 از نظر سورس اصلاح شده‌اند ولی CLOSED نیستند؛ باید روی checkout واقعی، تست‌های نام‌برده و تست‌های موجود همان اپ اجرا شوند. اگر تست رد شود، حداکثر یک تلاش اصلاحی دیگر مجاز است؛ پس از شکست تلاش دوم، دلیل دقیق BLOCKED حفظ می‌شود.
 - آخرین HEAD راه دور پس از اصلاحات: `e3a394ce3ac79d6ea0b95a5630dff93ecd7d264f`.
 - PR #1 هنوز Draft و Open و ادغام‌نشده است؛ implementation نسبت به main در این snapshot 345 commit جلوتر و 0 عقب‌تر است؛ 131 فایل در PR تغییر کرده‌اند. `main` تغییر نکرده است.
+
+
+### 17.13 فهرست تفصیلی مدل‌های پایگاه داده
+
+این فهرست از خواندن مستقیم `models.py` تمام اپ‌ها تهیه شده است. کلاس‌های QuerySet، enum و TextChoices مدل پایگاه داده محسوب نشده‌اند. `core` و `dashboard` عمداً مدل persistence ندارند.
+
+| App | Model | Fields اصلی | Methods / رفتار | روابط و قیدهای کلیدی |
+|---|---|---|---|---|
+| accounts | User | username, role, mobile, national_id, company, insurer, must_change_password, mfa_enabled + فیلدهای AbstractUser | str | کاربر سفارشی؛ company→Company، insurer→Insurer |
+| accounts | OrganizationalUnit | code, name, parent, company, is_active, created_at | clean, save, str | درخت واحد؛ parent به خودش؛ جلوگیری از چرخه و ناسازگاری شرکت |
+| accounts | OrganizationalPosition | unit, code, title, level, is_active | str | unique(unit,code)، متعلق به OrganizationalUnit |
+| accounts | RoleAssignment | user, role, company, insurer, organizational_unit, position, line_code, valid_from/until, is_active, reason, granted_by, approved_by, timestamps | clean, save, is_valid_on, str | انتصاب زمان‌دار؛ قیود company برای subsidiary_rep و insurer برای insurer_representative؛ indexهای scope |
+| accounts | PositionAssignment | user, unit, position, line_code, valid_from/until, is_active, reason, granted_by, approved_by, created_at | clean, save, str | انتصاب سازمانی زمان‌دار؛ بازه اعتبار |
+| announcements | Announcement | title, body, audience, company, attachment, is_published, publish_at, expires_at, created_by, timestamps | is_current, str | audience و company؛ زمان انتشار/انقضا |
+| assets | InsuredAsset | asset_code, name, asset_type, company/person, identifier, location, insured_value, insurer, contract, policy_number, policy_start/end, is_active, notes, created_by, timestamps | clean, save, str | مالکیت XOR شرکت/شخص؛ مبلغ غیرمنفی و تاریخ معتبر |
+| assets | Vehicle | asset, plate_number, vin, engine_number, make, model_name, model_year | clean, save, str | OneToOne با InsuredAsset |
+| assets | AssetValuation | asset, valuation_date, market_value, insured_value, method, source_reference, note, created_by, approved_by, created_at | clean, save, delete, str | مبالغ غیرمنفی؛ approved_by وجود دارد ولی تأیید در UI پیاده نشده |
+| assets | AssetPolicyPeriod | asset, insurer, contract, policy_number, policy_start/end, status, source_reference, note, created_by, approved_by, created_at | clean, save, str | اعتبار بازه؛ وضعیت پیش‌نویس و بدون مسیر تأیید |
+| assets | AssetPolicyEndorsement | policy_period, endorsement_number, effective_date, description, document, created_by, approved_by, created_at | — | unique(policy_period,endorsement_number) |
+| auditlog | AuditEvent | actor, action, object_type/id, summary, before_data, after_data, metadata, ip_address, user_agent, correlation_id, created_at | save, delete, str | append-only؛ مصرف در تمام جریان‌ها؛ فقط‌خواندنی در Admin |
+| claims | Claim | claim_number, source_claim_number, person, primary_insured, company_snapshot, contract, insurer, service/registration dates, contract_number_snapshot, service_type, requested/assessed/payable/paid_amount, status, source_reference, source_duplicate fields, assessment_note, result_sent_at/by, imported_at, timestamps | objection_deadline, clean, save, str | مبالغ نامنفی؛ paid≤payable؛ duplicate اعلامی نیازمند insurer؛ indexهای شرکت/بیمه‌گر/بیمه‌شده |
+| claims | ClaimPayment | claim, entry_type, amount, paid_at, source_reference, source_insurer, reverses_payment, note, recorded_by, confirmed_by, is_legacy_import, created_at | signed_amount, clean, save, delete, str | دفترکل immutable؛ برگشت با رکورد مستقل؛ تأییدکننده مستقل |
+| claims | ClaimObjection | claim, submitted_by, description, status, response, deadline_at, timestamps | clean, save | مهلت اعتراض ۶۰ روز از ارسال نتیجه؛ عملیات پاسخ/وضعیت در view |
+| correspondence | CorrespondenceSequence | solar_date, last_number, updated_at | str | شمارنده مشترک سری روزانه |
+| correspondence | Correspondence | internal_number, subject, channel, direction, company, insurer, contract, external_reference, summary, occurred_at, follow_up_due/status, assigned_to, is_confidential, attachment, created_by, timestamps | clean, save, str | شماره‌گذاری از service؛ company/insurer/contract/assignee |
+| correspondence | CorrespondenceLink | correspondence, content_type, object_id, created_by, created_at | — | GenericFK؛ unique(correspondence,content_type,object_id) |
+| correspondence | CorrespondenceEvent | correspondence, actor, event_type, summary, metadata, occurred_at | save, delete | append-only؛ تاریخچه پیگیری |
+| documents | DocumentRecord | title, category, file, uploaded_by, company, person, security_level, is_medical, is_confidential, archive/void flags, archive/void timestamps and reasons, created_at | clean, save, current_version, delete, str | archive/void نیازمند دلیل؛ حفاظت lifecycle و محرمانگی |
+| documents | DocumentVersion | document, version_number, file, uploaded_by, change_reason, checksum_sha256, is_current, uploaded_at | clean, save, delete, str | unique(document,version_number)، حداکثر یک نسخه جاری |
+| documents | DocumentLink | document, content_type, object_id, created_by, created_at | — | GenericFK؛ unique(document,content_type,object_id)؛ فرم اتصال هنوز view ندارد |
+| documents | DocumentAccessEvent | document, version, actor, action, ip_address, occurred_at | save, delete | immutable؛ ثبت مشاهده/دانلود |
+| imports | ImportBatch | batch_number, source_type, file, uploaded_by, status, total/valid/invalid_rows, result_report, preview_data, reviewed_by/at, review_note, created_at | — | batch ورود Excel خسارت؛ preview و تأیید مستقل |
+| insurance | Insurer | name, contact_name, contact_email, contact_phone, is_active | str | مرجع بیمه‌گر |
+| insurance | Contract | code, title, insurer, line, start/end_date, companies(M2M), coverage_summary, terms, is_active, created_at | clean, save, str | end_date≥start_date؛ رابطه چندبه‌چند Companies |
+| insurance | ContractRevision | contract, revision_number, description, document, created_by, created_at | — | unique(contract,revision_number)؛ UI چرخه نسخه ندارد |
+| organizations | Company | code, name, parent, is_parent, is_active, created_at | clean, save, str | درخت شرکت مادر/تابعه |
+| organizations | Person | company, user, personnel_code, national_id, first/last name, birth_date, relationship, employee, mobile, iban, is_insured, is_active, updated_at | clean, save, str | شناسه ملی یکتا؛ employee برای وابسته |
+| organizations | PersonEmployment | person, company, personnel_code, job_title, valid_from/until, status, source_reference, created_by, approved_by, timestamps | clean, save, str | یک اشتغال فعال برای هر شخص؛ بازه زمانی معتبر |
+| organizations | CompanyLeadershipTitle | company, person, title, valid_from/until, declared_by, timestamps | clean, save, str | اعتبار زمانی؛ در رابط نماینده شرکت مدیریت می‌شود |
+| requests_portal | ServiceRequest | reference, kind, submitted_by, person, company, title, description, status, assigned_to, response, attachment, is_confidential, timestamps | clean, save, str | درخواست کمک درمانی همیشه محرمانه؛ در Admin اکنون فقط‌خواندنی |
+| tasks | InternalTask | title, description, created_by, assignees(M2M), priority, status, due_at, related_request, timestamps | str | گردش task و محدودیت assignee |
+| tasks | TaskEvent | task, actor, event_type, from_value, to_value, note, occurred_at | save, delete | append-only؛ تاریخچه وظیفه |
+| workflow | WorkflowDefinition | code, title, version, is_active, description, created_by, approved_by, created_at, published_at | clean, save, delete, str | unique(code,version)، یک نسخه فعال؛ نسخه منتشرشده immutable |
+| workflow | WorkflowStep | definition, code, title, order, allowed_roles, sla_minutes, is_initial, is_terminal, allow_return, requires_acknowledgement | clean, save, delete, str | unique(definition,code)، دقیقاً یک مرحله آغازین |
+| workflow | WorkflowTransition | definition, source_step, target_step, action_code, title, allowed_roles, recipient_roles, requires_note, is_return, closes_case | clean, save, delete, str | unique(source_step,action_code)؛ source/target باید از یک تعریف باشند |
+| workflow | WorkflowCase | definition, content_type, object_id, current_step, current_assignee, status, opened_at, first_viewed_at, first_action_at, sla_due_at, closed_at, is_locked, locked_by | str | GenericFK؛ unique(definition,content_type,object_id)؛ index assignee/status |
+| workflow | WorkflowEvent | workflow_case, actor, event_type, action_code, from/to_step, from/to_assignee, note, opened/acknowledged/acted/sent timestamps, metadata | save, delete | append-only؛ index timeline |
+| workflow | BusinessCalendar | code, title, timezone_name, working_weekdays, start_time, end_time, is_active | clean, save | اعتبارسنجی timezone/روزها/ساعت؛ پیش‌فرض تقویم ایران |
+| workflow | CalendarHoliday | calendar, date, title, is_working_override | — | unique(calendar,date)؛ روز تعطیل یا استثنای کاری |
+
+در جدول بالا انواع دقیق هر ستون در تعریف مدل آمده‌اند؛ فایل‌های مدل و migration مرجع نهایی nullability، default، verbose_name و گزینه‌های کامل Django هستند. کلاس‌های کمکی QuerySet و enumهای `TextChoices` در شمار ۴۱ مدل persistence منظور نشده‌اند.
+
+### 17.14 فهرست کامل URLها
+
+شش مسیر ریشه و ۳۳ مسیر اپی (۳۹ الگوی `path()`) در سورس ثبت شده‌اند. روش HTTP بر اساس decorator و مصرف request در view گزارش شده است؛ این فهرست جایگزین اجرای `resolve()` در محیط Django نیست.
+
+| App | Path | URL name | Method | View |
+|---|---|---|---|---|
+| root | `/admin/` | admin:index | GET/POST | Django Admin |
+| accounts | `/accounts/login/` | login | GET/POST | LoginView + ThrottledAuthenticationForm |
+| accounts | `/accounts/logout/` | logout | POST | LogoutView |
+| accounts | `/accounts/password-change/` | password_change | GET/POST | RequiredPasswordChangeView |
+| dashboard | `/` | home | GET | dashboard.home |
+| dashboard | `/dashboard/` | dashboard | GET | dashboard.home |
+| organizations | `/organizations/` | people_list | GET | people_list |
+| organizations | `/organizations/leadership-titles/` | company_leadership_titles | GET/POST | company_leadership_titles |
+| insurance | `/insurance/contracts/` | contract_list | GET | contract_list |
+| claims | `/claims/` | claim_list | GET | claim_list |
+| claims | `/claims/<int:pk>/` | claim_detail | GET/POST | claim_detail |
+| claims | `/claims/<int:pk>/objections/<int:objection_pk>/review/` | claim_objection_review | POST | claim_objection_review |
+| requests_portal | `/requests/` | request_list | GET | request_list |
+| requests_portal | `/requests/new/` | request_create | GET/POST | request_create |
+| requests_portal | `/requests/<int:pk>/` | request_detail | GET/POST | request_detail |
+| requests_portal | `/requests/<int:pk>/attachment/` | request_attachment_download | GET | request_attachment_download |
+| tasks | `/tasks/` | task_list | GET | task_list |
+| tasks | `/tasks/new/` | task_create | GET/POST | task_create |
+| tasks | `/tasks/<int:pk>/` | task_update | GET/POST | task_update |
+| imports | `/imports/claims/` | claim_import | GET/POST | claim_import |
+| imports | `/imports/claims/<int:batch_id>/confirm/` | claim_import_confirm | POST | claim_import_confirm |
+| documents | `/documents/` | document_list | GET | document_list |
+| documents | `/documents/upload/` | document_upload | GET/POST | document_upload |
+| documents | `/documents/<int:pk>/download/` | document_download | GET | document_download |
+| documents | `/documents/<int:pk>/manage/` | document_manage | GET/POST | document_manage |
+| assets | `/assets/` | asset_list | GET | asset_list |
+| assets | `/assets/new/` | asset_create | GET/POST | asset_create |
+| assets | `/assets/<int:pk>/` | asset_detail | GET/POST | asset_detail |
+| assets | `/assets/<int:pk>/edit/` | asset_update | GET/POST | asset_update |
+| assets | `/assets/endorsements/<int:pk>/download/` | asset_endorsement_download | GET | asset_endorsement_download |
+| announcements | `/announcements/` | announcement_list | GET | announcement_list |
+| announcements | `/announcements/new/` | announcement_create | GET/POST | announcement_create |
+| announcements | `/announcements/<int:pk>/attachment/` | announcement_download | GET | announcement_download |
+| correspondence | `/correspondence/` | correspondence_list | GET | correspondence_list |
+| correspondence | `/correspondence/new/` | correspondence_create | GET/POST | correspondence_create |
+| correspondence | `/correspondence/<int:pk>/` | correspondence_detail | GET/POST | correspondence_detail |
+| correspondence | `/correspondence/<int:pk>/attachment/` | correspondence_download | GET | correspondence_download |
+| workflow | `/workflow/` | workflow_case_list | GET | workflow_case_list |
+| workflow | `/workflow/<int:pk>/` | workflow_case_detail | GET/POST | workflow_case_detail |
+
+Logout فقط POST است و در فرم خروج base template مصرف می‌شود. عملیات تغییر وضعیت detailها عموماً POST روی همان URL صفحه انجام می‌شود؛ دو مسیر review اعتراض و confirm واردات فقط POST هستند.
+
+### 17.15 فهرست viewها، مجوز و template
+
+تمام viewهای دامنه به‌جز `RequiredPasswordChangeView`، تابعی (FBV) هستند. موارد زیر از view و URL خوانده شده‌اند.
+
+| App | View | Type | URL | Permission / scope و فرم | Template |
+|---|---|---|---|---|---|
+| accounts | RequiredPasswordChangeView | CBV | accounts/password-change/ | احراز هویت؛ PasswordChangeForm؛ middleware اجبار رمز | registration/password_change |
+| dashboard | home | FBV | / و dashboard/ | login؛ KPI براساس scope نقش | dashboard/home |
+| organizations | people_list | FBV | organizations/ | login؛ global/company/insured scope | organizations/people_list |
+| organizations | company_leadership_titles | FBV | organizations/leadership-titles/ | نماینده با انتصاب شرکت؛ CompanyLeadershipTitleForm | organizations/leadership_titles |
+| insurance | contract_list | FBV | insurance/contracts/ | login؛ _contract_scope | insurance/contract_list |
+| claims | claim_list | FBV | claims/ | login؛ scoped_claims_for | claims/claim_list |
+| claims | claim_detail | FBV | claims/<pk>/ | login و scope؛ اعتراض فقط نقش/پرونده واجدشرایط؛ ClaimObjectionForm | claims/claim_detail |
+| claims | claim_objection_review | FBV | objections/<objection_pk>/review | POST؛ can_decide_claim؛ ClaimObjectionReviewForm | redirect به claim_detail |
+| requests_portal | request_list | FBV | requests/ | login؛ scoped_requests_for | requests_portal/request_list |
+| requests_portal | request_create | FBV | requests/new/ | insured/company rep/global؛ ServiceRequestForm؛ شروع workflow اختیاری | requests_portal/request_form |
+| requests_portal | request_detail | FBV | requests/<pk>/ | login؛ scoped request؛ workflow assignee/global یا legacy policy | requests_portal/request_detail |
+| requests_portal | request_attachment_download | FBV | requests/<pk>/attachment | login؛ scoped request؛ FileResponse و AuditEvent | ندارد؛ دانلود امن |
+| tasks | task_list | FBV | tasks/ | login؛ _visible_tasks | tasks/task_list |
+| tasks | task_create | FBV | tasks/new | مدیر/سرپرست/مسئول مجاز؛ InternalTaskForm | tasks/task_form |
+| tasks | task_update | FBV | tasks/<pk> | مدیر یا assignee؛ تغییر وضعیت کنترل‌شده | tasks/task_update |
+| imports | claim_import | FBV | imports/claims | insurance staff یا insurer rep در scope بیمه‌گر؛ ClaimImportForm | imports/claim_import |
+| imports | claim_import_confirm | FBV | imports/claims/<batch>/confirm | POST؛ reviewer مستقل و مجاز؛ مالکیت batch | imports/claim_import |
+| documents | document_list | FBV | documents/ | login؛ _visible_documents؛ محدودیت پزشکی | documents/document_list |
+| documents | document_upload | FBV | documents/upload | global/specialist؛ پزشکی فقط global؛ فرم در view | documents/document_upload |
+| documents | document_download | FBV | documents/<pk>/download | login؛ scope؛ archive/void رد؛ access event | FileResponse |
+| documents | document_manage | FBV | documents/<pk>/manage | نسخه با مجوز بارگذاری؛ archive/void فقط global؛ DocumentVersionForm و LifecycleActionForm | documents/document_manage |
+| assets | asset_list | FBV | assets/ | login؛ _asset_scope | assets/asset_list |
+| assets | asset_create | FBV | assets/new | specialist و line scope؛ InsuredAssetForm | assets/asset_form |
+| assets | asset_detail | FBV | assets/<pk> | login؛ scope؛ POST valuation/policy/endorsement | assets/asset_detail |
+| assets | asset_update | FBV | assets/<pk>/edit | specialist و scope؛ InsuredAssetForm | assets/asset_form |
+| assets | asset_endorsement_download | FBV | endorsements/<pk>/download | login؛ scope دارایی/بیمه‌نامه | FileResponse |
+| announcements | announcement_list | FBV | announcements/ | audience/company/publication scope | announcements/announcement_list |
+| announcements | announcement_create | FBV | announcements/new | insurance staff؛ AnnouncementForm | announcements/announcement_form |
+| announcements | announcement_download | FBV | announcements/<pk>/attachment | login؛ visible announcement و download audit | FileResponse |
+| correspondence | correspondence_list | FBV | correspondence/ | company/insurer/line/assigned/confidential scope | correspondence/correspondence_list |
+| correspondence | correspondence_create | FBV | correspondence/new | نقش/شرکت/بیمه‌گر/رشته؛ CorrespondenceForm | correspondence/correspondence_form |
+| correspondence | correspondence_detail | FBV | correspondence/<pk> | scope؛ follow-up و add_link؛ FollowUpForm و CorrespondenceLinkForm | correspondence/correspondence_detail |
+| correspondence | correspondence_download | FBV | correspondence/<pk>/attachment | scope و ثبت رویداد | FileResponse |
+| workflow | workflow_case_list | FBV | workflow/ | login؛ assigned/global scope | workflow/workflow_case_list |
+| workflow | workflow_case_detail | FBV | workflow/<pk> | assignee/role/scope؛ acknowledge/transition/final-lock | workflow/workflow_case_detail |
+
+`auditlog` و `core` view مستقل ندارند؛ سرویس ممیزی و helperهای permission/upload هستند. `dashboard` route خود را در root config دارد و فایل `urls.py` مستقل ندارد. نبود template برای download viewها مورد orphan محسوب نمی‌شود چون نتیجه FileResponse است.
+
+### 17.16 فهرست تمام ۳۰ template و اتصال
+
+| Template | Render/include توسط | نقطه ورود کاربر |
+|---|---|---|
+| templates/base.html | base مشترک | قاب و منوی اصلی تمام صفحات |
+| templates/registration/login.html | LoginView | /accounts/login/ |
+| templates/registration/password_change.html | RequiredPasswordChangeView | تغییر رمز اجباری و user menu |
+| templates/dashboard/home.html | dashboard.home | / و /dashboard/ |
+| templates/organizations/people_list.html | people_list | منوی افراد/داشبورد |
+| templates/organizations/leadership_titles.html | company_leadership_titles | پیوند از صفحه افراد برای نماینده مجاز |
+| templates/insurance/contract_list.html | contract_list | منوی قرارداد/داشبورد |
+| templates/claims/claim_list.html | claim_list | منوی خسارت/داشبورد |
+| templates/claims/claim_detail.html | claim_detail | پیوند از فهرست خسارت |
+| templates/requests_portal/request_list.html | request_list | منوی درخواست‌ها/داشبورد |
+| templates/requests_portal/request_form.html | request_create | دکمه درخواست جدید |
+| templates/requests_portal/request_detail.html | request_detail | پیوند از فهرست درخواست‌ها |
+| templates/tasks/task_list.html | task_list | منوی وظایف/داشبورد |
+| templates/tasks/task_form.html | task_create | دکمه ایجاد وظیفه |
+| templates/tasks/task_update.html | task_update | پیوند از فهرست وظایف |
+| templates/assets/asset_list.html | asset_list | منوی دارایی/داشبورد |
+| templates/assets/asset_form.html | asset_create و asset_update | دکمه ایجاد/ویرایش از فهرست و جزئیات |
+| templates/assets/asset_detail.html | asset_detail | پیوند از فهرست دارایی |
+| templates/announcements/announcement_list.html | announcement_list | منوی اطلاعیه/داشبورد |
+| templates/announcements/announcement_form.html | announcement_create | دکمه ایجاد اطلاعیه |
+| templates/correspondence/correspondence_list.html | correspondence_list | منوی مکاتبات/داشبورد |
+| templates/correspondence/correspondence_form.html | correspondence_create | دکمه ثبت مکاتبه |
+| templates/correspondence/correspondence_detail.html | correspondence_detail | پیوند از موضوع در فهرست |
+| templates/documents/document_list.html | document_list | منوی اسناد/بخشنامه‌ها |
+| templates/documents/document_upload.html | document_upload | دکمه بارگذاری سند |
+| templates/documents/document_manage.html | document_manage | پیوند مدیریت/نسخه از فهرست اسناد |
+| templates/imports/claim_import.html | claim_import و claim_import_confirm | منوی ورود اکسل |
+| templates/includes/pagination.html | include در فهرست‌های صفحه‌بندی‌شده | partial مشترک؛ مسیر مستقل ندارد |
+| workflow/templates/workflow/workflow_case_list.html | workflow_case_list | منوی ارجاعات من |
+| workflow/templates/workflow/workflow_case_detail.html | workflow_case_detail | پیوند از فهرست ارجاعات |
+
+تعداد templateها در Git tree برابر ۳۰ است: ۲۸ در پوشه سراسری و ۲ در ریشه template اپ workflow. اتصال render/include در سورس بررسی شده؛ برای رد قطعی orphan runtime لازم است template rendering در test client اجرا شود.
+
