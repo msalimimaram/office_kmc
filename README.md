@@ -23,6 +23,7 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 - [ماتریس دسترسی](docs/ACCESS_CONTROL_MATRIX.md)
 - [کاتالوگ چرخه‌های عملیاتی](docs/WORKFLOW_CATALOG.md)
 - [طرح معماری و مهاجرت چندنقشی](docs/MULTI_ROLE_IMPLEMENTATION_PLAN.md)
+- [سند جامع زنده و ممیزی اجزای پروژه](docs/PROJECT_MASTER.md)
 - [فهرست سایر مستندات](docs/README.md)
 
 قواعد تأییدشده در اسناد کسب‌وکار و ماتریس دسترسی، مرجع طراحی محصول هستند. کد فعلی در همه بخش‌ها هنوز با این مدل هدف هم‌راستا نشده است.
@@ -32,7 +33,7 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 - **فناوری:** Python، Django، Django ORM و قالب‌های سمت سرور؛ رابط فارسی/RTL و CSS واکنش‌گرا.
 - **پایگاه داده:** SQLite برای توسعه محلی؛ PostgreSQL برای محیط غیرتوسعه‌ای.
 - **هویت و دسترسی هدف:** یک شخص با کد ملی یکتای سراسری، چند انتصاب زمان‌دار، محدوده شرکت و رشته، و مجوزهای متمرکز.
-- **ساختار برنامه فعلی:** ماژول‌های accounts, organizations, insurance, claims, requests_portal, tasks, documents, imports, auditlog, assets, announcements, correspondence, dashboard و core.
+- **ساختار برنامه فعلی:** ۱۵ اپ عملیاتی و زیرساختی شامل accounts, organizations, insurance, claims, requests_portal, tasks, documents, imports, auditlog, assets, announcements, correspondence, dashboard, workflow و core.
 - **استقرار هدف:** زیرساخت داخلی سازمان، پشت HTTPS و با پایگاه داده و فضای فایل خصوصی.
 
 ## شروع سریع در Windows PowerShell
