@@ -110,6 +110,7 @@ def task_update(request, pk):
             if status != previous and status not in TASK_TRANSITIONS.get(previous, set()):
                 messages.error(request, "این تغییر وضعیت با گردش کار وظیفه سازگار نیست.")
                 return redirect("task_update", pk=locked.pk)
+            action_occurred = status != previous or bool(note)
             if status != previous:
                 locked.status = status
                 locked.save(update_fields=["status", "updated_at"])
@@ -125,9 +126,28 @@ def task_update(request, pk):
                 TaskEvent.objects.create(
                     task=locked, actor=request.user, event_type=TaskEvent.EventType.COMMENT, note=note,
                 )
+            if action_occurred and not locked.events.filter(
+                event_type=TaskEvent.EventType.FIRST_ACTION
+            ).exists():
+                TaskEvent.objects.create(
+                    task=locked,
+                    actor=request.user,
+                    event_type=TaskEvent.EventType.FIRST_ACTION,
+                    note="اولین اقدام واقعی روی وظیفه ثبت شد.",
+                )
         messages.success(request, "اقدام وظیفه ثبت شد.")
         return redirect("task_list")
 
+    with transaction.atomic():
+        locked = InternalTask.objects.select_for_update().get(pk=task.pk)
+        if not locked.events.filter(event_type=TaskEvent.EventType.FIRST_VIEWED).exists():
+            TaskEvent.objects.create(
+                task=locked,
+                actor=request.user,
+                event_type=TaskEvent.EventType.FIRST_VIEWED,
+                note="اولین مشاهده صفحه وظیفه ثبت شد.",
+            )
+    task.refresh_from_db()
     return render(request, "tasks/task_update.html", {
         "task": task,
         "events": task.events.select_related("actor"),
