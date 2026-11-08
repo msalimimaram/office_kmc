@@ -519,7 +519,7 @@ ImportBatch: uploaded/reviewed by User; preview payload -> Claim / ClaimPayment
 - مقایسهٔ شاخه: implementation به‌اندازهٔ 333 commit جلوتر و صفر commit عقب‌تر از main است؛ PR شمارهٔ 1 باز و Draft و ادغام‌نشده است. 129 فایل در PR تغییر کرده‌اند.
 - شاخهٔ `audit/project-assessment-2026-10-29` نیز در فهرست branchها وجود دارد؛ در این مرحله نه ادغام و نه حذف نشده است.
 - در snapshot شاخهٔ implementation، 15 اپ در `INSTALLED_APPS`، 38 فایل migration شماره‌دار، 30 فایل HTML، 18 فایل تست و 131 تابع `test_*` مشاهده شد. شمار متدهای تست با خواندن فایل‌های تست در همین snapshot مجدداً محاسبه شد؛ این عدد به‌معنی اجرای تست‌ها نیست.
-- فایل workflow مربوط به GitHub Actions در درخت این شاخه وجود ندارد؛ متن `docs/TESTING.md` که وجود workflow CI را ادعا می‌کند با ساختار فعلی مخزن هم‌خوان نیست و باید اصلاح شود.
+- فایل workflow مربوط به GitHub Actions در درخت این شاخه وجود ندارد؛ `docs/TESTING.md` در همین snapshot نیز به‌درستی تصریح می‌کند که پروژه عمداً GitHub Actions ندارد.
 
 ### 17.2 تغییرهای بعد از snapshot قبلی
 
