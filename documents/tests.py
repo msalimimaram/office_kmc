@@ -403,3 +403,39 @@ class DocumentLinkFlowTests(TestCase):
         self.assertEqual(self.DocumentLink.objects.filter(
             document=self.document, content_type=content_type, object_id=str(self.request.pk)
         ).count(), 1)
+
+
+class SpecialistUnlinkedDocumentConfidentialityTests(TestCase):
+    def test_specialist_cannot_see_unlinked_global_confidential_documents(self):
+        specialist = User.objects.create_user(
+            username="document-line-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="دسترسی رشته درمان برای آزمون محرمانگی اسناد",
+        )
+        normal_document = create_document(
+            title="مرجع عمومی",
+            category="راهنما",
+            upload=SimpleUploadedFile("public-reference.pdf", b"%PDF-1.7\\npublic"),
+            uploaded_by=specialist,
+            security_level=DocumentRecord.SecurityLevel.NORMAL,
+        )
+        confidential_document = create_document(
+            title="سند محرمانه بدون ارتباط",
+            category="محرمانه",
+            upload=SimpleUploadedFile("unlinked-confidential.pdf", b"%PDF-1.7\\nprivate"),
+            uploaded_by=specialist,
+            security_level=DocumentRecord.SecurityLevel.CONFIDENTIAL,
+        )
+
+        from documents.views import _visible_documents
+        visible_ids = set(_visible_documents(specialist).values_list("pk", flat=True))
+
+        self.assertIn(normal_document.pk, visible_ids)
+        self.assertNotIn(confidential_document.pk, visible_ids)

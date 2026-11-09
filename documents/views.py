@@ -49,19 +49,30 @@ def _visible_documents(user):
             content_type__model="claim",
             object_id__in=claims.values_list("pk", flat=True),
         ).values_list("document_id", flat=True)
-        allowed_ids.update(
-            qs.filter(
-                is_medical=False,
-                security_level__in=[
-                    DocumentRecord.SecurityLevel.NORMAL,
-                    DocumentRecord.SecurityLevel.INTERNAL,
-                    DocumentRecord.SecurityLevel.CONFIDENTIAL,
-                ],
-            ).filter(
-                models.Q(pk__in=claim_ct)
-                | models.Q(company__isnull=True, person__isnull=True)
-            ).values_list("pk", flat=True)
+        # Confidential documents require an explicit relationship to a claim
+        # inside the specialist's line scope. Unlinked global reference material
+        # is limited to NORMAL/INTERNAL; otherwise an unscoped confidential file
+        # would be visible to every specialist.
+        scoped_claim_documents = qs.filter(
+            pk__in=claim_ct,
+            is_medical=False,
+            security_level__in=[
+                DocumentRecord.SecurityLevel.NORMAL,
+                DocumentRecord.SecurityLevel.INTERNAL,
+                DocumentRecord.SecurityLevel.CONFIDENTIAL,
+            ],
         )
+        global_reference_documents = qs.filter(
+            company__isnull=True,
+            person__isnull=True,
+            is_medical=False,
+            security_level__in=[
+                DocumentRecord.SecurityLevel.NORMAL,
+                DocumentRecord.SecurityLevel.INTERNAL,
+            ],
+        )
+        allowed_ids.update(scoped_claim_documents.values_list("pk", flat=True))
+        allowed_ids.update(global_reference_documents.values_list("pk", flat=True))
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
