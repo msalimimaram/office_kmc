@@ -246,6 +246,13 @@ class ContractWorkflowLifecycleTests(TestCase):
         self.assertEqual(contract.status, Contract.Status.ACTIVE)
         self.assertTrue(contract.is_active)
         self.assertEqual(contract.coverage_summary, "پوشش آزمایشی")
+        revision.description = "تغییر غیرمجاز نسخه تأییدشده"
+        with self.assertRaises(ValidationError):
+            revision.save()
+        with self.assertRaises(ValidationError):
+            ContractRevision.objects.filter(pk=revision.pk).update(description="ویرایش گروهی")
+        with self.assertRaises(ValidationError):
+            revision.delete()
 
     def test_future_effective_contract_waits_then_daily_command_activates_it(self):
         effective_date = self.today + timedelta(days=2)
