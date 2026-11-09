@@ -149,7 +149,7 @@ def _route_case(case, delegation, actor, *, event_type, note):
     )
 
 
-def apply_delegation_to_open_cases(delegation, *, actor=None):
+def apply_delegation_to_open_cases(delegation, *, actor=None, conflict_counter=None):
     from workflow.services import _scope_for_object
 
     actor = actor or delegation.granted_by
@@ -174,13 +174,19 @@ def apply_delegation_to_open_cases(delegation, *, actor=None):
         # A requester must never receive their own case through a bulk rule.
         if scope.get("owner_user_id") == delegation.delegate_to_id:
             continue
-        selected = find_matching_delegation(
-            workflow_code=case.definition.code,
-            item_type=item_type,
-            company_id=scope.get("company_id"),
-            insurer_id=scope.get("insurer_id"),
-            line_code=scope.get("line_code"),
-        )
+        try:
+            selected = find_matching_delegation(
+                workflow_code=case.definition.code,
+                item_type=item_type,
+                company_id=scope.get("company_id"),
+                insurer_id=scope.get("insurer_id"),
+                line_code=scope.get("line_code"),
+            )
+        except ValidationError:
+            if conflict_counter is None:
+                raise
+            conflict_counter["conflicts"] = conflict_counter.get("conflicts", 0) + 1
+            continue
         # Existing and newly-created cases must obey the same rule precedence.
         if not selected or selected.pk != delegation.pk:
             continue
@@ -294,13 +300,18 @@ def _release_cases(delegation, *, actor, event_type, note):
                 or ""
             )
             # A broader still-active rule may legitimately take over.
-            replacement_rule = find_matching_delegation(
-                workflow_code=case.definition.code,
-                item_type=item_type,
-                company_id=scope.get("company_id"),
-                insurer_id=scope.get("insurer_id"),
-                line_code=scope.get("line_code"),
-            )
+            try:
+                replacement_rule = find_matching_delegation(
+                    workflow_code=case.definition.code,
+                    item_type=item_type,
+                    company_id=scope.get("company_id"),
+                    insurer_id=scope.get("insurer_id"),
+                    line_code=scope.get("line_code"),
+                )
+            except ValidationError:
+                # A legacy ambiguity must not block a manager from revoking
+                # the problematic rule; return this case to an authorized manager.
+                replacement_rule = None
             if replacement_rule and (
                 replacement_rule.pk == delegation.pk
                 or replacement_rule.delegate_to_id == scope.get("owner_user_id")
@@ -430,7 +441,7 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
 def synchronize_delegations():
     """Expire invalid rules, return their open cases, and route eligible initial-stage work."""
     today = timezone.localdate()
-    report = {"expired": 0, "suspended": 0, "routed": 0}
+    report = {"expired": 0, "suspended": 0, "routed": 0, "conflicts": 0}
     active = WorkDelegation.objects.select_for_update().filter(
         status=WorkDelegation.Status.ACTIVE
     ).select_related("delegate_to", "granted_by")
@@ -450,7 +461,9 @@ def synchronize_delegations():
             summary = delegation.revocation_reason
             report["suspended"] += 1
         else:
-            report["routed"] += apply_delegation_to_open_cases(delegation)
+            report["routed"] += apply_delegation_to_open_cases(
+                delegation, conflict_counter=report
+            )
             continue
         delegation.save(update_fields=["status", "revocation_reason", "updated_at"])
         DelegationEvent.objects.create(
