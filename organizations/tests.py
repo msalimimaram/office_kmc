@@ -346,6 +346,7 @@ class PersonChangeWorkflowTests(TestCase):
     def test_mobile_change_follows_company_insurer_company_and_applies_only_after_final_close(self):
         from django.contrib.contenttypes.models import ContentType
         from organizations.models import PersonChangeRequest
+        from accounts.models import UserNotification
         from workflow.models import WorkflowCase
         from workflow.services import transition_case
 
@@ -409,6 +410,9 @@ class PersonChangeWorkflowTests(TestCase):
         self.assertEqual(self.person.mobile, "09121112222")
         self.assertEqual(self.insured.mobile, "09121112222")
         self.assertEqual(case.status, WorkflowCase.Status.CLOSED)
+        notification = UserNotification.objects.get(recipient=self.insured)
+        self.assertIn("تأیید شد", notification.title)
+        self.assertEqual(notification.target_url, reverse("person_change_detail", args=[change.pk]))
 
     def test_person_change_requests_are_scoped_by_company_and_representative_line(self):
         from organizations.models import PersonChangeRequest
