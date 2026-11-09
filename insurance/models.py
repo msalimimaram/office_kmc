@@ -76,7 +76,23 @@ class Contract(models.Model):
         return f"{self.code} — {self.title}"
 
 
+class ImmutableContractRevisionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("نسخه‌های قرارداد از طریق update گروهی قابل تغییر نیستند.")
+
+    def delete(self):
+        raise ValidationError("حذف نسخه‌های قرارداد مجاز نیست.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی نسخه‌های قرارداد مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی نسخه‌های قرارداد مجاز نیست.")
+
+
 class ContractRevision(models.Model):
+    objects = ImmutableContractRevisionQuerySet.as_manager()
+
     class Status(models.TextChoices):
         PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
         APPROVED = "approved", "تأییدشده"
@@ -210,6 +226,9 @@ class ContractRevision(models.Model):
             contract.companies.set(snapshot["company_ids"])
         self.applied_at = timezone.now()
         self.save(update_fields=["applied_at"])
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("حذف نسخه‌های قرارداد مجاز نیست؛ نسخه جدید ثبت کنید.")
 
     def __str__(self):
         return f"{self.contract.code} · نسخه {self.revision_number}"
