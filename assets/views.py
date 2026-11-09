@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, render, redirect
@@ -18,6 +18,8 @@ from accounts.access import (
 )
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
+from workflow.models import WorkflowDefinition
+from workflow.services import resolve_initial_assignee, start_workflow
 from claims.models import Claim
 from insurance.models import InsuranceLine
 from organizations.models import Person, PersonEmployment
@@ -157,6 +159,38 @@ def asset_create(request):
 
 
 
+def _start_asset_approval(*, obj, asset, actor, code, note=""):
+    definition = WorkflowDefinition.objects.filter(
+        code=code,
+        is_active=True,
+    ).order_by("-version").first()
+    if not definition:
+        raise ValidationError(
+            f"گردش‌کار فعال {code} برای تأیید این عملیات دارایی پیکربندی نشده است."
+        )
+    contract = asset.contract if asset.contract_id else None
+    company_id = asset.company_id or (
+        asset.person.company_id if asset.person_id else None
+    )
+    insurer_id = asset.insurer_id or (
+        contract.insurer_id if contract else None
+    )
+    line_code = contract.line if contract else None
+    assignee = resolve_initial_assignee(
+        definition=definition,
+        company_id=company_id,
+        insurer_id=insurer_id,
+        line_code=line_code,
+    )
+    return start_workflow(
+        obj=obj,
+        code=code,
+        actor=actor,
+        assignee=assignee,
+        note=note,
+    )
+
+
 @login_required
 def asset_detail(request, pk):
     asset = get_object_or_404(_asset_scope(request.user), pk=pk)
@@ -168,27 +202,41 @@ def asset_detail(request, pk):
         if action == "add_valuation":
             form = AssetValuationForm(request.POST)
             if form.is_valid():
-                with transaction.atomic():
-                    item = form.save(commit=False)
-                    item.asset = asset
-                    item.created_by = request.user
-                    item.save()
-                    record_event(
-                        actor=request.user,
-                        action="asset_valuation_created",
-                        obj=asset,
-                        summary=f"سابقه ارزیابی دارایی {asset.asset_code} ثبت شد.",
-                        after_data={
-                            "valuation_id": item.pk,
-                            "valuation_date": item.valuation_date.isoformat() if item.valuation_date else None,
-                            "market_value": str(item.market_value),
-                            "insured_value": str(item.insured_value),
-                            "method": item.method,
-                        },
-                        request=request,
-                    )
-                messages.success(request, "سابقه ارزیابی ثبت شد.")
-                return redirect("asset_detail", pk=asset.pk)
+                try:
+                    with transaction.atomic():
+                        item = form.save(commit=False)
+                        item.asset = asset
+                        item.created_by = request.user
+                        item.status = AssetValuation.Status.PENDING_APPROVAL
+                        item.save()
+                        case = _start_asset_approval(
+                            obj=item,
+                            asset=asset,
+                            actor=request.user,
+                            code="asset_valuation_approval",
+                            note=item.note,
+                        )
+                        record_event(
+                            actor=request.user,
+                            action="asset_valuation_created",
+                            obj=asset,
+                            summary=f"سابقه ارزیابی دارایی {asset.asset_code} برای تأیید ثبت شد.",
+                            after_data={
+                                "valuation_id": item.pk,
+                                "workflow_case_id": case.pk,
+                                "status": item.status,
+                                "valuation_date": item.valuation_date.isoformat() if item.valuation_date else None,
+                                "market_value": str(item.market_value),
+                                "insured_value": str(item.insured_value),
+                                "method": item.method,
+                            },
+                            request=request,
+                        )
+                except (ValidationError, PermissionDenied) as exc:
+                    form.add_error(None, str(exc))
+                else:
+                    messages.success(request, "ارزیابی ثبت و برای تأیید ارجاع شد؛ ارزش جاری دارایی تا تأیید تغییر نمی‌کند.")
+                    return redirect("asset_detail", pk=asset.pk)
         elif action == "add_policy_period":
             form = AssetPolicyPeriodForm(
                 request.POST,
@@ -196,28 +244,40 @@ def asset_detail(request, pk):
                 instance=AssetPolicyPeriod(asset=asset),
             )
             if form.is_valid():
-                with transaction.atomic():
-                    item = form.save(commit=False)
-                    item.asset = asset
-                    item.created_by = request.user
-                    item.status = AssetPolicyPeriod.Status.DRAFT
-                    item.save()
-                    record_event(
-                        actor=request.user,
-                        action="asset_policy_period_created",
-                        obj=asset,
-                        summary=f"دوره بیمه‌نامه {item.policy_number} به‌صورت پیش‌نویس ثبت شد.",
-                        after_data={
-                            "policy_period_id": item.pk,
-                            "insurer_id": item.insurer_id,
-                            "contract_id": item.contract_id,
-                            "policy_number": item.policy_number,
-                            "status": item.status,
-                        },
-                        request=request,
-                    )
-                messages.success(request, "دوره بیمه‌نامه در وضعیت پیش‌نویس ثبت شد.")
-                return redirect("asset_detail", pk=asset.pk)
+                try:
+                    with transaction.atomic():
+                        item = form.save(commit=False)
+                        item.asset = asset
+                        item.created_by = request.user
+                        item.status = AssetPolicyPeriod.Status.PENDING_APPROVAL
+                        item.save()
+                        case = _start_asset_approval(
+                            obj=item,
+                            asset=asset,
+                            actor=request.user,
+                            code="asset_policy_approval",
+                            note=item.note,
+                        )
+                        record_event(
+                            actor=request.user,
+                            action="asset_policy_period_created",
+                            obj=asset,
+                            summary=f"دوره بیمه‌نامه {item.policy_number} برای تأیید ثبت شد.",
+                            after_data={
+                                "policy_period_id": item.pk,
+                                "workflow_case_id": case.pk,
+                                "insurer_id": item.insurer_id,
+                                "contract_id": item.contract_id,
+                                "policy_number": item.policy_number,
+                                "status": item.status,
+                            },
+                            request=request,
+                        )
+                except (ValidationError, PermissionDenied) as exc:
+                    form.add_error(None, str(exc))
+                else:
+                    messages.success(request, "دوره بیمه‌نامه ثبت و برای تأیید ارجاع شد؛ تا تأیید نهایی، بیمه‌نامه جاری تغییر نمی‌کند.")
+                    return redirect("asset_detail", pk=asset.pk)
         elif action == "add_endorsement":
             form = AssetPolicyEndorsementForm(request.POST, request.FILES, asset=asset)
             if form.is_valid():
@@ -226,25 +286,38 @@ def asset_detail(request, pk):
                 if file_error:
                     form.add_error("document", file_error)
                 else:
-                    with transaction.atomic():
-                        item = form.save(commit=False)
-                        item.created_by = request.user
-                        item.save()
-                        record_event(
-                            actor=request.user,
-                            action="asset_policy_endorsement_created",
-                            obj=asset,
-                            summary=f"الحاقیه {item.endorsement_number} ثبت شد.",
-                            after_data={
-                                "endorsement_id": item.pk,
-                                "policy_period_id": item.policy_period_id,
-                                "endorsement_number": item.endorsement_number,
-                                "approved_by_id": item.approved_by_id,
-                            },
-                            request=request,
-                        )
-                    messages.success(request, "الحاقیه ثبت شد؛ تا تأیید مرجع مجاز، تأییدنشده باقی می‌ماند.")
-                    return redirect("asset_detail", pk=asset.pk)
+                    try:
+                        with transaction.atomic():
+                            item = form.save(commit=False)
+                            item.created_by = request.user
+                            item.status = AssetPolicyEndorsement.Status.PENDING_APPROVAL
+                            item.save()
+                            case = _start_asset_approval(
+                                obj=item,
+                                asset=asset,
+                                actor=request.user,
+                                code="asset_endorsement_approval",
+                                note=item.description,
+                            )
+                            record_event(
+                                actor=request.user,
+                                action="asset_policy_endorsement_created",
+                                obj=asset,
+                                summary=f"الحاقیه {item.endorsement_number} برای تأیید ثبت شد.",
+                                after_data={
+                                    "endorsement_id": item.pk,
+                                    "policy_period_id": item.policy_period_id,
+                                    "endorsement_number": item.endorsement_number,
+                                    "workflow_case_id": case.pk,
+                                    "status": item.status,
+                                },
+                                request=request,
+                            )
+                    except (ValidationError, PermissionDenied) as exc:
+                        form.add_error(None, str(exc))
+                    else:
+                        messages.success(request, "الحاقیه ثبت و برای تأیید ارجاع شد.")
+                        return redirect("asset_detail", pk=asset.pk)
         else:
             raise PermissionDenied("عملیات درخواستی برای دارایی معتبر نیست.")
     else:
