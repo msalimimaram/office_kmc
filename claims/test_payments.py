@@ -228,7 +228,9 @@ class ClaimPaymentViewFlowTests(TestCase):
     def test_authorised_operator_records_payment_with_independent_reviewer(self):
         client = Client()
         client.force_login(self.operator)
-        self.assertEqual(client.get(reverse("claim_detail", args=[self.claim.pk])).status_code, 200)
+        detail = client.get(reverse("claim_detail", args=[self.claim.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, "دفترکل مالی خسارت")
         response = client.post(reverse("claim_payment_create", args=[self.claim.pk]), {
             "amount": "300",
             "paid_at": "2026-11-02",
