@@ -260,3 +260,124 @@ class Command(BaseCommand):
             allowed_roles=company_roles,
             closes_case=True,
         )
+
+
+    def _build_claim_review(self, definition, global_roles):
+        specialist_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST]
+        intake_roles = specialist_roles + global_roles
+        under_review = WorkflowStep.objects.create(
+            definition=definition,
+            code="under_review",
+            title="ارزیابی تخصصی خسارت",
+            order=1,
+            allowed_roles=intake_roles,
+            is_initial=True,
+        )
+        needs_info = WorkflowStep.objects.create(
+            definition=definition,
+            code="needs_info",
+            title="نیازمند تکمیل اطلاعات",
+            order=2,
+            allowed_roles=intake_roles,
+        )
+        pending_decision = WorkflowStep.objects.create(
+            definition=definition,
+            code="pending_decision",
+            title="در انتظار تصمیم رئیس اداره",
+            order=3,
+            allowed_roles=global_roles,
+        )
+        approved = WorkflowStep.objects.create(
+            definition=definition,
+            code="approved",
+            title="تأیید نهایی",
+            order=4,
+            allowed_roles=global_roles,
+            allow_return=False,
+        )
+        rejected = WorkflowStep.objects.create(
+            definition=definition,
+            code="rejected",
+            title="رد نهایی",
+            order=5,
+            allowed_roles=global_roles,
+            allow_return=False,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=under_review, target_step=needs_info,
+            action_code="request_information", title="درخواست تکمیل اطلاعات",
+            allowed_roles=intake_roles, recipient_roles=intake_roles, requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=under_review, target_step=pending_decision,
+            action_code="submit_for_decision", title="ارسال برای تصمیم نهایی",
+            allowed_roles=intake_roles, recipient_roles=global_roles, requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=needs_info, target_step=under_review,
+            action_code="resume_review", title="ادامه ارزیابی",
+            allowed_roles=intake_roles, recipient_roles=intake_roles,
+            requires_note=True, is_return=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=pending_decision, target_step=approved,
+            action_code="approve", title="تأیید خسارت",
+            allowed_roles=global_roles, recipient_roles=global_roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=pending_decision, target_step=rejected,
+            action_code="reject", title="رد خسارت",
+            allowed_roles=global_roles, recipient_roles=global_roles, requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=approved,
+            action_code="finalize", title="ثبت نهایی تأیید",
+            allowed_roles=global_roles, closes_case=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=rejected,
+            action_code="finalize-rejection", title="ثبت نهایی رد",
+            allowed_roles=global_roles, closes_case=True,
+        )
+
+    def _build_claim_objection(self, definition, global_roles):
+        reviewer_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST] + global_roles
+        in_review = WorkflowStep.objects.create(
+            definition=definition,
+            code="in_review",
+            title="در حال بررسی اعتراض",
+            order=1,
+            allowed_roles=reviewer_roles,
+            is_initial=True,
+        )
+        answered = WorkflowStep.objects.create(
+            definition=definition,
+            code="answered",
+            title="پاسخ داده‌شده",
+            order=2,
+            allowed_roles=reviewer_roles,
+        )
+        closed = WorkflowStep.objects.create(
+            definition=definition,
+            code="closed",
+            title="بسته‌شده",
+            order=3,
+            allowed_roles=global_roles,
+            allow_return=False,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=in_review, target_step=answered,
+            action_code="answer", title="ثبت پاسخ اعتراض",
+            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles, requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=answered, target_step=in_review,
+            action_code="reopen_review", title="بازگشت به بررسی",
+            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles,
+            requires_note=True, is_return=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition, source_step=answered,
+            action_code="close_objection", title="بستن نهایی اعتراض",
+            allowed_roles=global_roles, closes_case=True,
+        )
