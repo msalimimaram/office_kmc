@@ -305,6 +305,11 @@ def _release_cases(delegation, *, actor, event_type, note):
                 insurer_id=scope.get("insurer_id"),
                 line_code=scope.get("line_code"),
             )
+            if replacement_rule and (
+                replacement_rule.pk == delegation.pk
+                or replacement_rule.delegate_to_id == scope.get("owner_user_id")
+            ):
+                replacement_rule = None
 
         if replacement_rule and replacement_rule.pk != delegation.pk:
             DelegationEvent.objects.create(
@@ -327,7 +332,11 @@ def _release_cases(delegation, *, actor, event_type, note):
             continue
 
         previous = case.current_assignee
-        replacement = delegation.granted_by if delegation.granted_by.is_active else None
+        replacement = (
+            delegation.granted_by
+            if delegation.granted_by.is_active and has_global_access(delegation.granted_by)
+            else None
+        )
         if replacement is None:
             today = timezone.localdate()
             replacement = User.objects.filter(
