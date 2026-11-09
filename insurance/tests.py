@@ -522,6 +522,10 @@ class ContractSubmissionViewTests(TestCase):
             status=Claim.Status.UNDER_REVIEW,
         )
 
+        preview = self.client.get(reverse("contract_terminate", args=[contract.pk]))
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, "CONTRACT-TERM-OPEN-CLAIM")
+
         response = self.client.post(
             reverse("contract_terminate", args=[contract.pk]),
             {
