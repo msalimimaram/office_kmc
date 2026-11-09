@@ -259,3 +259,207 @@ class SpecialistPeopleScopeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "مرتبط")
         self.assertNotContains(response, "نامرتبط")
+
+
+
+class PersonChangeWorkflowTests(TestCase):
+    def setUp(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        from insurance.models import Contract, Insurer, InsuranceLine
+
+        today = timezone.localdate()
+        self.company = Company.objects.create(code="PC-A", name="شرکت درخواست تغییر")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر درخواست تغییر")
+        self.contract = Contract.objects.create(
+            code="PC-CONTRACT-1",
+            title="قرارداد درمان",
+            insurer=self.insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=335),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.contract.companies.add(self.company)
+
+        self.insured = User.objects.create_user(
+            username="1234567890",
+            password="StrongPass!2026",
+            national_id="1234567890",
+            mobile="09120000000",
+            must_change_password=False,
+        )
+        self.person = Person.objects.create(
+            company=self.company,
+            user=self.insured,
+            national_id="1234567890",
+            first_name="کارمند",
+            last_name="آزمایش",
+            birth_date=date(1990, 1, 1),
+            mobile="09120000000",
+            iban="IR000000000000000000000000",
+        )
+        self.company_rep = User.objects.create_user(
+            username="person-change-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.insurer_rep = User.objects.create_user(
+            username="person-change-insurer-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.head = User.objects.create_user(
+            username="person-change-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.insured,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            line_code="health",
+            reason="بیمه‌شده برای آزمون اصلاح اطلاعات",
+        )
+        RoleAssignment.objects.create(
+            user=self.company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            reason="نماینده شرکت برای آزمون اصلاح اطلاعات",
+        )
+        RoleAssignment.objects.create(
+            user=self.insurer_rep,
+            role=RoleAssignment.Role.INSURER_REP,
+            insurer=self.insurer,
+            line_code="health",
+            reason="نماینده بیمه‌گر برای آزمون اصلاح اطلاعات",
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای انتشار گردش‌های پایه",
+        )
+        call_command("seed_operational_workflows")
+
+    def test_mobile_change_follows_company_insurer_company_and_applies_only_after_final_close(self):
+        from django.contrib.contenttypes.models import ContentType
+        from organizations.models import PersonChangeRequest
+        from workflow.models import WorkflowCase
+        from workflow.services import transition_case
+
+        client = Client()
+        client.force_login(self.insured)
+        response = client.post(reverse("person_change_create"), {
+            "person": str(self.person.pk),
+            "contract": str(self.contract.pk),
+            "change_type": PersonChangeRequest.ChangeType.MOBILE,
+            "requested_value": "09121112222",
+            "reason": "شماره همراه جدید و صحیح جهت اصلاح اطلاعات بیمه‌گر",
+        })
+        self.assertEqual(response.status_code, 302)
+        change = PersonChangeRequest.objects.get(requested_by=self.insured)
+        self.person.refresh_from_db()
+        self.insured.refresh_from_db()
+        self.assertEqual(change.status, PersonChangeRequest.Status.COMPANY_REVIEW)
+        self.assertEqual(self.person.mobile, "09120000000")
+        self.assertEqual(self.insured.mobile, "09120000000")
+
+        case = WorkflowCase.objects.get(
+            content_type=ContentType.objects.get_for_model(change, for_concrete_model=False),
+            object_id=str(change.pk),
+        )
+        self.assertEqual(case.current_assignee_id, self.company_rep.pk)
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="refer_to_insurer",
+            recipient=self.insurer_rep,
+            note="مدارک بررسی شد؛ برای اصلاح در سامانه بیمه‌گر ارجاع شد.",
+        )
+        change.refresh_from_db()
+        self.assertEqual(change.status, PersonChangeRequest.Status.INSURER_UPDATE)
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.insurer_rep,
+            action_code="return_to_company",
+            recipient=self.company_rep,
+            note="اصلاح در سامانه بیمه‌گر انجام شد؛ برای تأیید نهایی بازگشت داده شد.",
+        )
+        change.refresh_from_db()
+        self.assertEqual(change.status, PersonChangeRequest.Status.COMPANY_FINAL_REVIEW)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.mobile, "09120000000")
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="approve_and_close",
+            note="اصلاح انجام‌شده توسط بیمه‌گر بررسی و تأیید شد.",
+        )
+        change.refresh_from_db()
+        self.person.refresh_from_db()
+        self.insured.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(change.status, PersonChangeRequest.Status.APPROVED)
+        self.assertEqual(change.approved_by_id, self.company_rep.pk)
+        self.assertEqual(self.person.mobile, "09121112222")
+        self.assertEqual(self.insured.mobile, "09121112222")
+        self.assertEqual(case.status, WorkflowCase.Status.CLOSED)
+
+    def test_person_change_requests_are_scoped_by_company_and_representative_line(self):
+        from organizations.models import PersonChangeRequest
+
+        item = PersonChangeRequest.objects.create(
+            person=self.person,
+            company=self.company,
+            contract=self.contract,
+            requested_by=self.insured,
+            change_type=PersonChangeRequest.ChangeType.MOBILE,
+            current_value=self.person.mobile,
+            requested_value="09123334444",
+            reason="درخواست آزمایشی برای بررسی دامنه دسترسی",
+        )
+        client = Client()
+        client.force_login(self.company_rep)
+        self.assertContains(
+            client.get(reverse("person_change_detail", args=[item.pk])),
+            "شماره همراه",
+        )
+
+        other_line_rep = User.objects.create_user(
+            username="person-change-other-line",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=other_line_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="fire",
+            reason="نماینده همان شرکت در رشته دیگر",
+        )
+        client.force_login(other_line_rep)
+        response = client.get(reverse("person_change_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_person_change_request_is_immutable_after_submission(self):
+        from django.core.exceptions import ValidationError
+        from organizations.models import PersonChangeRequest
+
+        item = PersonChangeRequest.objects.create(
+            person=self.person,
+            company=self.company,
+            contract=self.contract,
+            requested_by=self.insured,
+            change_type=PersonChangeRequest.ChangeType.MOBILE,
+            current_value=self.person.mobile,
+            requested_value="09125556666",
+            reason="درخواست آزمایشی برای کنترل تغییرناپذیری",
+        )
+        item.requested_value = "09127778888"
+        with self.assertRaises(ValidationError):
+            item.save()
