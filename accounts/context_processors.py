@@ -2,13 +2,13 @@ from django.db.models import Q
 from django.utils import timezone
 
 from accounts.access import has_global_access, has_role, is_insurance_staff
-from accounts.models import PositionAssignment, RoleAssignment
+from accounts.models import PositionAssignment, RoleAssignment, UserNotification
 
 
 def access_flags(request):
     user = getattr(request, "user", None)
     if not user or not user.is_authenticated:
-        return {"access": {}}
+        return {"access": {}, "unread_notification_count": 0}
     staff = is_insurance_staff(user)
     today = timezone.localdate()
     assigned_correspondence = PositionAssignment.objects.filter(
@@ -21,6 +21,9 @@ def access_flags(request):
         ],
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
     return {
+        "unread_notification_count": UserNotification.objects.filter(
+            recipient=user, read_at__isnull=True
+        ).count(),
         "access": {
             "staff": staff,
             "global": has_global_access(user),
