@@ -685,6 +685,37 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertEqual(case.current_assignee_id, self.company_rep.pk)
         return item, case
 
+    def test_insured_person_receives_notice_when_company_rep_submits_change_for_them(self):
+        from accounts.models import UserNotification
+
+        self.client.force_login(self.company_rep)
+        response = self.client.post(
+            reverse("person_change_create"),
+            {
+                "person": str(self.person.pk),
+                "contract": str(self.contract.pk),
+                "change_type": PersonChangeRequest.ChangeType.MOBILE,
+                "requested_value": "09123334444",
+                "reason": "درخواست اصلاح به نمایندگی از بیمه‌شده",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        item = PersonChangeRequest.objects.get(
+            person=self.person,
+            change_type=PersonChangeRequest.ChangeType.MOBILE,
+        )
+        notice = UserNotification.objects.get(
+            recipient=self.insured,
+            target_url=reverse("person_change_detail", args=[item.pk]),
+            title="درخواست شما در سامانه ثبت شد",
+        )
+        self.assertEqual(notice.actor_id, self.company_rep.pk)
+
+        self.client.force_login(self.insured)
+        detail = self.client.get(reverse("person_change_detail", args=[item.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, "09123334444")
+
     def test_insured_user_who_is_also_only_company_rep_can_receive_own_request(self):
         RoleAssignment.objects.filter(
             user__in=[self.company_rep, self.other_company_rep],
