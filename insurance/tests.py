@@ -417,7 +417,13 @@ class ContractSubmissionViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         contract = Contract.objects.get(code="CONTRACT-SUBMISSION-001")
         revision = contract.revisions.get(revision_number=1)
-        case = revision.workflow_cases.get()
+        from django.contrib.contenttypes.models import ContentType
+        from workflow.models import WorkflowCase
+
+        case = WorkflowCase.objects.get(
+            content_type=ContentType.objects.get_for_model(ContractRevision, for_concrete_model=False),
+            object_id=str(revision.pk),
+        )
 
         self.assertEqual(contract.status, Contract.Status.DRAFT)
         self.assertFalse(contract.is_active)
