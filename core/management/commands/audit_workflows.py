@@ -99,6 +99,46 @@ class Command(BaseCommand):
                         "person_change: مراحل ضروری تعریف نشده‌اند: "
                         + ", ".join(sorted(missing_person_steps))
                     )
+                required_person_edges = (
+                    (
+                        PersonChangeRequest.Status.COMPANY_REVIEW,
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                    ),
+                    (
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                    ),
+                    (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.APPROVED,
+                    ),
+                    (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.REJECTED,
+                    ),
+                )
+                for source_code, target_code in required_person_edges:
+                    if not any(
+                        transition.source_step.code == source_code
+                        and transition.target_step
+                        and transition.target_step.code == target_code
+                        for transition in transitions
+                    ):
+                        errors.append(
+                            f"person_change: مسیر {source_code} به {target_code} تعریف نشده است."
+                        )
+                required_step_roles = {
+                    PersonChangeRequest.Status.INSURER_UPDATE: RoleAssignment.Role.INSURER_REP,
+                    PersonChangeRequest.Status.COMPANY_FINAL_REVIEW: RoleAssignment.Role.SUBSIDIARY_REP,
+                    PersonChangeRequest.Status.APPROVED: RoleAssignment.Role.SUBSIDIARY_REP,
+                    PersonChangeRequest.Status.REJECTED: RoleAssignment.Role.SUBSIDIARY_REP,
+                }
+                for step_code, required_role in required_step_roles.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if step and required_role not in (step.allowed_roles or []):
+                        errors.append(
+                            f"person_change/{step_code}: نقش {required_role} باید مجاز باشد."
+                        )
                 required_person_edges = {
                     (
                         PersonChangeRequest.Status.COMPANY_REVIEW,
@@ -223,6 +263,12 @@ class Command(BaseCommand):
                             errors.append("person_change: ارجاع به بیمه‌گر فقط از نماینده شرکت/مدیر مجاز است.")
                         if RoleAssignment.Role.INSURER_REP not in recipient_roles:
                             errors.append("person_change: مرحله اقدام بیمه‌گر باید به نماینده/کارشناس بیمه‌گر ارجاع شود.")
+                        if not recipient_roles.issubset({
+                            RoleAssignment.Role.INSURER_REP,
+                            RoleAssignment.Role.SYSTEM_ADMIN,
+                            RoleAssignment.Role.DEPARTMENT_HEAD,
+                        }):
+                            errors.append("person_change: ارجاع مرحله بیمه‌گر نباید به نقش شرکت یا متقاضی باشد.")
                     if (
                         source_code == PersonChangeRequest.Status.INSURER_UPDATE
                         and target_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
@@ -231,6 +277,12 @@ class Command(BaseCommand):
                             errors.append("person_change: بازگشت از بیمه‌گر باید توسط نقش بیمه‌گر انجام شود.")
                         if RoleAssignment.Role.SUBSIDIARY_REP not in recipient_roles:
                             errors.append("person_change: بازبینی نهایی باید به نماینده شرکت بازگردد.")
+                        if not recipient_roles.issubset({
+                            RoleAssignment.Role.SUBSIDIARY_REP,
+                            RoleAssignment.Role.DEPARTMENT_HEAD,
+                            RoleAssignment.Role.SYSTEM_ADMIN,
+                        }):
+                            errors.append("person_change: مرحله بازبینی نهایی نباید به نقش بیمه‌گر ارجاع شود.")
                     if (
                         source_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
                         and target_code in {
