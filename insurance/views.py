@@ -238,7 +238,7 @@ def contract_detail(request, pk):
         "revisions": revisions,
         "can_submit_revision": can_submit_revision,
         "can_request_termination": can_request_termination,
-        "pending_revision": pending_revision,
+        "pending_revision": pending_revision if internal_view else None,
     })
 
 
