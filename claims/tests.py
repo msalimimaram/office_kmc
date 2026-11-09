@@ -378,6 +378,8 @@ class ManualClaimWorkflowTests(TestCase):
         call_command("seed_operational_workflows")
 
     def test_manual_claim_assessment_head_decision_and_result_dispatch(self):
+        from datetime import timedelta
+        from django.utils import timezone
         from django.contrib.contenttypes.models import ContentType
         from accounts.models import RoleAssignment
         from claims.models import Claim
