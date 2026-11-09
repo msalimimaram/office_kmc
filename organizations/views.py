@@ -182,9 +182,9 @@ def _person_change_scope(user):
     if assigned_ids:
         allowed |= Q(pk__in=assigned_ids)
 
-    can_access = (
-        has_role(
-            user,
+    can_access = any(
+        has_role(user, role)
+        for role in (
             RoleAssignment.Role.EMPLOYEE,
             RoleAssignment.Role.SUBSIDIARY_REP,
             RoleAssignment.Role.INSURER,
