@@ -14,6 +14,12 @@ from .services import create_work_delegation, synchronize_delegations, update_de
 
 @login_required
 def delegation_inbox(request):
+    # The inbox is private to the delegator, the recipient, and global managers.
+    if (
+        not has_global_access(request.user)
+        and not WorkDelegation.objects.filter(delegate_to=request.user).exists()
+    ):
+        raise PermissionDenied("صندوق تفویض فقط برای گیرنده تفویض یا مدیران مجاز است.")
     synchronize_delegations()
     cases = WorkflowCase.objects.filter(
         current_assignee=request.user,
@@ -33,7 +39,9 @@ def delegation_inbox(request):
 def delegation_management(request):
     if not has_global_access(request.user):
         raise PermissionDenied
-    expire_due_delegations()
+    # Also reconcile expired rules and receiver assignments before rendering
+    # the management screen; this is the same operation used by the inbox.
+    synchronize_delegations()
     form = WorkDelegationForm(request.POST or None)
     if request.method == "POST":
         action = request.POST.get("action", "create")
