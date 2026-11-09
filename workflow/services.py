@@ -367,6 +367,14 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles, scope=scope)
     if (
         transition.closes_case
+        and case.definition.code in {"claim_objection", "contract_approval", "contract_termination"}
+        and not has_global_access(actor)
+    ):
+        raise PermissionDenied(
+            "تصمیم نهایی این فرایند فقط برای رئیس اداره بیمه یا مدیر سامانه مجاز است."
+        )
+    if (
+        transition.closes_case
         and not has_global_access(actor)
         and scope.get("insurer_id")
         and has_role(
