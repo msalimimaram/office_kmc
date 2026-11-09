@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import RoleAssignment, User
+from accounts.models import RoleAssignment, User, UserNotification
 from organizations.models import Company
 from requests_portal.models import ServiceRequest
 from tasks.forms import InternalTaskForm
@@ -147,6 +147,48 @@ class TaskFirstViewActionFlowTests(TestCase):
             self.task.events.filter(event_type=TaskEvent.EventType.FIRST_ACTION).count(),
             1,
         )
+
+    def test_new_task_assignment_notifies_each_assignee_and_opens_task(self):
+        client = Client()
+        client.force_login(self.head)
+        response = client.post(reverse("task_create"), {
+            "title": "وظیفه جدید برای اعلان",
+            "description": "شرح اقدام مورد انتظار",
+            "assignees": [str(self.assignee.pk)],
+            "priority": InternalTask.Priority.HIGH,
+            "due_at": "",
+            "related_request": "",
+        })
+        self.assertEqual(response.status_code, 302)
+        task = InternalTask.objects.get(title="وظیفه جدید برای اعلان")
+        notice = UserNotification.objects.get(
+            recipient=self.assignee,
+            target_url=reverse("task_update", args=[task.pk]),
+            title="وظیفه جدید به شما واگذار شد",
+        )
+        self.assertEqual(notice.actor_id, self.head.pk)
+
+        client.force_login(self.assignee)
+        self.assertEqual(client.get(reverse("task_update", args=[task.pk])).status_code, 200)
+        inbox = client.get(reverse("notification_list"))
+        self.assertEqual(inbox.status_code, 200)
+        self.assertContains(inbox, "وظیفه جدید به شما واگذار شد")
+
+    def test_task_status_change_notifies_creator(self):
+        client = Client()
+        client.force_login(self.assignee)
+        response = client.post(reverse("task_update", args=[self.task.pk]), {
+            "status": InternalTask.Status.IN_PROGRESS,
+            "note": "اقدام آغاز شد",
+        })
+        self.assertEqual(response.status_code, 302)
+        notice = UserNotification.objects.get(
+            recipient=self.head,
+            actor=self.assignee,
+            target_url=reverse("task_update", args=[self.task.pk]),
+            title="وضعیت وظیفه به‌روزرسانی شد",
+        )
+        self.assertIn("در حال انجام", notice.body)
 
     def test_invalid_transition_does_not_record_first_action(self):
         client = Client()
