@@ -253,3 +253,17 @@ class ClaimAssessmentForm(forms.Form):
         if assessed is not None and payable is not None and payable > assessed:
             self.add_error("payable_amount", "مبلغ قابل پرداخت نمی‌تواند از مبلغ تأییدشده بیشتر باشد.")
         return cleaned
+
+
+
+class ClaimDuplicateDeclarationForm(forms.Form):
+    source_duplicate_reference = forms.CharField(
+        label="شماره پرونده اصلی نزد بیمه‌گر",
+        max_length=120,
+    )
+    source_duplicate_note = forms.CharField(
+        label="توضیح رسمی بیمه‌گر درباره تکراری بودن",
+        min_length=10,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
