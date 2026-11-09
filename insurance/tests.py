@@ -227,6 +227,7 @@ class ContractWorkflowLifecycleTests(TestCase):
             effective_date=effective_date,
             is_termination=is_termination,
             termination_reason="درخواست خاتمه طبق تصمیم سازمان" if is_termination else "",
+            notice_date=self.today if is_termination else None,
         )
         case = start_workflow(
             obj=revision,
