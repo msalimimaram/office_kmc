@@ -1,28 +1,60 @@
 {% extends "base.html" %}
-{% block title %}کارهای تفویض‌شده{% endblock %}
+{% block title %}کارهای تفویض‌شده به من{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><h1>کارهای تفویض‌شده به من</h1><p>پرونده‌هایی که طبق تفویض معتبر در مسئولیت جاری شما قرار گرفته‌اند.</p></div>
+  <div>
+    <p class="eyebrow">صندوق مسئولیت‌های واگذارشده</p>
+    <h1>کارهای تفویض‌شده به من</h1>
+    <p>این فهرست فقط پرونده‌هایی را نشان می‌دهد که در حال حاضر و طبق تفویض معتبر، مسئول اقدام آن‌ها هستید.</p>
+  </div>
 </section>
+
+<section class="management-kpi-grid" aria-label="خلاصه کارهای تفویض‌شده">
+  <article class="management-kpi"><span>کارهای جاری</span><strong>{{ case_count }}</strong><small>در مسئولیت فعلی شما</small></article>
+  <article class="management-kpi"><span>کارهای معوق</span><strong>{{ overdue_count }}</strong><small>گذشته از مهلت ثبت‌شده</small></article>
+  <article class="management-kpi"><span>تفویض‌های معتبر</span><strong>{{ active_rule_count }}</strong><small>محدوده‌های فعال برای شما</small></article>
+</section>
+
 <div class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">فهرست اقدام</p><h2>پرونده‌های در انتظار رسیدگی</h2></div>
+    <span class="chart-caption">{{ case_count }} پرونده</span>
+  </div>
   {% if cases %}
   <div class="table-wrap"><table>
-    <thead><tr><th>نوع گردش‌کار</th><th>موضوع پرونده</th><th>مرحله جاری</th><th>تفویض‌کننده</th><th>مهلت اقدام</th><th></th></tr></thead>
+    <thead>
+      <tr><th>گردش‌کار</th><th>پرونده / موضوع</th><th>محدوده تفویض</th><th>مرحله جاری</th><th>تفویض‌کننده</th><th>مهلت اقدام</th><th></th></tr>
+    </thead>
     <tbody>
     {% for case in cases %}
       <tr>
-        <td>{{ case.definition.title }}</td>
+        <td><strong>{{ case.definition.title }}</strong><br><small>{{ case.definition.code }}</small></td>
         <td>{{ case.content_object|default:"پرونده عملیاتی" }}</td>
-        <td>{{ case.current_step.title|default:"—" }}</td>
+        <td>
+          {% if case.delegation.item_type %}<strong>{{ case.delegation.item_type }}</strong>{% endif %}
+          {% if case.delegation.company %}<br>{{ case.delegation.company.name }}{% endif %}
+          {% if case.delegation.insurer %}<br>{{ case.delegation.insurer.name }}{% endif %}
+          {% if case.delegation.line_code %}<br>{{ case.delegation.line_code }}{% endif %}
+          <small title="{{ case.delegation.reason }}">{{ case.delegation.get_delegate_role_display }}</small>
+        </td>
+        <td>{{ case.current_step.title|default:"—" }}<br><small>{{ case.get_status_display }}</small></td>
         <td>{{ case.delegation.granted_by.get_full_name|default:case.delegation.granted_by.username }}</td>
-        <td>{{ case.sla_due_at|date:"Y/m/d H:i"|default:"بدون مهلت" }}</td>
+        <td>
+          {% if case.sla_due_at %}
+            {{ case.sla_due_at|date:"Y/m/d H:i" }}
+            {% if case.sla_due_at < now %}<br><small class="text-danger">معوق</small>{% endif %}
+          {% else %}بدون مهلت{% endif %}
+        </td>
         <td><a class="button button-primary" href="{% url 'workflow_case_detail' case.pk %}">مشاهده و اقدام</a></td>
       </tr>
     {% endfor %}
     </tbody>
   </table></div>
   {% else %}
-    <div class="empty-state"><strong>پرونده تفویض‌شده فعالی ندارید.</strong><p>با ایجاد تفویض مرتبط، پرونده‌های جدید یا بازِ واجد شرایط به این صندوق منتقل می‌شوند.</p></div>
+    <div class="empty-state">
+      <strong>در حال حاضر پرونده تفویض‌شده‌ای برای اقدام ندارید.</strong>
+      <p>با ثبت تفویض مرتبط، پرونده‌های جدید یا بازِ واجد شرایط در همین صندوق نمایش داده می‌شوند.</p>
+    </div>
   {% endif %}
 </div>
 {% include "includes/pagination.html" with page_obj=page_obj %}
