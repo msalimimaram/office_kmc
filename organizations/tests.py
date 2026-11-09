@@ -1,9 +1,14 @@
-from datetime import date
-from django.core.exceptions import ValidationError
+from datetime import date, timedelta
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
 from accounts.models import RoleAssignment, User
-from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment
+from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest
+from insurance.models import Contract, Insurer, InsuranceLine
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
+from workflow.services import transition_case
 from requests_portal.models import ServiceRequest
 
 class OrganizationScopeTests(TestCase):
@@ -467,3 +472,367 @@ class PersonChangeWorkflowTests(TestCase):
         item.requested_value = "09127778888"
         with self.assertRaises(ValidationError):
             item.save()
+
+class PersonChangeRequestWorkflowTests(TestCase):
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.company = Company.objects.create(code="PCR-COMP", name="شرکت درخواست تغییر")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر درخواست تغییر")
+        self.admin = User.objects.create_superuser(
+            username="pcr-admin",
+            email="pcr-admin@example.invalid",
+            password="StrongPass!2026",
+        )
+        self.insured = User.objects.create_user(
+            username="1234567890",
+            national_id="1234567890",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.person = Person.objects.create(
+            company=self.company,
+            user=self.insured,
+            national_id="1234567890",
+            first_name="کارمند",
+            last_name="درخواست‌کننده",
+            birth_date=date(1990, 1, 1),
+            mobile="09120000000",
+            iban="IR120000000000000000000000",
+        )
+        PersonEmployment.objects.create(
+            person=self.person,
+            company=self.company,
+            personnel_code="PCR-001",
+            valid_from=self.today - timedelta(days=300),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        self.contract = Contract.objects.create(
+            code="PCR-CONTRACT",
+            title="قرارداد درمان درخواست تغییر",
+            insurer=self.insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=self.today - timedelta(days=30),
+            end_date=self.today + timedelta(days=365),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.contract.companies.add(self.company)
+
+        self.company_rep = User.objects.create_user(
+            username="pcr-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.insurer_rep = User.objects.create_user(
+            username="pcr-insurer-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.other_company_rep = User.objects.create_user(
+            username="pcr-other-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.insured,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            valid_from=self.today,
+            reason="بیمه‌شده اصلی",
+        )
+        for user in (self.company_rep, self.other_company_rep):
+            RoleAssignment.objects.create(
+                user=user,
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company,
+                line_code=InsuranceLine.HEALTH,
+                valid_from=self.today,
+                reason="نماینده شرکت برای درخواست اصلاح",
+            )
+        RoleAssignment.objects.create(
+            user=self.insurer_rep,
+            role=RoleAssignment.Role.INSURER_REP,
+            insurer=self.insurer,
+            valid_from=self.today,
+            reason="نماینده بیمه‌گر برای اصلاح اطلاعات",
+        )
+        self._create_workflow()
+        self.client = Client()
+
+    def _create_workflow(self):
+        definition = WorkflowDefinition.objects.create(
+            code="person_change",
+            title="گردش اصلاح اطلاعات بیمه‌شده",
+            created_by=self.admin,
+        )
+        roles = {
+            "company": [RoleAssignment.Role.SUBSIDIARY_REP],
+            "insurer": [RoleAssignment.Role.INSURER_REP],
+        }
+        steps = {}
+        for order, (code, title, allowed_roles) in enumerate([
+            (PersonChangeRequest.Status.COMPANY_REVIEW, "بررسی نماینده شرکت", roles["company"]),
+            (PersonChangeRequest.Status.INSURER_UPDATE, "اقدام بیمه‌گر", roles["insurer"]),
+            (PersonChangeRequest.Status.COMPANY_FINAL_REVIEW, "بازبینی نهایی شرکت", roles["company"]),
+            (PersonChangeRequest.Status.APPROVED, "تأیید نهایی", roles["company"]),
+            (PersonChangeRequest.Status.REJECTED, "رد نهایی", roles["company"]),
+        ], start=1):
+            steps[code] = WorkflowStep.objects.create(
+                definition=definition,
+                code=code,
+                title=title,
+                order=order,
+                allowed_roles=allowed_roles,
+                is_initial=(code == PersonChangeRequest.Status.COMPANY_REVIEW),
+            )
+
+        transitions = [
+            (
+                PersonChangeRequest.Status.COMPANY_REVIEW,
+                PersonChangeRequest.Status.INSURER_UPDATE,
+                "refer-to-insurer",
+                roles["company"],
+                roles["insurer"],
+                False,
+            ),
+            (
+                PersonChangeRequest.Status.INSURER_UPDATE,
+                PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                "return-to-company",
+                roles["insurer"],
+                roles["company"],
+                False,
+            ),
+            (
+                PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                PersonChangeRequest.Status.APPROVED,
+                "approve-person-change",
+                roles["company"],
+                roles["company"],
+                False,
+            ),
+            (
+                PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                PersonChangeRequest.Status.REJECTED,
+                "reject-person-change",
+                roles["company"],
+                roles["company"],
+                False,
+            ),
+            (
+                PersonChangeRequest.Status.APPROVED,
+                None,
+                "close-approved",
+                roles["company"],
+                [],
+                True,
+            ),
+            (
+                PersonChangeRequest.Status.REJECTED,
+                None,
+                "close-rejected",
+                roles["company"],
+                [],
+                True,
+            ),
+        ]
+        for source, target, action, allowed, recipients, closes in transitions:
+            WorkflowTransition.objects.create(
+                definition=definition,
+                source_step=steps[source],
+                target_step=steps[target] if target else None,
+                action_code=action,
+                title=action,
+                allowed_roles=allowed,
+                recipient_roles=recipients,
+                closes_case=closes,
+            )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+    def _create_request(self, *, change_type=PersonChangeRequest.ChangeType.MOBILE, requested_value="09121111111"):
+        self.client.force_login(self.insured)
+        response = self.client.post(
+            reverse("person_change_create"),
+            {
+                "person": str(self.person.pk),
+                "contract": str(self.contract.pk),
+                "change_type": change_type,
+                "requested_value": requested_value,
+                "reason": "اطلاعات ثبت‌شده نیازمند اصلاح و تطبیق با مدرک معتبر است.",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        item = PersonChangeRequest.objects.get(person=self.person, change_type=change_type)
+        content_type = ContentType.objects.get_for_model(PersonChangeRequest, for_concrete_model=False)
+        case = WorkflowCase.objects.get(content_type=content_type, object_id=str(item.pk))
+        self.assertEqual(case.current_assignee_id, self.company_rep.pk)
+        return item, case
+
+    def test_mobile_change_applies_only_after_company_insurer_company_review(self):
+        item, case = self._create_request()
+        self.assertEqual(item.status, PersonChangeRequest.Status.COMPANY_REVIEW)
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="refer-to-insurer",
+            recipient=self.insurer_rep,
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.INSURER_UPDATE)
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.insurer_rep,
+            action_code="return-to-company",
+            recipient=self.company_rep,
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.COMPANY_FINAL_REVIEW)
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="approve-person-change",
+            recipient=self.company_rep,
+        )
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.mobile, "09120000000")
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="close-approved",
+        )
+        item.refresh_from_db()
+        self.person.refresh_from_db()
+        self.insured.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.APPROVED)
+        self.assertEqual(self.person.mobile, "09121111111")
+        self.assertEqual(self.insured.mobile, "09121111111")
+        self.assertEqual(item.approved_by_id, self.company_rep.pk)
+
+    def test_company_rep_cannot_close_before_final_review(self):
+        item, case = self._create_request()
+        initial = case.current_step
+        WorkflowTransition.objects.create(
+            definition=case.definition,
+            source_step=initial,
+            action_code="premature-close",
+            title="بستن زودهنگام",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            closes_case=True,
+        )
+        with self.assertRaises(ValidationError):
+            transition_case(
+                case_id=case.pk,
+                actor=self.company_rep,
+                action_code="premature-close",
+            )
+        item.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.COMPANY_REVIEW)
+        self.assertEqual(case.status, WorkflowCase.Status.OPEN)
+
+    def test_insurer_rep_cannot_close_applicant_side_person_change_request(self):
+        item, case = self._create_request()
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="refer-to-insurer",
+            recipient=self.insurer_rep,
+        )
+        WorkflowTransition.objects.create(
+            definition=case.definition,
+            source_step=case.current_step,
+            action_code="insurer-close",
+            title="بستن توسط بیمه‌گر",
+            allowed_roles=[RoleAssignment.Role.INSURER_REP],
+            closes_case=True,
+        )
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=self.insurer_rep,
+                action_code="insurer-close",
+            )
+        item.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.INSURER_UPDATE)
+        self.assertEqual(case.status, WorkflowCase.Status.OPEN)
+
+    def test_non_assigned_company_rep_sees_masked_personal_values(self):
+        item, _case = self._create_request()
+        self.client.force_login(self.other_company_rep)
+        response = self.client.get(reverse("person_change_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "091••••00")
+        self.assertContains(response, "091••••11")
+        self.assertNotContains(response, "09121111111")
+
+    def test_rejection_does_not_change_person_data(self):
+        item, case = self._create_request()
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="refer-to-insurer",
+            recipient=self.insurer_rep,
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.insurer_rep,
+            action_code="return-to-company",
+            recipient=self.company_rep,
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="reject-person-change",
+            recipient=self.company_rep,
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="close-rejected",
+        )
+        item.refresh_from_db()
+        self.person.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.REJECTED)
+        self.assertEqual(self.person.mobile, "09120000000")
+
+    def test_national_id_approval_updates_person_and_username_together(self):
+        item, case = self._create_request(
+            change_type=PersonChangeRequest.ChangeType.NATIONAL_ID,
+            requested_value="1234567891",
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="refer-to-insurer",
+            recipient=self.insurer_rep,
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.insurer_rep,
+            action_code="return-to-company",
+            recipient=self.company_rep,
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="approve-person-change",
+            recipient=self.company_rep,
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.company_rep,
+            action_code="close-approved",
+        )
+        item.refresh_from_db()
+        self.person.refresh_from_db()
+        self.insured.refresh_from_db()
+        self.assertEqual(item.status, PersonChangeRequest.Status.APPROVED)
+        self.assertEqual(self.person.national_id, "1234567891")
+        self.assertEqual(self.insured.national_id, "1234567891")
+        self.assertEqual(self.insured.username, "1234567891")
