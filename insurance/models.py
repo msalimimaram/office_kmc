@@ -127,8 +127,11 @@ class ContractRevision(models.Model):
             models.UniqueConstraint(fields=["contract", "revision_number"], name="uniq_contract_revision"),
             models.UniqueConstraint(
                 fields=["contract"],
-                condition=models.Q(status="pending_approval"),
-                name="uniq_pending_contract_revision",
+                condition=models.Q(
+                    status__in=["pending_approval", "approved", "terminated"],
+                    applied_at__isnull=True,
+                ),
+                name="uniq_unapplied_contract_revision",
             ),
         ]
         ordering = ["-revision_number", "-pk"]
@@ -152,14 +155,24 @@ class ContractRevision(models.Model):
                 raise ValidationError({"notice_date": "تاریخ اعلام فسخ نمی‌تواند بعد از تاریخ اثرگذاری باشد."})
 
         if (
-            self.status == self.Status.PENDING_APPROVAL
+            self.status in {
+                self.Status.PENDING_APPROVAL,
+                self.Status.APPROVED,
+                self.Status.TERMINATED,
+            }
+            and self.applied_at is None
             and self.contract_id
             and type(self).objects.filter(
                 contract_id=self.contract_id,
-                status=self.Status.PENDING_APPROVAL,
+                status__in=[
+                    self.Status.PENDING_APPROVAL,
+                    self.Status.APPROVED,
+                    self.Status.TERMINATED,
+                ],
+                applied_at__isnull=True,
             ).exclude(pk=self.pk).exists()
         ):
-            raise ValidationError("برای هر قرارداد فقط یک نسخه در انتظار تأیید مجاز است.")
+            raise ValidationError("برای هر قرارداد فقط یک تغییر در انتظار تأیید یا تاریخ اثر مجاز است.")
 
     def save(self, *args, **kwargs):
         if self.pk:
