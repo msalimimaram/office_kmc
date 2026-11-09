@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ contract.code }} | قرارداد بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">جزئیات قرارداد</p>
+    <h1>{{ contract.code }} — {{ contract.title }}</h1>
+    <p class="muted">{{ contract.insurer.name }} · {{ contract.get_line_display }}</p>
+  </div>
+  <div class="actions">
+    {% if can_submit_revision %}<a class="btn primary" href="{% url 'contract_revision_create' contract.pk %}">ثبت نسخه / اصلاحیه</a>{% endif %}
+    <a class="btn secondary" href="{% url 'contract_list' %}">بازگشت به فهرست</a>
+  </div>
+</div>
+<section class="panel">
+  <div class="detail-grid">
+    <div><small>وضعیت چرخه عمر</small><strong>{{ contract.get_status_display }}</strong></div>
+    <div><small>شروع</small><strong>{{ contract.start_date|date:"Y/m/d" }}</strong></div>
+    <div><small>پایان</small><strong>{{ contract.end_date|date:"Y/m/d" }}</strong></div>
+    <div><small>وضعیت دسترسی عملیاتی</small><strong>{% if contract.is_active %}قابل استفاده{% else %}غیرفعال{% endif %}</strong></div>
+  </div>
+  <h2>شرکت‌های مشمول</h2>
+  <p>{% for company in contract.companies.all %}{{ company.name }}{% if not forloop.last %}، {% endif %}{% empty %}برای همه شرکت‌های مجاز طبق قرارداد{% endfor %}</p>
+  {% if contract.coverage_summary %}<h2>خلاصه پوشش</h2><p class="long-text">{{ contract.coverage_summary|linebreaksbr }}</p>{% endif %}
+  {% if contract.terms %}<h2>شرایط و استثناها</h2><p class="long-text">{{ contract.terms|linebreaksbr }}</p>{% endif %}
+</section>
+<section class="panel">
+  <h2>نسخه‌ها و سوابق تأیید</h2>
+  {% for revision in revisions %}
+    <div class="timeline-item">
+      <strong>نسخه {{ revision.revision_number }} · {{ revision.get_status_display }}</strong>
+      <small>ثبت‌کننده: {{ revision.created_by }} · {{ revision.created_at|date:"Y/m/d H:i" }}</small>
+      {% if revision.effective_date %}<small>تاریخ اثر: {{ revision.effective_date|date:"Y/m/d" }}</small>{% endif %}
+      <p>{{ revision.description }}</p>
+      {% if revision.approved_by %}<small>تأییدکننده: {{ revision.approved_by }} · {{ revision.approved_at|date:"Y/m/d H:i" }}</small>{% endif %}
+      {% if revision.workflow_case %}<p><a href="{% url 'workflow_case_detail' revision.workflow_case.pk %}">مشاهده گردش تأیید</a></p>{% endif %}
+      {% if revision.document %}<p><a href="{{ revision.document.url }}">سند نسخه</a></p>{% endif %}
+      {% if revision.applied_at %}<small>نسخه در {{ revision.applied_at|date:"Y/m/d H:i" }} اعمال شده است.</small>{% elif revision.status == "approved" %}<small>تأیید شده و منتظر رسیدن تاریخ اثر است.</small>{% endif %}
+    </div>
+  {% empty %}
+    <p class="empty">هنوز نسخه‌ای برای قرارداد ثبت نشده است.</p>
+  {% endfor %}
+</section>
+{% endblock %}
