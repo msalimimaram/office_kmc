@@ -151,6 +151,12 @@ class ContractRevision(models.Model):
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
         if step_code not in dict(self.Status.choices):
             return
+        terminal_decisions = {self.Status.APPROVED, self.Status.REJECTED, self.Status.TERMINATED}
+        # Approval/rejection/termination is not committed until the workflow case
+        # itself is closed by the authorized final approver.
+        if step_code in terminal_decisions and not closed:
+            return
+
         self.status = step_code
         update_fields = ["status"]
         if step_code in {self.Status.APPROVED, self.Status.TERMINATED}:
@@ -158,6 +164,7 @@ class ContractRevision(models.Model):
             self.approved_at = timezone.now()
             update_fields.extend(["approved_by", "approved_at"])
         self.save(update_fields=update_fields)
+
         if step_code in {self.Status.APPROVED, self.Status.TERMINATED}:
             today = timezone.localdate()
             if self.effective_date and self.effective_date <= today:
