@@ -271,10 +271,10 @@ def can_decide_claim(user, claim):
 
 
 def can_edit_iban(user, person):
-    # Sensitive financial attributes must be changed through an approved request.
-    if has_global_access(user):
-        return True
-    return has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    # This helper has no approved-workflow context, so it must never authorize a
+    # direct write. The approved person-change workflow must perform the update
+    # through its dedicated domain service after the final approval transition.
+    return False
 
 
 def require_object_access(allowed, message="شما مجوز دسترسی به این رکورد را ندارید."):

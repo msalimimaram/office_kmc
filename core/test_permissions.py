@@ -1,7 +1,7 @@
 from django.test import TestCase
 
-from accounts.models import User
-from core.permissions import scoped_requests_for
+from accounts.models import RoleAssignment, User
+from core.permissions import can_edit_iban, scoped_requests_for
 from organizations.models import Company
 from requests_portal.models import ServiceRequest
 
@@ -23,3 +23,20 @@ class ConfidentialRequestScopeTests(TestCase):
             title="محرمانه", description="شرح محرمانه", is_confidential=True,
         )
         self.assertNotIn(item, scoped_requests_for(specialist))
+
+
+class SensitivePersonFieldPermissionTests(TestCase):
+    def test_direct_iban_edit_is_denied_even_for_privileged_users(self):
+        admin = User.objects.create_user(
+            username="iban-workflow-admin",
+            password="StrongPass!2026",
+            is_superuser=True,
+            is_staff=True,
+        )
+        specialist = User.objects.create_user(
+            username="iban-workflow-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+        )
+        self.assertFalse(can_edit_iban(admin, None))
+        self.assertFalse(can_edit_iban(specialist, None))
