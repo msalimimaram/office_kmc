@@ -53,6 +53,14 @@ if (-not $Production) {
 
 Invoke-Check -Name "Database migration state" -Command $python -Arguments @("manage.py", "migrate", "--check")
 Invoke-Check -Name "Complete Django test suite" -Command $python -Arguments @("manage.py", "test", "--verbosity", "2")
+
+# Seed only the disposable local development database. The demo command is
+# guarded by DEBUG=True; Production preflight never creates demo accounts/data.
+if (-not $Production) {
+    Invoke-Check -Name "Seed local demo data" -Command $python -Arguments @("manage.py", "seed_demo")
+    Invoke-Check -Name "Seed operational workflows" -Command $python -Arguments @("manage.py", "seed_operational_workflows")
+}
+
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
 
 if ($Production) {
