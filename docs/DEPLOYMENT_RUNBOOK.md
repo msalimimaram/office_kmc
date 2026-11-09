@@ -8,10 +8,10 @@
 2. دامنه و TLS/HTTPS روی reverse proxy (مثلاً Nginx) تنظیم شود.
 3. متغیرهای `.env` واقعی روی سرور قرار گیرد؛ فایل secrets هرگز commit نشود.
 4. `pip install -r requirements.txt` اجرا شود.
-5. **مهاجرت‌های versioned برای تمام appها تولید، review و commit شوند.** در وضعیت فعلی repository هنوز migrations قابل اتکای پروژه را ندارد؛ تا این مرحله انجام نشده، ورود اطلاعات واقعی ممنوع است.
+5. Migrationهای نسخه‌بندی‌شده موجود در مخزن را ابتدا روی دیتابیس خالی و یک کپی از داده آزمایشی بررسی کنید. `makemigrations --check --dry-run`، `migrate --plan` و `migrate` باید بدون اختلاف اجرا شوند؛ Migration جدید فقط پس از بررسی state مدل و تست upgrade ثبت شود.
 6. `python manage.py migrate` اجرا شود.
 7. `python manage.py collectstatic --noinput` اجرا شود.
-8. `python manage.py check --deploy` اجرا شود.
+8. `python manage.py check --deploy` و `python manage.py audit_workflows` اجرا شوند؛ هر دو باید بدون خطا باشند.
 9. یک superuser اولیه ساخته و بلافاصله رمز قوی و MFA واقعی برای آن فعال شود.
 10. Gunicorn اجرا و پشت reverse proxy قرار گیرد.
 11. `/private_media` نباید مستقیماً از وب قابل دسترس باشد؛ دانلود فایل فقط از view دارای authorization انجام شود.
@@ -47,6 +47,7 @@
 ### عملیات
 - [ ] import اکسل duplicate-safe است
 - [ ] import نامعتبر هیچ رکورد ناقصی ایجاد نمی‌کند
+- [ ] تمام انواع درخواست گردش‌کار فعال دارند و `python manage.py audit_workflows` موفق است
 - [ ] transitionهای غیرمجاز workflow رد می‌شوند
 - [ ] تغییرات حساس audit trail دارند
 - [ ] صفحات list/detail برای داده بزرگ pagination دارند

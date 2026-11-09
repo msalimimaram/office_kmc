@@ -518,3 +518,73 @@ class RequestWorkflowConfigurationFailureTests(TestCase):
         self.assertContains(response, "گیرنده‌ای با انتصاب معتبر")
         self.assertEqual(ServiceRequest.objects.filter(submitted_by=submitter).count(), 0)
         self.assertEqual(WorkflowCase.objects.count(), 0)
+
+
+class RequestWorkflowCreationTests(TestCase):
+    def test_company_representative_can_submit_request_when_they_are_the_only_representative(self):
+        from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
+
+        company = Company.objects.create(code="REQ-WF-REP", name="شرکت نماینده درخواست")
+        representative = User.objects.create_user(
+            username="request-workflow-rep",
+            password="StrongPass!2026",
+            role=User.Role.SUBSIDIARY_REP,
+            company=company,
+            must_change_password=False,
+        )
+        head = User.objects.create_user(
+            username="request-workflow-head",
+            password="StrongPass!2026",
+            role=User.Role.DEPARTMENT_HEAD,
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company,
+            reason="نماینده یگانه شرکت برای آزمون گردش کار",
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای انتشار گردش کار آزمون",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.IDENTITY_CHANGE,
+            title="گردش کار اصلاح اطلاعات",
+            version=1,
+            created_by=head,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="company-review",
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            action_code="close-after-company-review",
+            title="اتمام بررسی شرکت",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            closes_case=True,
+        )
+        definition.approved_by = head
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(representative)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.IDENTITY_CHANGE,
+            "title": "اصلاح اطلاعات هویتی",
+            "description": "درخواست ثبت‌شده توسط نماینده شرکت",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        item = ServiceRequest.objects.get(kind=ServiceRequest.Kind.IDENTITY_CHANGE)
+        case = WorkflowCase.objects.get(object_id=str(item.pk))
+        self.assertEqual(item.assigned_to_id, representative.pk)
+        self.assertEqual(case.current_assignee_id, representative.pk)

@@ -40,6 +40,7 @@ def _first_company_representative(company_id):
         role_assignments__role=RoleAssignment.Role.SUBSIDIARY_REP,
         role_assignments__company_id=company_id,
         role_assignments__is_active=True,
+        is_active=True,
         role_assignments__valid_from__lte=today,
     ).filter(
         models.Q(role_assignments__valid_until__isnull=True)
@@ -102,7 +103,11 @@ def request_create(request):
                                 ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
                             } else None,
                             owner_user_id=user.pk,
-                            exclude_user_id=user.pk,
+                            # Keep a company representative eligible to receive their own request.
+                            exclude_user_id=(
+                                user.pk if has_role(user, RoleAssignment.Role.INSURED_PERSON)
+                                and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) else None
+                            ),
                         )
                         start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
                         item.assigned_to = initial_assignee

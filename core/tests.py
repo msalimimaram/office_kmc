@@ -37,3 +37,15 @@ class UploadedFileValidationTests(SimpleTestCase):
             archive.writestr("random.txt", "not a workbook")
         upload = SimpleUploadedFile("fake.xlsx", stream.getvalue())
         self.assertIn("مطابقت ندارد", validate_uploaded_file(upload, max_size=1024 * 1024))
+
+
+class WorkflowCoverageCommandTests(TestCase):
+    def test_workflow_audit_fails_when_request_kinds_are_not_configured(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        output = StringIO()
+        with self.assertRaises(CommandError):
+            call_command("audit_workflows", stdout=output)
+        self.assertIn("identity_change", output.getvalue())
