@@ -114,7 +114,25 @@ DATABASE_URL=postgresql://office_kmc:office_kmc@127.0.0.1:5432/office_kmc
 docker compose -f docker-compose.local.yml down
 ```
 
-## 7. معیار خروج از تست محلی
+## 7. اجرای یک‌جای دروازهٔ پیش‌انتشار در Windows
+
+برای اجرای متمرکز کنترل وابستگی‌ها، Django check، نبود migration جاافتاده، کل تست‌ها و ممیزی پیکربندی گردش‌کار:
+
+```powershell
+.\scripts\final_preflight.ps1
+```
+
+فرمان `audit_workflows` یک gate واقعی است؛ اگر برای انواع درخواست گردش‌کار فعال و معتبر در پایگاه داده تعریف نشده باشد، اسکریپت عمداً متوقف می‌شود. این شکست را با حذف gate یا خاموش‌کردن بررسی دور نزنید؛ ابتدا پیکربندی گردش‌کار و گیرنده‌های معتبر را تکمیل کنید.
+
+برای کنترل تنظیمات Production، فقط روی staging با نسخهٔ پشتیبان/کپی پایگاه داده اجرا کنید:
+
+```powershell
+.\scripts\final_preflight.ps1 -Production
+```
+
+حالت `-Production` تست‌ها را نیز اجرا می‌کند؛ هرگز آن را با `DATABASE_URL` پایگاه دادهٔ زندهٔ Production اجرا نکنید. این اسکریپت schema را migrate نمی‌کند؛ فقط وضعیت migration را بررسی می‌کند و static files را جمع‌آوری می‌کند.
+
+## 8. معیار خروج از تست محلی
 
 - [ ] نصب وابستگی‌ها بدون خطا
 - [ ] manage.py check بدون خطا
