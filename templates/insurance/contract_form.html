@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">چرخه عمر قرارداد</p>
+    <h1>{{ page_title }}</h1>
+    {% if contract %}<p class="muted">نسخه جاری تا زمان تأیید نسخه جدید تغییر نخواهد کرد.</p>{% else %}<p class="muted">قرارداد پس از ثبت، در وضعیت پیش‌نویس قرار می‌گیرد و فقط پس از تأیید مرجع مجاز قابل استفاده خواهد بود.</p>{% endif %}
+  </div>
+  <a class="btn secondary" href="{% if contract %}{% url 'contract_detail' contract.pk %}{% else %}{% url 'contract_list' %}{% endif %}">بازگشت</a>
+</div>
+<section class="panel narrow">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary" type="submit">{{ submit_label }}</button>
+  </form>
+</section>
+{% endblock %}
