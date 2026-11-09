@@ -43,6 +43,7 @@ if ($LASTEXITCODE -ne 0) {
 Invoke-Check -Name "Dependency consistency" -Command $python -Arguments @("-m", "pip", "check")
 Invoke-Check -Name "Django system checks" -Command $python -Arguments @("manage.py", "check")
 Invoke-Check -Name "Migration drift check" -Command $python -Arguments @("manage.py", "makemigrations", "--check", "--dry-run")
+Invoke-Check -Name "Database migration state" -Command $python -Arguments @("manage.py", "migrate", "--check")
 Invoke-Check -Name "Complete Django test suite" -Command $python -Arguments @("manage.py", "test", "--verbosity", "2")
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
 
@@ -67,7 +68,6 @@ if ($Production) {
     }
 
     Invoke-Check -Name "Production security checks" -Command $python -Arguments @("manage.py", "check", "--deploy")
-    Invoke-Check -Name "Database migration state (read-only)" -Command $python -Arguments @("manage.py", "migrate", "--check")
     Invoke-Check -Name "Static asset collection" -Command $python -Arguments @("manage.py", "collectstatic", "--noinput")
 }
 
