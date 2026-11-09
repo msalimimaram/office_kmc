@@ -43,6 +43,14 @@ if ($LASTEXITCODE -ne 0) {
 Invoke-Check -Name "Dependency consistency" -Command $python -Arguments @("-m", "pip", "check")
 Invoke-Check -Name "Django system checks" -Command $python -Arguments @("manage.py", "check")
 Invoke-Check -Name "Migration drift check" -Command $python -Arguments @("manage.py", "makemigrations", "--check", "--dry-run")
+
+# A fresh local clone has unapplied migrations by definition. Apply them to the
+# local development database before checking migration state. Production mode
+# must remain read-only and therefore never runs migrate.
+if (-not $Production) {
+    Invoke-Check -Name "Apply local database migrations" -Command $python -Arguments @("manage.py", "migrate", "--noinput")
+}
+
 Invoke-Check -Name "Database migration state" -Command $python -Arguments @("manage.py", "migrate", "--check")
 Invoke-Check -Name "Complete Django test suite" -Command $python -Arguments @("manage.py", "test", "--verbosity", "2")
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
