@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import RoleAssignment
 from claims.models import ClaimObjection
+from insurance.models import ContractRevision
 from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowDefinition
 
@@ -10,7 +11,7 @@ class Command(BaseCommand):
     help = "ممیزی پوشش و سازگاری گردش‌کارهای فعال پیش از انتشار."
 
     def handle(self, *args, **options):
-        required_codes = {value for value, _label in ServiceRequest.Kind.choices} | {"claim_objection"}
+        required_codes = {value for value, _label in ServiceRequest.Kind.choices} | {"claim_objection", "contract_approval"}
         definitions = {
             item.code: item
             for item in WorkflowDefinition.objects.filter(
@@ -26,6 +27,7 @@ class Command(BaseCommand):
             initial_steps = [step for step in steps if step.is_initial]
             valid_statuses = set(dict(
                 ClaimObjection.Status.choices if code == "claim_objection"
+                else ContractRevision.Status.choices if code == "contract_approval"
                 else ServiceRequest.Status.choices
             ))
             for step in steps:
