@@ -57,6 +57,11 @@ class Claim(models.Model):
     source_duplicate_note = models.TextField("توضیح اعلام تکراری بودن", blank=True)
     source_duplicate_reported_at = models.DateTimeField("زمان اعلام تکراری بودن", null=True, blank=True)
     assessment_note = models.TextField("یادداشت ارزیابی غیرپزشکی", blank=True)
+    assessed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="assessed_claims",
+    )
+    assessed_at = models.DateTimeField("زمان ارزیابی", null=True, blank=True)
     result_sent_at = models.DateTimeField("زمان ارسال نتیجه به بیمه‌شده", null=True, blank=True)
     result_sent_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
@@ -123,6 +128,26 @@ class Claim(models.Model):
                     self.company_snapshot_id = self.person.company_id
         self.full_clean()
         return super().save(*args, **kwargs)
+
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        status_by_step = {
+            "under_review": self.Status.UNDER_REVIEW,
+            "needs_info": self.Status.NEEDS_INFO,
+            "pending_decision": self.Status.UNDER_REVIEW,
+            "approved": self.Status.APPROVED,
+            "rejected": self.Status.REJECTED,
+        }
+        target = status_by_step.get(step_code)
+        if not target:
+            return
+        if step_code in {"pending_decision", "approved", "rejected"} and not self.assessed_at:
+            raise ValidationError(
+                "پیش از ارجاع برای تصمیم نهایی، ارزیابی مبلغ و توضیحات غیرپزشکی باید ثبت شود."
+            )
+        if self.status == target:
+            return
+        self.status = target
+        self.save(update_fields=["status", "updated_at"])
 
     def __str__(self):
         return self.claim_number
