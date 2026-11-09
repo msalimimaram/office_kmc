@@ -57,7 +57,7 @@ class Command(BaseCommand):
             for transition in definition.transitions.all():
                 if "*" in (transition.allowed_roles or []) or "*" in (transition.recipient_roles or []):
                     errors.append(f"{definition.code}/{transition.action_code}: wildcard role is forbidden")
-                if transition.closes_case and "insurer_rep" in (transition.allowed_roles or []):
+                if transition.closes_case and "insurer" in (transition.allowed_roles or []):
                     errors.append(f"{definition.code}/{transition.action_code}: insurer representative cannot close a case")
 
         person_change = WorkflowDefinition.objects.filter(
@@ -71,7 +71,7 @@ class Command(BaseCommand):
             refer = transitions.get("refer_to_insurer")
             returned = transitions.get("return_to_company")
             final = transitions.get("approve_and_close")
-            if not refer or "insurer_rep" not in (refer.recipient_roles or []):
+            if not refer or "insurer" not in (refer.recipient_roles or []):
                 errors.append("person_change: initial company representative must route to insurer representative")
             if not returned or "subsidiary_rep" not in (returned.recipient_roles or []):
                 errors.append("person_change: insurer representative must return the request to company representative")
