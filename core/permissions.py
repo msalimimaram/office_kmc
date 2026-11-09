@@ -151,7 +151,16 @@ def scoped_requests_for(user):
         allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
-        allowed |= Q(submitted_by_id=user.pk)
+        # Employees must still see their own requests when a company
+        # representative submitted the form on their behalf. Confidential
+        # medical requests remain limited to the linked insured person and
+        # authorized insurance staff; the company-representative scope above
+        # deliberately continues to exclude confidential records.
+        allowed |= (
+            Q(submitted_by_id=user.pk)
+            | Q(person__user_id=user.pk)
+            | Q(person__employee__user_id=user.pk)
+        )
 
     return qs.filter(allowed).distinct()
 
