@@ -18,6 +18,7 @@ from core.permissions import can_decide_claim, scoped_claims_for
 from .forms import (
     ClaimForm,
     ClaimAssessmentForm,
+    ClaimDuplicateDeclarationForm,
     company_for_person_on_date,
     ClaimObjectionForm,
     ClaimObjectionReviewForm,
@@ -89,6 +90,17 @@ def claim_detail(request, pk):
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.company_snapshot_id or claim.person.company_id)
     )
     can_review_objections = can_decide_claim(user, claim)
+    can_declare_duplicate = bool(
+        claim.insurer_id
+        and claim.contract_id
+        and claim.source_duplicate_status == Claim.DuplicateStatus.NOT_DECLARED
+        and has_role(
+            user,
+            RoleAssignment.Role.INSURER,
+            insurer_id=claim.insurer_id,
+            line_code=claim.contract.line,
+        )
+    )
     workflow_case = _claim_workflow_case(claim)
     can_assess = bool(
         workflow_case
@@ -193,6 +205,8 @@ def claim_detail(request, pk):
         "can_assess": can_assess,
         "assessment_form": ClaimAssessmentForm(claim=claim) if can_assess else None,
         "can_send_result": can_send_result,
+        "can_declare_duplicate": can_declare_duplicate,
+        "duplicate_form": ClaimDuplicateDeclarationForm() if can_declare_duplicate else None,
         "objections": objections,
         "form": form,
         "can_submit_objection": can_submit_objection,
@@ -490,4 +504,59 @@ def claim_result_send(request, pk):
         request=request,
     )
     messages.success(request, "زمان اعلام نتیجه ثبت شد و مهلت ۶۰ روزه اعتراض آغاز گردید.")
+    return redirect("claim_detail", pk=claim.pk)
+
+
+
+@login_required
+@require_POST
+def claim_duplicate_declare(request, pk):
+    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
+    if not (
+        claim.insurer_id
+        and claim.contract_id
+        and has_role(
+            request.user,
+            RoleAssignment.Role.INSURER,
+            insurer_id=claim.insurer_id,
+            line_code=claim.contract.line,
+        )
+    ):
+        raise PermissionDenied
+    if claim.source_duplicate_status == Claim.DuplicateStatus.DECLARED_DUPLICATE:
+        raise PermissionDenied("تکراری بودن این پرونده قبلاً توسط بیمه‌گر اعلام شده است.")
+
+    form = ClaimDuplicateDeclarationForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "شماره پرونده اصلی و توضیح رسمی بیمه‌گر الزامی است.")
+        return redirect("claim_detail", pk=claim.pk)
+
+    with transaction.atomic():
+        claim = Claim.objects.select_for_update().get(pk=claim.pk)
+        if claim.source_duplicate_status == Claim.DuplicateStatus.DECLARED_DUPLICATE:
+            raise PermissionDenied("تکراری بودن این پرونده قبلاً اعلام شده است.")
+        claim.source_duplicate_status = Claim.DuplicateStatus.DECLARED_DUPLICATE
+        claim.source_duplicate_reference = form.cleaned_data["source_duplicate_reference"].strip()
+        claim.source_duplicate_note = form.cleaned_data["source_duplicate_note"].strip()
+        claim.source_duplicate_reported_at = timezone.now()
+        claim.source_duplicate_reported_by = request.user
+        claim.save(update_fields=[
+            "source_duplicate_status", "source_duplicate_reference",
+            "source_duplicate_note", "source_duplicate_reported_at",
+            "source_duplicate_reported_by", "updated_at",
+        ])
+        record_event(
+            actor=request.user,
+            action="claim_duplicate_declared_by_insurer",
+            obj=claim,
+            summary="بیمه‌گر این پرونده را به‌صورت رسمی تکراری اعلام کرد.",
+            after_data={
+                "source_duplicate_reference": claim.source_duplicate_reference,
+                "source_duplicate_note": claim.source_duplicate_note,
+                "reported_at": claim.source_duplicate_reported_at.isoformat(),
+                "reported_by": request.user.pk,
+            },
+            request=request,
+        )
+    messages.success(request, "اعلام تکراری بودن توسط بیمه‌گر ثبت شد.")
     return redirect("claim_detail", pk=claim.pk)
