@@ -176,8 +176,10 @@ def _start_asset_approval(*, obj, asset, actor, code, note=""):
         contract.insurer_id if contract else None
     )
     line_code = contract.line if contract else None
-    assignee = resolve_initial_assignee(
+    assignee, delegation = resolve_initial_assignee(
         definition=definition,
+        obj=obj,
+        return_delegation=True,
         company_id=company_id,
         insurer_id=insurer_id,
         line_code=line_code,
@@ -187,6 +189,7 @@ def _start_asset_approval(*, obj, asset, actor, code, note=""):
         code=code,
         actor=actor,
         assignee=assignee,
+        delegation=delegation,
         note=note,
     )
 

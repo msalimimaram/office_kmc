@@ -1,0 +1,68 @@
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
+from django.shortcuts import redirect, render
+
+from accounts.access import has_global_access
+from workflow.models import WorkflowCase
+
+from .forms import WorkDelegationForm
+from .models import WorkDelegation
+from .services import create_work_delegation, expire_due_delegations, update_delegation_status
+
+
+@login_required
+def delegation_inbox(request):
+    expire_due_delegations()
+    cases = WorkflowCase.objects.filter(
+        current_assignee=request.user,
+        delegation__isnull=False,
+        status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+    ).select_related(
+        "definition", "current_step", "delegation", "delegation__granted_by",
+    ).order_by("sla_due_at", "opened_at")
+    page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
+    return render(request, "delegations/delegation_inbox.html", {
+        "cases": page_obj.object_list,
+        "page_obj": page_obj,
+    })
+
+
+@login_required
+def delegation_management(request):
+    if not has_global_access(request.user):
+        raise PermissionDenied
+    expire_due_delegations()
+    form = WorkDelegationForm(request.POST or None)
+    if request.method == "POST":
+        action = request.POST.get("action", "create")
+        try:
+            if action == "create":
+                if form.is_valid():
+                    delegation, routed = create_work_delegation(
+                        cleaned_data=form.cleaned_data, actor=request.user,
+                    )
+                    messages.success(
+                        request,
+                        f"تفویض ثبت شد؛ {routed} پرونده باز واجد شرایط نیز به گیرنده منتقل شد.",
+                    )
+                    return redirect("delegation_management")
+            else:
+                update_delegation_status(
+                    delegation_id=request.POST.get("delegation_id"),
+                    actor=request.user,
+                    action=action,
+                    reason=request.POST.get("reason", "").strip(),
+                )
+                messages.success(request, "وضعیت تفویض اختیار به‌روزرسانی شد.")
+                return redirect("delegation_management")
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(request, str(exc))
+    rules = WorkDelegation.objects.select_related(
+        "delegate_to", "granted_by", "company", "insurer",
+    ).prefetch_related("events").order_by("-created_at")
+    return render(request, "delegations/delegation_list.html", {
+        "form": form,
+        "delegations": rules,
+    })

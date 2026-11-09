@@ -265,8 +265,10 @@ def person_change_create(request):
                     raise ValidationError(
                         "گردش‌کار فعال person_change برای بررسی اصلاح اطلاعات پیکربندی نشده است."
                     )
-                assignee = resolve_initial_assignee(
+                assignee, delegation = resolve_initial_assignee(
                     definition=definition,
+                    obj=item,
+                    return_delegation=True,
                     company_id=company_id,
                     insurer_id=contract.insurer_id,
                     line_code=contract.line,
@@ -286,6 +288,7 @@ def person_change_create(request):
                     code="person_change",
                     actor=request.user,
                     assignee=assignee,
+                    delegation=delegation,
                     note=item.reason,
                 )
 

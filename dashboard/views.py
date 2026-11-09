@@ -7,7 +7,9 @@ from claims.models import Claim
 from requests_portal.models import ServiceRequest
 from tasks.models import InternalTask
 from core.permissions import scoped_claims_for, scoped_requests_for
-from dashboard.services import insured_dashboard_metrics, management_kpis
+from dashboard.services import insured_dashboard_metrics, management_kpis, personnel_performance_metrics
+from django.utils import timezone
+from workflow.models import WorkflowCase
 
 
 def _capabilities_for(user):
@@ -89,5 +91,39 @@ def home(request):
         "is_management": is_management,
         "management_kpis": management_kpis(user) if is_management else {},
         "insured_metrics": insured_dashboard_metrics(user) if is_insured_dashboard else {},
+        "delegated_work_cases": WorkflowCase.objects.filter(
+            current_assignee=user,
+            delegation__isnull=False,
+            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        ).select_related("definition", "current_step", "delegation")[:5],
+        "delegated_work_count": WorkflowCase.objects.filter(
+            current_assignee=user,
+            delegation__isnull=False,
+            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        ).count(),
     }
     return render(request, "dashboard/home.html", context)
+
+
+
+@login_required
+def staff_performance_report(request):
+    if not has_global_access(request.user):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
+    from datetime import timedelta
+    from django.utils.dateparse import parse_date
+
+    today = timezone.localdate()
+    end_date = parse_date(request.GET.get("end", "")) or today
+    start_date = parse_date(request.GET.get("start", "")) or (end_date - timedelta(days=30))
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    rows = personnel_performance_metrics(
+        request.user, start_date=start_date, end_date=end_date
+    )
+    return render(request, "dashboard/performance_report.html", {
+        "rows": rows,
+        "start_date": start_date,
+        "end_date": end_date,
+    })

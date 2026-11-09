@@ -11,7 +11,7 @@ from accounts.models import RoleAssignment, User
 from .models import WorkflowCase, WorkflowTransition
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
-    set_final_lock, transition_case,
+    set_final_lock, transition_case, is_delegated_assignee,
 )
 
 
@@ -113,7 +113,7 @@ def workflow_case_detail(request, pk):
             definition=case.definition, source_step=case.current_step
         ).select_related("target_step"):
             roles = item.allowed_roles or case.current_step.allowed_roles
-            if has_global_access(request.user) or _has_any_role(request.user, roles, **scope):
+            if has_global_access(request.user) or is_delegated_assignee(case, request.user) or _has_any_role(request.user, roles, **scope):
                 transitions.append((item, _eligible_recipients(case, item)))
     return render(request, "workflow/workflow_case_detail.html", {
         "case": case,

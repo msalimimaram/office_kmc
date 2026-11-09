@@ -49,6 +49,7 @@ Invoke-Check -Name "Migration drift check" -Command $python -Arguments @("manage
 # must remain read-only and therefore never runs migrate.
 if (-not $Production) {
     Invoke-Check -Name "Apply local database migrations" -Command $python -Arguments @("manage.py", "migrate", "--noinput")
+    Invoke-Check -Name "Verify operational database tables" -Command $python -Arguments @("manage.py", "verify_database_schema")
 }
 
 Invoke-Check -Name "Database migration state" -Command $python -Arguments @("manage.py", "migrate", "--check")

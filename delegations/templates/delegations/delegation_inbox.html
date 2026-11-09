@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}کارهای تفویض‌شده{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><h1>کارهای تفویض‌شده به من</h1><p>پرونده‌هایی که طبق تفویض معتبر در مسئولیت جاری شما قرار گرفته‌اند.</p></div>
+</section>
+<div class="panel">
+  {% if cases %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>نوع گردش‌کار</th><th>موضوع پرونده</th><th>مرحله جاری</th><th>تفویض‌کننده</th><th>مهلت اقدام</th><th></th></tr></thead>
+    <tbody>
+    {% for case in cases %}
+      <tr>
+        <td>{{ case.definition.title }}</td>
+        <td>{{ case.content_object|default:"پرونده عملیاتی" }}</td>
+        <td>{{ case.current_step.title|default:"—" }}</td>
+        <td>{{ case.delegation.granted_by.get_full_name|default:case.delegation.granted_by.username }}</td>
+        <td>{{ case.sla_due_at|date:"Y/m/d H:i"|default:"بدون مهلت" }}</td>
+        <td><a class="button button-primary" href="{% url 'workflow_case_detail' case.pk %}">مشاهده و اقدام</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+    <div class="empty-state"><strong>پرونده تفویض‌شده فعالی ندارید.</strong><p>با ایجاد تفویض مرتبط، پرونده‌های جدید یا بازِ واجد شرایط به این صندوق منتقل می‌شوند.</p></div>
+  {% endif %}
+</div>
+{% include "includes/pagination.html" with page_obj=page_obj %}
+{% endblock %}

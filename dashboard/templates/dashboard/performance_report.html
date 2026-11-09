@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}گزارش عملکرد کارشناسان{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><h1>گزارش عملکرد کارشناسان</h1><p>شاخص‌ها از رویدادهای گردش‌کار استخراج شده‌اند؛ حجم کار، اقدام و زمان پاسخ جداگانه نمایش داده می‌شوند.</p></div>
+</section>
+<div class="panel">
+  <form method="get" class="inline-form">
+    <label>از تاریخ <input type="date" name="start" value="{{ start_date|date:'Y-m-d' }}"></label>
+    <label>تا تاریخ <input type="date" name="end" value="{{ end_date|date:'Y-m-d' }}"></label>
+    <button class="button button-primary" type="submit">اعمال بازه</button>
+  </form>
+</div>
+<div class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>کارشناس</th><th>کار جاری</th><th>پرونده واگذارشده در بازه</th><th>اقدام</th><th>ارجاع</th><th>بازگشت</th><th>میانگین اولین مشاهده (دقیقه)</th><th>میانگین اولین اقدام (دقیقه)</th><th>معوق</th></tr></thead>
+    <tbody>{% for row in rows %}
+      <tr>
+        <td>{{ row.user.get_full_name|default:row.user.username }}</td>
+        <td>{{ row.active_cases }}</td><td>{{ row.initial_cases }}</td><td>{{ row.actions }}</td>
+        <td>{{ row.referrals }}</td><td>{{ row.returns }}</td>
+        <td>{{ row.avg_first_view_minutes|default:"—" }}</td>
+        <td>{{ row.avg_first_action_minutes|default:"—" }}</td><td>{{ row.overdue }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty-state">در بازه انتخاب‌شده کارشناس دارای انتصاب فعال یا رویدادی ثبت نشده است.</div>{% endif %}
+</div>
+{% endblock %}

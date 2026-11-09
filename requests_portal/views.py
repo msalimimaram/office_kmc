@@ -91,8 +91,10 @@ def request_create(request):
                     item.save()
                     active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
                     if active_definition:
-                        initial_assignee = resolve_initial_assignee(
+                        initial_assignee, delegation = resolve_initial_assignee(
                             definition=active_definition,
+                            obj=item,
+                            return_delegation=True,
                             company_id=item.company_id,
                             line_code="health" if item.kind in {
                                 ServiceRequest.Kind.MEDICAL_ASSISTANCE,
@@ -109,7 +111,7 @@ def request_create(request):
                                 and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) else None
                             ),
                         )
-                        start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, note="درخواست توسط کاربر ثبت شد.")
+                        start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, delegation=delegation, note="درخواست توسط کاربر ثبت شد.")
                         item.assigned_to = initial_assignee
                         item.save(update_fields=["assigned_to", "updated_at"])
                     record_event(

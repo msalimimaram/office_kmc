@@ -184,12 +184,32 @@ def add_business_minutes(start_at, minutes, calendar=None):
     raise ValidationError("محاسبه مهلت کاری در بازه مجاز ممکن نشد.")
 
 
-def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None):
+def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None, obj=None, item_type=None, return_delegation=False):
     insurer_id = insurer_id or _infer_insurer_id(company_id, line_code)
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
     roles = initial.allowed_roles or []
+    if item_type is None:
+        item_type = str(
+            getattr(obj, "change_type", None)
+            or getattr(obj, "kind", None)
+            or ""
+        )
+    from delegations.services import find_matching_delegation
+    delegation = find_matching_delegation(
+        workflow_code=definition.code,
+        item_type=item_type,
+        company_id=company_id,
+        insurer_id=insurer_id,
+        line_code=line_code,
+    )
+    if delegation is not None:
+        if exclude_user_id and delegation.delegate_to_id == exclude_user_id:
+            raise ValidationError("گیرنده تفویض‌شده نمی‌تواند درخواست خود را دریافت کند.")
+        result = (delegation.delegate_to, delegation)
+        return result if return_delegation else delegation.delegate_to
+
     today = timezone.localdate()
     assignments = RoleAssignment.objects.filter(
         role__in=roles,
@@ -229,7 +249,7 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
         candidates = candidates.exclude(pk=exclude_user_id)
     candidate = candidates.order_by("pk").first()
     if candidate:
-        return candidate
+        return (candidate, None) if return_delegation else candidate
     raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر در محدوده پرونده پیدا نشد.")
 
 
@@ -240,6 +260,28 @@ def _validate_recipient(user, roles, *, scope):
         raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش مجاز این مرحله ندارد.")
 
 
+def is_delegated_assignee(case, user):
+    """True only while the user holds a live, matching delegation for this case."""
+    if not case or not user or not getattr(user, "is_authenticated", False):
+        return False
+    delegation = getattr(case, "delegation", None)
+    if not delegation or delegation.delegate_to_id != user.pk:
+        return False
+    from delegations.services import delegation_matches
+    scope = _scope_for_object(case.content_object)
+    item_type = str(
+        getattr(case.content_object, "change_type", None)
+        or getattr(case.content_object, "kind", None)
+        or ""
+    )
+    return delegation_matches(
+        delegation,
+        workflow_code=case.definition.code,
+        item_type=item_type,
+        scope=scope,
+    )
+
+
 def _validate_actor(case, actor, roles, *, scope):
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied
@@ -247,12 +289,14 @@ def _validate_actor(case, actor, roles, *, scope):
         return
     if case.current_assignee_id != actor.pk:
         raise PermissionDenied("مسئولیت این مرحله به حساب شما واگذار نشده است.")
+    if is_delegated_assignee(case, actor):
+        return
     if not _has_any_role(actor, roles, **scope):
         raise PermissionDenied("نقش فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
 
 
 @transaction.atomic
-def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
+def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delegation=None):
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied("شروع گردش کار فقط توسط حساب فعال مجاز است.")
     definition = WorkflowDefinition.objects.filter(code=code, is_active=True).order_by("-version").first()
@@ -262,7 +306,22 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
     scope = _scope_for_object(obj)
-    _validate_recipient(assignee, initial.allowed_roles, scope=scope)
+    if delegation is not None:
+        from delegations.services import delegation_matches
+        item_type = str(
+            getattr(obj, "change_type", None)
+            or getattr(obj, "kind", None)
+            or ""
+        )
+        if delegation.delegate_to_id != assignee.pk or not delegation_matches(
+            delegation,
+            workflow_code=code,
+            item_type=item_type,
+            scope=scope,
+        ):
+            raise PermissionDenied("تفویض انتخاب‌شده برای این پرونده معتبر یا فعال نیست.")
+    else:
+        _validate_recipient(assignee, initial.allowed_roles, scope=scope)
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
     case, created = WorkflowCase.objects.get_or_create(
         definition=definition,
@@ -271,6 +330,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
         defaults={
             "current_step": initial,
             "current_assignee": assignee,
+            "delegation": delegation,
             "status": WorkflowCase.Status.OPEN,
         },
     )
@@ -288,8 +348,30 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
         to_assignee=assignee,
         note=note,
         sent_at=timezone.now(),
+        note=(note + (" | تفویض‌شده: " + delegation.reason if delegation else ""))[:4000],
     )
+    _notify_assignee(case, actor, assignee, delegated=delegation is not None)
     return case
+
+
+def _notify_assignee(case, actor, assignee, *, delegated=False):
+    if not assignee or assignee.pk == getattr(actor, "pk", None):
+        return
+    from django.urls import reverse
+    from accounts.models import UserNotification
+    title = "کار جدید به شما تفویض شد" if delegated else "پرونده جدید به شما ارجاع شد"
+    body = (
+        f"پرونده {case.definition.title} در محدوده مسئولیت شما قرار گرفت."
+        if delegated else
+        f"پرونده {case.definition.title} برای اقدام به شما ارجاع شد."
+    )
+    UserNotification.objects.create(
+        recipient=assignee,
+        actor=actor,
+        title=title,
+        body=body,
+        target_url=reverse("workflow_case_detail", args=[case.pk]),
+    )
 
 
 @transaction.atomic
@@ -328,7 +410,7 @@ def acknowledge_case(*, case_id, actor, note=""):
         raise PermissionDenied
     if not case.current_step or not case.current_step.requires_acknowledgement:
         raise PermissionDenied("تأیید رسمی مشاهده در این مرحله فعال نشده است.")
-    if not has_global_access(actor) and not _has_any_role(
+    if not has_global_access(actor) and not is_delegated_assignee(case, actor) and not _has_any_role(
         actor, case.current_step.allowed_roles, **_scope_for_object(case.content_object)
     ):
         raise PermissionDenied("نقش شما برای تأیید مشاهده در این محدوده مجاز نیست.")
@@ -351,7 +433,7 @@ def acknowledge_case(*, case_id, actor, note=""):
 @transaction.atomic
 def transition_case(*, case_id, actor, action_code, recipient=None, note="", calendar=None):
     case = WorkflowCase.objects.select_for_update().select_related(
-        "definition", "current_step", "current_assignee"
+        "definition", "current_step", "current_assignee", "delegation"
     ).get(pk=case_id)
     if case.is_locked or case.status in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}:
         raise PermissionDenied("پرونده بسته یا قفل نهایی شده است.")
@@ -462,6 +544,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         acted_at=now,
         sent_at=now,
     )
+    if case.current_assignee_id and case.current_assignee_id != actor.pk:
+        _notify_assignee(case, actor, case.current_assignee, delegated=is_delegated_assignee(case, case.current_assignee))
     return case
 
 

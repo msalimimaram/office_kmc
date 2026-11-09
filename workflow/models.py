@@ -228,6 +228,7 @@ class WorkflowCase(models.Model):
     content_object = GenericForeignKey("content_type", "object_id")
     current_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="active_cases")
     current_assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="workflow_cases")
+    delegation = models.ForeignKey("delegations.WorkDelegation", null=True, blank=True, on_delete=models.SET_NULL, related_name="workflow_cases", verbose_name="تفویض اختیار مبنای ارجاع")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
     opened_at = models.DateTimeField(default=timezone.now)
     first_viewed_at = models.DateTimeField(null=True, blank=True)

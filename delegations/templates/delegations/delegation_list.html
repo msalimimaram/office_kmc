@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}مدیریت تفویض اختیار{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><h1>مدیریت تفویض اختیار</h1><p>واگذاری دسته‌ای و زمان‌دار مسئولیت به کارشناس یا نماینده مجاز؛ بدون ارجاع دستی تک‌تک پرونده‌ها.</p></div>
+</section>
+<div class="panel">
+  <h2>ایجاد تفویض جدید</h2>
+  <p class="muted">تفویض فقط در محدوده گردش‌کار و نقش پایه گیرنده معتبر است. تصمیم نهایی، قفل پرونده و اختیارهای غیرقابل‌تفویض تغییر نمی‌کنند.</p>
+  <form method="post" class="form-grid">{% csrf_token %}
+    {{ form.as_p }}
+    <div class="form-actions"><button class="button button-primary" type="submit" name="action" value="create">ثبت تفویض و اعمال روی پرونده‌های باز</button></div>
+  </form>
+</div>
+<div class="panel">
+  <h2>تفویض‌های ثبت‌شده</h2>
+  {% if delegations %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>گردش‌کار / زیرنوع</th><th>گیرنده</th><th>محدوده</th><th>اعتبار</th><th>وضعیت</th><th>تاریخچه / عملیات</th></tr></thead>
+    <tbody>
+    {% for item in delegations %}
+      <tr>
+        <td><strong>{{ item.workflow_code }}</strong>{% if item.item_type %}<br>{{ item.item_type }}{% endif %}</td>
+        <td>{{ item.delegate_to.get_full_name|default:item.delegate_to.username }}<br><small>{{ item.get_delegate_role_display }}</small></td>
+        <td>{% if item.company %}{{ item.company.name }}{% endif %}{% if item.insurer %}{{ item.insurer.name }}{% endif %}{% if item.line_code %}<br>{{ item.line_code }}{% endif %}{% if not item.company and not item.insurer and not item.line_code %}سراسری در این گردش‌کار{% endif %}</td>
+        <td>{{ item.valid_from|date:"Y/m/d" }} تا {{ item.valid_until|date:"Y/m/d"|default:"بدون تاریخ پایان" }}</td>
+        <td>{{ item.get_status_display }}</td>
+        <td>
+          <details><summary>تاریخچه ({{ item.events.count }})</summary>
+            {% for event in item.events.all %}<p><small>{{ event.created_at|date:"Y/m/d H:i" }} — {{ event.get_event_type_display }} — {{ event.summary }}</small></p>{% endfor %}
+          </details>
+          {% if item.status == "active" or item.status == "suspended" %}
+          <form method="post" class="inline-form">{% csrf_token %}
+            <input type="hidden" name="delegation_id" value="{{ item.pk }}">
+            <input type="text" name="reason" placeholder="دلیل تغییر وضعیت" aria-label="دلیل تغییر وضعیت">
+            {% if item.status == "active" %}
+              <button class="button button-secondary" name="action" value="suspend">تعلیق</button>
+            {% else %}
+              <button class="button button-secondary" name="action" value="resume">فعال‌سازی</button>
+            {% endif %}
+            <button class="button button-danger" name="action" value="revoke">لغو</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty-state">هنوز تفویض اختیاری ثبت نشده است.</div>{% endif %}
+</div>
+{% endblock %}

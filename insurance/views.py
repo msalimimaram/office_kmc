@@ -95,8 +95,10 @@ def _start_contract_revision(*, contract, form, actor, revision_number, code):
         snapshot=_snapshot_from_form(form),
         effective_date=form.cleaned_data["effective_date"],
     )
-    assignee = resolve_initial_assignee(
+    assignee, delegation = resolve_initial_assignee(
         definition=definition,
+        obj=revision,
+        return_delegation=True,
         insurer_id=form.cleaned_data["insurer"].pk,
         line_code=form.cleaned_data["line"],
     )
@@ -105,6 +107,7 @@ def _start_contract_revision(*, contract, form, actor, revision_number, code):
         code=code,
         actor=actor,
         assignee=assignee,
+        delegation=delegation,
         note=form.cleaned_data["revision_description"],
     )
     return revision, case
@@ -304,8 +307,10 @@ def contract_terminate(request, pk):
                         termination_reason=form.cleaned_data["reason"],
                         notice_date=form.cleaned_data.get("notice_date"),
                     )
-                    assignee = resolve_initial_assignee(
+                    assignee, delegation = resolve_initial_assignee(
                         definition=definition,
+                        obj=revision,
+                        return_delegation=True,
                         insurer_id=contract.insurer_id,
                         line_code=contract.line,
                     )
@@ -314,6 +319,7 @@ def contract_terminate(request, pk):
                         code="contract_termination",
                         actor=request.user,
                         assignee=assignee,
+                        delegation=delegation,
                         note=form.cleaned_data["reason"],
                     )
                     record_event(

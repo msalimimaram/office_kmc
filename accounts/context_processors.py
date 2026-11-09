@@ -32,6 +32,8 @@ def access_flags(request):
         ).count() if notification_access else 0,
         "access": {
             "notifications": notification_access,
+            "delegation_inbox": True,
+            "delegation_manage": has_global_access(user),
             "staff": staff,
             "global": has_global_access(user),
             "system_admin": has_role(user, RoleAssignment.Role.SYSTEM_ADMIN),

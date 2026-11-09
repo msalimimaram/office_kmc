@@ -156,8 +156,10 @@ def claim_detail(request, pk):
                     ).order_by("-version").first()
                     if definition:
                         line_code = claim.contract.line if claim.contract_id else "health"
-                        initial_assignee = resolve_initial_assignee(
+                        initial_assignee, delegation = resolve_initial_assignee(
                             definition=definition,
+                            obj=objection,
+                            return_delegation=True,
                             company_id=claim.company_snapshot_id or claim.person.company_id,
                             insurer_id=claim.insurer_id,
                             line_code=line_code,
@@ -168,6 +170,7 @@ def claim_detail(request, pk):
                             code="claim_objection",
                             actor=user,
                             assignee=initial_assignee,
+                            delegation=delegation,
                             note="اعتراض به خسارت ثبت و برای رسیدگی ارجاع شد.",
                         )
                     record_event(
@@ -385,8 +388,10 @@ def claim_create(request):
                     raise ValidationError(
                         "گردش‌کار فعال claim_review برای ارزیابی خسارت پیکربندی نشده است."
                     )
-                assignee = resolve_initial_assignee(
+                assignee, delegation = resolve_initial_assignee(
                     definition=definition,
+                    obj=claim,
+                    return_delegation=True,
                     company_id=company.pk,
                     insurer_id=contract.insurer_id,
                     line_code=contract.line,
@@ -397,6 +402,7 @@ def claim_create(request):
                     code="claim_review",
                     actor=request.user,
                     assignee=assignee,
+                    delegation=delegation,
                     note="خسارت دستی ثبت و برای ارزیابی تخصصی ارجاع شد.",
                 )
                 record_event(

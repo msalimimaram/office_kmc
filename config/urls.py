@@ -32,4 +32,6 @@ urlpatterns = [
     path("announcements/", include("announcements.urls")),
     path("correspondence/", include("correspondence.urls")),
     path("workflow/", include("workflow.urls")),
+    path("delegations/", include("delegations.urls")),
+    path("reports/performance/", dashboard_views.staff_performance_report, name="staff_performance_report"),
 ]

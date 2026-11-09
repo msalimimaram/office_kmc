@@ -16,6 +16,8 @@
       <span class="nav-group nav-primary">
       <a class="nav-link" href="{% url 'dashboard' %}"><span class="nav-symbol">⌂</span>داشبورد</a>
       {% if access.notifications %}<a class="nav-link nav-notifications" href="{% url 'notification_list' %}"><span class="nav-symbol">♧</span>اعلان‌ها{% if unread_notification_count %}<span class="nav-count">{{ unread_notification_count }}</span>{% endif %}</a>{% endif %}
+      <a class="nav-link" href="{% url 'delegation_inbox' %}">کارهای تفویض‌شده</a>
+      {% if access.delegation_manage %}<a class="nav-link" href="{% url 'delegation_management' %}">مدیریت تفویض اختیار</a>{% endif %}
       </span>
       <span class="nav-group nav-modules">
       {% if access.claims %}<a href="{% url 'claim_list' %}">خسارت‌ها</a>{% endif %}

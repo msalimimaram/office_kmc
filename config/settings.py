@@ -27,7 +27,7 @@ INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "core", "accounts", "organizations", "insurance", "claims", "requests_portal",
-    "tasks", "documents", "imports", "auditlog", "dashboard", "assets", "announcements", "correspondence", "workflow",
+    "tasks", "documents", "imports", "auditlog", "dashboard", "assets", "announcements", "correspondence", "workflow", "delegations",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
