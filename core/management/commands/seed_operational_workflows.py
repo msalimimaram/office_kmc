@@ -16,6 +16,8 @@ class Command(BaseCommand):
         ("asset_policy_approval", "تأیید دوره بیمه‌نامه دارایی", "approved"),
         ("asset_endorsement_approval", "تأیید الحاقیه دارایی", "approved"),
         ("person_change", "اصلاح اطلاعات بیمه‌شده", "approved"),
+        ("claim_review", "ارزیابی و تصمیم خسارت", "approved"),
+        ("claim_objection", "رسیدگی به اعتراض خسارت", "closed"),
     )
 
     def handle(self, *args, **options):
@@ -65,6 +67,10 @@ class Command(BaseCommand):
             )
             if code == "person_change":
                 self._build_person_change(definition)
+            elif code == "claim_review":
+                self._build_claim_review(definition, global_roles)
+            elif code == "claim_objection":
+                self._build_claim_objection(definition, global_roles)
             else:
                 self._build_global_approval(definition, approved_step_code, global_roles)
             definition.approved_by = actor
