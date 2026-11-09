@@ -11,20 +11,23 @@ def access_flags(request):
         return {"access": {}, "unread_notification_count": 0}
     staff = is_insurance_staff(user)
     today = timezone.localdate()
-    assigned_correspondence = PositionAssignment.objects.filter(
+    active_position_assignment = PositionAssignment.objects.filter(
         user=user,
         is_active=True,
         valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    assigned_correspondence = active_position_assignment.filter(
         position__level__in=[
             PositionAssignment.position.field.related_model.Level.SUPERVISOR,
             PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
         ],
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+    ).exists()
     notification_access = (
         staff
         or has_role(user, RoleAssignment.Role.INSURED_PERSON)
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
         or has_role(user, RoleAssignment.Role.INSURER_REP)
+        or active_position_assignment.exists()
     )
     delegation_inbox_access = has_global_access(user)
     if not delegation_inbox_access:
