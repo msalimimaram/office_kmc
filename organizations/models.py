@@ -227,7 +227,23 @@ def normalize_national_id(value: str) -> str:
 
 
 
+class ImmutablePersonChangeRequestQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("درخواست‌های تغییر اطلاعات از طریق update گروهی قابل تغییر نیستند.")
+
+    def delete(self):
+        raise ValidationError("حذف درخواست‌های تغییر اطلاعات مجاز نیست.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی درخواست‌های تغییر اطلاعات مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی درخواست‌های تغییر اطلاعات مجاز نیست.")
+
+
 class PersonChangeRequest(models.Model):
+    objects = ImmutablePersonChangeRequestQuerySet.as_manager()
+
     class ChangeType(models.TextChoices):
         MOBILE = "mobile", "شماره همراه"
         IBAN = "iban", "شماره شبا"
@@ -341,9 +357,55 @@ class PersonChangeRequest(models.Model):
         field_name = self.FIELD_MAP.get(self.change_type)
         if not field_name:
             errors["change_type"] = "نوع تغییر انتخاب‌شده پشتیبانی نمی‌شود."
+        if not (self.reason or "").strip() or len(self.reason.strip()) < 10:
+            errors["reason"] = "شرح دلیل درخواست باید حداقل ۱۰ نویسه باشد."
+
+        if self.person_id and self.requested_by_id:
+            requester = self.requested_by
+            person = self.person
+            employee = person.employee if person.employee_id else person
+            authorized = person.user_id == requester.pk or employee.user_id == requester.pk
+            requester_national_id = normalize_national_id(getattr(requester, "national_id", ""))
+            if requester_national_id and requester_national_id in {
+                normalize_national_id(person.national_id),
+                normalize_national_id(employee.national_id),
+            }:
+                authorized = True
+            if not requester.is_active or not authorized:
+                errors["requested_by"] = "درخواست باید توسط خود بیمه‌شده اصلی یا حساب کاربر او برای فرد تحت تکفل ثبت شود."
+
+        if self.person_id and self.company_id:
+            person = self.person
+            employee = person.employee if person.employee_id else person
+            today = timezone.localdate()
+            active_employment = PersonEmployment.objects.filter(
+                person_id=employee.pk,
+                status=PersonEmployment.Status.ACTIVE,
+            ).filter(
+                models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+            ).filter(
+                models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+            ).order_by("-valid_from", "-pk").first()
+            current_company_id = (
+                active_employment.company_id if active_employment
+                else employee.company_id if not PersonEmployment.objects.filter(person_id=employee.pk).exists()
+                else None
+            )
+            if current_company_id != self.company_id:
+                errors["company"] = "شرکت درخواست باید با محل اشتغال فعال شخص اصلی یکسان باشد."
+
         if self.contract_id and self.company_id:
+            today = timezone.localdate()
             if not self.contract.companies.filter(pk=self.company_id).exists():
                 errors["contract"] = "قرارداد انتخاب‌شده متعلق به شرکت این درخواست نیست."
+            if (
+                self.contract.status != "active"
+                or not self.contract.is_active
+                or self.contract.start_date > today
+                or self.contract.end_date < today
+            ):
+                errors["contract"] = "فقط قرارداد فعال و معتبر در تاریخ درخواست قابل انتخاب است."
+
         value = (self.requested_value or "").strip()
         if not value:
             errors["requested_value"] = "مقدار جدید الزامی است."
@@ -385,10 +447,12 @@ class PersonChangeRequest(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             previous = type(self).objects.get(pk=self.pk)
-            mutable = {
-                "status", "approved_by", "approved_at",
-                "rejected_by", "rejected_at", "updated_at",
-            }
+            mutable = {"updated_at"}
+            if getattr(self, "_workflow_status_update", False):
+                mutable.update({
+                    "status", "approved_by", "approved_at",
+                    "rejected_by", "rejected_at",
+                })
             changed = [
                 field.name
                 for field in self._meta.concrete_fields
@@ -404,6 +468,9 @@ class PersonChangeRequest(models.Model):
         raise ValidationError("درخواست تغییر اطلاعات حذف نمی‌شود؛ سوابق باید حفظ شوند.")
 
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        terminal_decisions = {self.Status.APPROVED, self.Status.REJECTED}
+        if step_code in terminal_decisions and not closed:
+            return
         if step_code in dict(self.Status.choices):
             target = step_code
         elif closed and self.status == self.Status.COMPANY_FINAL_REVIEW:
@@ -426,7 +493,11 @@ class PersonChangeRequest(models.Model):
             self.rejected_by = actor
             self.rejected_at = timezone.now()
             update_fields.extend(["rejected_by", "rejected_at"])
-        self.save(update_fields=update_fields)
+        self._workflow_status_update = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            del self._workflow_status_update
 
         if target == self.Status.APPROVED:
             self.apply_approved_change(actor=actor)
@@ -469,9 +540,10 @@ class PersonChangeRequest(models.Model):
                 if self.change_type == self.ChangeType.NATIONAL_ID:
                     if User.objects.exclude(pk=user.pk).filter(username=new_value).exists():
                         raise ValidationError("کد ملی جدید قبلاً به‌عنوان نام کاربری ثبت شده است.")
-                    if user.username == self.current_value:
-                        user.username = new_value
-                        user_fields.append("username")
+                    if user.username != self.current_value:
+                        raise ValidationError("نام کاربری حساب با کد ملی ثبت‌شده هم‌خوان نیست؛ اصلاح باید ابتدا توسط مدیر سامانه بررسی شود.")
+                    user.username = new_value
+                    user_fields.append("username")
                     user.national_id = new_value
                     user_fields.append("national_id")
                 elif self.change_type == self.ChangeType.MOBILE:
