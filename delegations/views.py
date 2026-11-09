@@ -23,7 +23,12 @@ def delegation_inbox(request):
     ):
         raise PermissionDenied("صندوق تفویض فقط برای گیرنده تفویض یا مدیران مجاز است.")
     try:
-        synchronize_delegations()
+        sync_report = synchronize_delegations()
+        if sync_report.get("conflicts"):
+            messages.error(
+                request,
+                f"{sync_report['conflicts']} پرونده به دلیل تعارض قوانین تفویض، تا رفع تعارض توسط مدیر از واگذاری خودکار مستثنا شد.",
+            )
     except ValidationError as exc:
         # A legacy overlapping rule must not turn the recipient's whole
         # dashboard into a 500. The conflicted case stays untouched until
@@ -70,7 +75,12 @@ def delegation_management(request):
     # Also reconcile expired rules and receiver assignments before rendering
     # the management screen; this is the same operation used by the inbox.
     try:
-        synchronize_delegations()
+        sync_report = synchronize_delegations()
+        if sync_report.get("conflicts"):
+            messages.error(
+                request,
+                f"{sync_report['conflicts']} پرونده در قوانین تفویض دارای تعارض است و تا رفع تعارض، خودکار جابه‌جا نمی‌شود.",
+            )
     except ValidationError as exc:
         # Keep the management console available so an administrator can
         # inspect and resolve the conflicting rules that blocked sync.
