@@ -137,7 +137,7 @@ class Claim(models.Model):
         status_by_step = {
             "under_review": self.Status.UNDER_REVIEW,
             "needs_info": self.Status.NEEDS_INFO,
-            "pending_decision": self.Status.UNDER_REVIEW,
+            "pending_decision": self.Status.PENDING_DECISION,
             "approved": self.Status.APPROVED,
             "rejected": self.Status.REJECTED,
         }
