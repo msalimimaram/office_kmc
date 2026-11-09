@@ -1,16 +1,12 @@
 from django.db import migrations, models
-from django.db.models import F
 
 
-def mark_legacy_valuations_approved(apps, schema_editor):
+def mark_existing_records_legacy(apps, schema_editor):
     AssetValuation = apps.get_model("assets", "AssetValuation")
+    AssetPolicyEndorsement = apps.get_model("assets", "AssetPolicyEndorsement")
     db = schema_editor.connection.alias
-    AssetValuation.objects.using(db).filter(
-        method="legacy_snapshot"
-    ).update(
-        status="approved",
-        approved_by_id=F("created_by_id"),
-    )
+    AssetValuation.objects.using(db).update(status="legacy")
+    AssetPolicyEndorsement.objects.using(db).update(status="legacy")
 
 
 class Migration(migrations.Migration):
@@ -27,6 +23,7 @@ class Migration(migrations.Migration):
                     ("pending_approval", "در انتظار تأیید"),
                     ("approved", "تأییدشده"),
                     ("rejected", "ردشده"),
+                    ("legacy", "سابقه قدیمی؛ فاقد تأیید در گردش جدید"),
                 ],
                 default="pending_approval",
                 max_length=24,
@@ -60,6 +57,7 @@ class Migration(migrations.Migration):
                     ("pending_approval", "در انتظار تأیید"),
                     ("approved", "تأییدشده"),
                     ("rejected", "ردشده"),
+                    ("legacy", "سابقه قدیمی؛ فاقد تأیید در گردش جدید"),
                 ],
                 default="pending_approval",
                 max_length=24,
@@ -67,7 +65,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(
-            mark_legacy_valuations_approved,
+            mark_existing_records_legacy,
             migrations.RunPython.noop,
         ),
     ]
