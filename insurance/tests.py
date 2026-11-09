@@ -2,8 +2,9 @@ from datetime import date, timedelta
 
 from django.contrib import admin
 from django.core.exceptions import ValidationError
-from django.test import RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase
 from django.utils import timezone
+from django.urls import reverse
 
 from accounts.models import RoleAssignment, User
 from insurance.models import Contract, ContractRevision, Insurer, InsuranceLine
@@ -313,3 +314,129 @@ class ContractWorkflowLifecycleTests(TestCase):
         self.assertFalse(contract.is_active)
         self.assertEqual(contract.end_date, self.today)
         self.assertEqual(claim.status, Claim.Status.UNDER_REVIEW)
+
+class ContractSubmissionViewTests(TestCase):
+    def setUp(self):
+        today = timezone.localdate()
+        self.today = today
+        self.insurer = Insurer.objects.create(name="بیمه‌گر ثبت قرارداد")
+        self.specialist = User.objects.create_user(
+            username="contract-submit-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.head = User.objects.create_user(
+            username="contract-submit-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.admin = User.objects.create_superuser(
+            username="contract-submit-admin",
+            email="contract-submit-admin@example.invalid",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.HEALTH,
+            valid_from=today,
+            reason="کارشناس درمان",
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=today,
+            reason="رئیس اداره",
+        )
+        self.client = Client()
+        self.client.force_login(self.specialist)
+
+    def _form_data(self, *, line=InsuranceLine.HEALTH):
+        start = self.today.isoformat()
+        end = (self.today + timedelta(days=365)).isoformat()
+        return {
+            "code": "CONTRACT-SUBMISSION-001",
+            "title": "قرارداد درمان آزمایشی",
+            "insurer": str(self.insurer.pk),
+            "line": line,
+            "start_date": start,
+            "end_date": end,
+            "effective_date": start,
+            "revision_description": "ثبت نسخه اولیه قرارداد برای تأیید",
+            "coverage_summary": "پوشش آزمایشی",
+            "terms": "شرایط آزمایشی",
+        }
+
+    def _create_approval_workflow(self):
+        definition = WorkflowDefinition.objects.create(
+            code="contract_approval",
+            title="گردش تأیید قرارداد",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.PENDING_APPROVAL,
+            title="در انتظار تأیید",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            is_initial=True,
+        )
+        approved = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.APPROVED,
+            title="تأییدشده",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=approved,
+            action_code="approve-contract",
+            title="تأیید قرارداد",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=approved,
+            action_code="finalize-contract",
+            title="ثبت نهایی تأیید",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+        return definition
+
+    def test_specialist_submission_creates_inactive_contract_and_routes_revision_to_head(self):
+        self._create_approval_workflow()
+        response = self.client.post(reverse("contract_create"), self._form_data())
+
+        self.assertEqual(response.status_code, 302)
+        contract = Contract.objects.get(code="CONTRACT-SUBMISSION-001")
+        revision = contract.revisions.get(revision_number=1)
+        case = revision.workflow_cases.get()
+
+        self.assertEqual(contract.status, Contract.Status.DRAFT)
+        self.assertFalse(contract.is_active)
+        self.assertEqual(revision.status, ContractRevision.Status.PENDING_APPROVAL)
+        self.assertEqual(case.current_assignee_id, self.head.pk)
+
+    def test_contract_cannot_be_created_without_active_approval_workflow(self):
+        response = self.client.post(reverse("contract_create"), self._form_data())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Contract.objects.count(), 0)
+        self.assertContains(response, "contract_approval")
+
+    def test_specialist_cannot_submit_contract_outside_assigned_line(self):
+        self._create_approval_workflow()
+        response = self.client.post(
+            reverse("contract_create"),
+            self._form_data(line=InsuranceLine.LIFE),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Contract.objects.count(), 0)
