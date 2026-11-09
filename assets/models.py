@@ -395,3 +395,6 @@ class AssetPolicyEndorsement(models.Model):
         finally:
             self._workflow_sync = False
 
+    def delete(self, *args, **kwargs):
+        raise ValidationError("الحاقیه‌های بیمه‌نامه حذف نمی‌شوند.")
+
