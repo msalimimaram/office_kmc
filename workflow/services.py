@@ -366,8 +366,16 @@ def _workflow_owner_can_view(obj, recipient, case):
                 RoleAssignment.Role.INSURANCE_SPECIALIST,
             )
         )
+        person_owner = bool(
+            obj.person.user_id == recipient.pk
+            or (
+                obj.person.employee_id
+                and obj.person.employee.user_id == recipient.pk
+            )
+        )
         if allowed_role and (
             obj.requested_by_id == recipient.pk
+            or person_owner
             or case.current_assignee_id == recipient.pk
             or has_global_access(recipient)
         ):
