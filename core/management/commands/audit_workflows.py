@@ -11,7 +11,7 @@ class Command(BaseCommand):
     help = "ممیزی پوشش و سازگاری گردش‌کارهای فعال پیش از انتشار."
 
     def handle(self, *args, **options):
-        required_codes = {value for value, _label in ServiceRequest.Kind.choices} | {"claim_objection", "contract_approval"}
+        required_codes = {value for value, _label in ServiceRequest.Kind.choices} | {"claim_objection", "contract_approval", "contract_termination"}
         definitions = {
             item.code: item
             for item in WorkflowDefinition.objects.filter(
@@ -27,7 +27,7 @@ class Command(BaseCommand):
             initial_steps = [step for step in steps if step.is_initial]
             valid_statuses = set(dict(
                 ClaimObjection.Status.choices if code == "claim_objection"
-                else ContractRevision.Status.choices if code == "contract_approval"
+                else ContractRevision.Status.choices if code in {"contract_approval", "contract_termination"}
                 else ServiceRequest.Status.choices
             ))
             for step in steps:
