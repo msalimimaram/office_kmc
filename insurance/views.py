@@ -45,6 +45,16 @@ def _contract_scope(user):
     return scoped.filter(status__in=[Contract.Status.ACTIVE, Contract.Status.EXPIRED, Contract.Status.TERMINATED, Contract.Status.LEGACY_INACTIVE])
 
 
+
+def _pending_contract_change(contract):
+    return contract.revisions.filter(
+        Q(status=ContractRevision.Status.PENDING_APPROVAL)
+        | Q(
+            status__in=[ContractRevision.Status.APPROVED, ContractRevision.Status.TERMINATED],
+            applied_at__isnull=True,
+        )
+    ).order_by("-revision_number").first()
+
 def _can_submit_contract(user, line=None):
     if has_global_access(user):
         return True
@@ -222,12 +232,10 @@ def contract_detail(request, pk):
         cases_by_object = {case.object_id: case for case in cases}
         for revision in revisions:
             revision.workflow_case = cases_by_object.get(str(revision.pk))
-    pending_revision = contract.revisions.filter(
-        status=ContractRevision.Status.PENDING_APPROVAL
-    ).first()
+    pending_change = _pending_contract_change(contract)
     can_submit_revision = (
         _can_submit_contract(request.user, contract.line)
-        and pending_revision is None
+        and pending_change is None
     )
     can_request_termination = (
         can_submit_revision
@@ -238,7 +246,7 @@ def contract_detail(request, pk):
         "revisions": revisions,
         "can_submit_revision": can_submit_revision,
         "can_request_termination": can_request_termination,
-        "pending_revision": pending_revision if internal_view else None,
+        "pending_revision": pending_change if internal_view else None,
     })
 
 
@@ -249,8 +257,8 @@ def contract_terminate(request, pk):
         raise PermissionDenied
     if contract.status not in {Contract.Status.ACTIVE, Contract.Status.APPROVED}:
         raise PermissionDenied("فقط قرارداد فعال یا تأییدشده قابل ارسال برای فسخ است.")
-    if contract.revisions.filter(status=ContractRevision.Status.PENDING_APPROVAL).exists():
-        raise PermissionDenied("تا تعیین تکلیف نسخه در انتظار تأیید، درخواست فسخ مجاز نیست.")
+    if _pending_contract_change(contract):
+        raise PermissionDenied("تا اعمال تغییر/فسخ تأییدشده یا تعیین تکلیف نسخه در انتظار، درخواست فسخ مجاز نیست.")
 
     open_claims = Claim.objects.filter(contract=contract).exclude(
         status__in=[Claim.Status.PAID, Claim.Status.CLOSED]
@@ -378,8 +386,8 @@ def contract_revision_create(request, pk):
     contract = get_object_or_404(_contract_scope(request.user), pk=pk)
     if not _can_submit_contract(request.user, contract.line):
         raise PermissionDenied
-    if contract.revisions.filter(status=ContractRevision.Status.PENDING_APPROVAL).exists():
-        raise PermissionDenied("تا تعیین تکلیف نسخه در انتظار تأیید، ثبت نسخه جدید مجاز نیست.")
+    if _pending_contract_change(contract):
+        raise PermissionDenied("تا اعمال تغییر/فسخ تأییدشده یا تعیین تکلیف نسخه در انتظار، ثبت نسخه جدید مجاز نیست.")
     form = ContractForm(
         request.POST or None,
         request.FILES or None,
