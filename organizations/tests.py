@@ -323,7 +323,7 @@ class PersonChangeWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insured,
-            role=RoleAssignment.Role.EMPLOYEE,
+            role=RoleAssignment.Role.INSURED_PERSON,
             line_code="health",
             reason="بیمه‌شده برای آزمون اصلاح اطلاعات",
         )
@@ -336,7 +336,7 @@ class PersonChangeWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insurer_rep,
-            role=RoleAssignment.Role.INSURER,
+            role=RoleAssignment.Role.INSURER_REP,
             insurer=self.insurer,
             line_code="health",
             reason="نماینده بیمه‌گر برای آزمون اصلاح اطلاعات",
@@ -535,7 +535,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insured,
-            role=RoleAssignment.Role.EMPLOYEE,
+            role=RoleAssignment.Role.INSURED_PERSON,
             valid_from=self.today,
             reason="بیمه‌شده اصلی",
         )
@@ -550,7 +550,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
             )
         RoleAssignment.objects.create(
             user=self.insurer_rep,
-            role=RoleAssignment.Role.INSURER,
+            role=RoleAssignment.Role.INSURER_REP,
             insurer=self.insurer,
             valid_from=self.today,
             reason="نماینده بیمه‌گر برای اصلاح اطلاعات",
@@ -566,12 +566,12 @@ class PersonChangeRequestWorkflowTests(TestCase):
         )
         roles = {
             "company": [RoleAssignment.Role.SUBSIDIARY_REP],
-            "insurer": [RoleAssignment.Role.INSURER],
+            "insurer_representative": [RoleAssignment.Role.INSURER_REP],
         }
         steps = {}
         for order, (code, title, allowed_roles) in enumerate([
             (PersonChangeRequest.Status.COMPANY_REVIEW, "بررسی نماینده شرکت", roles["company"]),
-            (PersonChangeRequest.Status.INSURER_UPDATE, "اقدام بیمه‌گر", roles["insurer"]),
+            (PersonChangeRequest.Status.INSURER_UPDATE, "اقدام بیمه‌گر", roles["insurer_representative"]),
             (PersonChangeRequest.Status.COMPANY_FINAL_REVIEW, "بازبینی نهایی شرکت", roles["company"]),
             (PersonChangeRequest.Status.APPROVED, "تأیید نهایی", roles["company"]),
             (PersonChangeRequest.Status.REJECTED, "رد نهایی", roles["company"]),
@@ -591,14 +591,14 @@ class PersonChangeRequestWorkflowTests(TestCase):
                 PersonChangeRequest.Status.INSURER_UPDATE,
                 "refer-to-insurer",
                 roles["company"],
-                roles["insurer"],
+                roles["insurer_representative"],
                 False,
             ),
             (
                 PersonChangeRequest.Status.INSURER_UPDATE,
                 PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
                 "return-to-company",
-                roles["insurer"],
+                roles["insurer_representative"],
                 roles["company"],
                 False,
             ),
@@ -646,7 +646,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
                 PersonChangeRequest.Status.INSURER_UPDATE,
                 None,
                 "insurer-close",
-                roles["insurer"],
+                roles["insurer_representative"],
                 [],
                 True,
             ),
