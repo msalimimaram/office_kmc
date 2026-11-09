@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}درخواست فسخ {{ contract.code }} | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">چرخه خاتمه قرارداد</p>
+    <h1>درخواست فسخ قرارداد {{ contract.code }}</h1>
+    <p class="muted">{{ contract.title }} · {{ contract.insurer.name }}</p>
+  </div>
+  <a class="btn secondary" href="{% url 'contract_detail' contract.pk %}">بازگشت</a>
+</div>
+<section class="panel">
+  <h2>پیش‌نمایش اثر بر خسارت‌های باز</h2>
+  <p>تعداد پرونده‌های خسارت باز و پرداخت‌نشده مرتبط: <strong>{{ open_claim_count }}</strong></p>
+  <p class="muted">تأیید فسخ، پرونده‌های خسارت مربوط به حوادث واقع‌شده در دوره پوشش معتبر را نمی‌بندد؛ این پرونده‌ها تا تسویه نهایی قابل رسیدگی باقی می‌مانند.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>شماره خسارت</th><th>بیمه‌شده</th><th>تاریخ خدمت</th><th>وضعیت</th></tr></thead>
+      <tbody>
+      {% for claim in open_claims %}
+        <tr><td>{{ claim.claim_number }}</td><td>{{ claim.person }}</td><td>{{ claim.service_date|date:"Y/m/d"|default:"—" }}</td><td>{{ claim.get_status_display }}</td></tr>
+      {% empty %}
+        <tr><td colspan="4" class="empty">پرونده خسارت بازی برای این قرارداد ثبت نشده است.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if open_claim_count > 50 %}<p class="muted">برای پیش‌نمایش فقط ۵۰ پرونده نخست نمایش داده شده است.</p>{% endif %}
+</section>
+<section class="panel narrow">
+  <h2>اطلاعات درخواست فسخ</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn danger" type="submit">ارسال برای تأیید رئیس اداره</button>
+  </form>
+</section>
+{% endblock %}
