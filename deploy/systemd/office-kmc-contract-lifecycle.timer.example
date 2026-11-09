@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily insurance contract lifecycle processing
+
+[Timer]
+OnCalendar=*-*-* 00:15:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
