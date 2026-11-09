@@ -35,6 +35,18 @@ class Command(BaseCommand):
                     errors.append(
                         f"{code}/{step.code}: کد مرحله باید با یکی از وضعیت‌های مدل دامنه یکسان باشد تا وضعیت همگام بماند."
                     )
+            if code == "contract_approval":
+                decision_steps = {ContractRevision.Status.APPROVED, ContractRevision.Status.REJECTED}
+            elif code == "contract_termination":
+                decision_steps = {ContractRevision.Status.TERMINATED, ContractRevision.Status.REJECTED}
+            else:
+                decision_steps = set()
+            for decision_code in sorted(decision_steps):
+                decision_step = next((step for step in steps if step.code == decision_code), None)
+                if decision_step is None:
+                    errors.append(f"{code}: مرحله تصمیم نهایی {decision_code} تعریف نشده است.")
+                elif not any(item.closes_case for item in decision_step.outgoing_transitions.all()):
+                    errors.append(f"{code}/{decision_code}: تصمیم نهایی باید مسیر بستن پرونده داشته باشد.")
             if len(initial_steps) != 1:
                 errors.append(f"{code}: باید دقیقاً یک مرحله آغازین داشته باشد.")
             step_ids = {step.pk for step in steps}
@@ -52,6 +64,16 @@ class Command(BaseCommand):
                     errors.append(f"{code}/{transition.action_code}: مرحله مقصد خارج از تعریف است.")
                 if transition.closes_case and RoleAssignment.Role.INSURER_REP in (transition.allowed_roles or []):
                     errors.append(f"{code}/{transition.action_code}: نماینده بیمه‌گر نباید پرونده را نهایی ببندد.")
+                if code in {"contract_approval", "contract_termination"} and transition.closes_case:
+                    expected_final_steps = (
+                        {ContractRevision.Status.APPROVED, ContractRevision.Status.REJECTED}
+                        if code == "contract_approval"
+                        else {ContractRevision.Status.TERMINATED, ContractRevision.Status.REJECTED}
+                    )
+                    if transition.source_step.code not in expected_final_steps:
+                        errors.append(
+                            f"{code}/{transition.action_code}: بستن پرونده باید از مرحله تصمیم نهایی انجام شود."
+                        )
                 if code in {"claim_objection", "contract_approval", "contract_termination"} and transition.closes_case:
                     closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
                     authorized_closers = {
