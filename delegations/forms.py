@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from accounts.access import active_assignments
 from accounts.models import RoleAssignment, User
@@ -40,10 +41,15 @@ class WorkDelegationForm(forms.ModelForm):
 
     def _refresh_recipients(self):
         role = self.data.get("delegate_role") or self.initial.get("delegate_role") or RoleAssignment.Role.INSURANCE_SPECIALIST
-        today = timezone.localdate()
+        effective_date = (
+            parse_date(self.data.get("valid_from", ""))
+            if self.is_bound else self.initial.get("valid_from")
+        ) or timezone.localdate()
         assignments = RoleAssignment.objects.filter(
-            role=role, is_active=True, valid_from__lte=today,
-        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+            role=role, is_active=True, valid_from__lte=effective_date,
+        ).filter(
+            Q(valid_until__isnull=True) | Q(valid_until__gte=effective_date)
+        )
         company_id = self.data.get("company") or self.initial.get("company")
         insurer_id = self.data.get("insurer") or self.initial.get("insurer")
         line_code = self.data.get("line_code") or self.initial.get("line_code")
@@ -72,22 +78,25 @@ class WorkDelegationForm(forms.ModelForm):
         if role == RoleAssignment.Role.INSURANCE_SPECIALIST:
             if not line_code:
                 self.add_error("line_code", "رشته کارشناس باید مشخص باشد.")
-            if delegate and line_code and not active_assignments(delegate).filter(
-                role=role, line_code__in=[line_code, "*"]
-            ).exists():
+            effective_date = cleaned.get("valid_from") or timezone.localdate()
+            if delegate and line_code and not active_assignments(
+                delegate, on_date=effective_date
+            ).filter(role=role, line_code__in=[line_code, "*"]).exists():
                 self.add_error("delegate_to", "گیرنده در رشته انتخاب‌شده انتصاب فعال ندارد.")
         elif role == RoleAssignment.Role.SUBSIDIARY_REP:
             if not company:
                 self.add_error("company", "شرکت نماینده باید مشخص باشد.")
-            if delegate and company and not active_assignments(delegate).filter(
-                role=role, company=company
-            ).exists():
+            effective_date = cleaned.get("valid_from") or timezone.localdate()
+            if delegate and company and not active_assignments(
+                delegate, on_date=effective_date
+            ).filter(role=role, company=company).exists():
                 self.add_error("delegate_to", "گیرنده نماینده فعال این شرکت نیست.")
         elif role == RoleAssignment.Role.INSURER_REP:
             if not insurer:
                 self.add_error("insurer", "بیمه‌گر باید مشخص باشد.")
-            if delegate and insurer and not active_assignments(delegate).filter(
-                role=role, insurer=insurer
-            ).exists():
+            effective_date = cleaned.get("valid_from") or timezone.localdate()
+            if delegate and insurer and not active_assignments(
+                delegate, on_date=effective_date
+            ).filter(role=role, insurer=insurer).exists():
                 self.add_error("delegate_to", "گیرنده نماینده فعال این بیمه‌گر نیست.")
         return cleaned
