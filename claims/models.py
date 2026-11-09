@@ -56,6 +56,10 @@ class Claim(models.Model):
     source_duplicate_reference = models.CharField("مرجع خسارت اصلی اعلام‌شده", max_length=120, blank=True)
     source_duplicate_note = models.TextField("توضیح اعلام تکراری بودن", blank=True)
     source_duplicate_reported_at = models.DateTimeField("زمان اعلام تکراری بودن", null=True, blank=True)
+    source_duplicate_reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="declared_duplicate_claims",
+    )
     assessment_note = models.TextField("یادداشت ارزیابی غیرپزشکی", blank=True)
     assessed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
