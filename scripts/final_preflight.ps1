@@ -47,7 +47,7 @@ Invoke-Check -Name "Complete Django test suite" -Command $python -Arguments @("m
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
 
 if ($Production) {
-    if ($env:DJANGO_DEBUG -and $env:DJANGO_DEBUG.ToLowerInvariant() -ne "false") {
+    if (-not $env:DJANGO_DEBUG -or $env:DJANGO_DEBUG.ToLowerInvariant() -ne "false") {
         throw "Production preflight requires DJANGO_DEBUG=False."
     }
     if (-not $env:DATABASE_URL -or $env:DATABASE_URL -notmatch "^postgres(ql)?://") {
@@ -73,5 +73,5 @@ Write-Host "============================================================" -Foreg
 Write-Host "ALL REQUESTED PREFLIGHT CHECKS PASSED" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
 if (-not $Production) {
-    Write-Host "This was the local preflight. Run with -Production only after loading the production .env and connecting to the staging/production-like services."
+    Write-Host "This was the local preflight. Run with -Production only against a staging clone of production; never point the Django test runner at the live production database."
 }
