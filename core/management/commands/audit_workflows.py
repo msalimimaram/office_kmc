@@ -30,6 +30,8 @@ class Command(BaseCommand):
             "asset_policy_approval",
             "asset_endorsement_approval",
             "person_change",
+            "claim_review",
+            "claim_objection",
         }
         active_domain_codes = set(
             WorkflowDefinition.objects.filter(
@@ -402,3 +404,34 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"ممیزی موفق: هر {len(required_codes)} فرآیند دارای گردش‌کار فعال و معتبر است."
         ))
+
+
+        claim_review = WorkflowDefinition.objects.filter(
+            code="claim_review", is_active=True
+        ).order_by("-version").first()
+        if claim_review:
+            initial = claim_review.steps.filter(is_initial=True).first()
+            if not initial or not (
+                "insurance_specialist" in (initial.allowed_roles or [])
+                or "department_head" in (initial.allowed_roles or [])
+                or "system_admin" in (initial.allowed_roles or [])
+            ):
+                errors.append("claim_review: initial assessment must be assigned to an internal specialist or global reviewer")
+            submit = claim_review.transitions.filter(action_code="submit_for_decision").first()
+            if not submit or not (
+                {"department_head", "system_admin"} & set(submit.recipient_roles or [])
+            ):
+                errors.append("claim_review: specialist must route the assessment to Department Head/System Admin")
+
+        claim_objection = WorkflowDefinition.objects.filter(
+            code="claim_objection", is_active=True
+        ).order_by("-version").first()
+        if claim_objection:
+            answer = claim_objection.transitions.filter(action_code="answer").first()
+            close = claim_objection.transitions.filter(action_code="close_objection").first()
+            if not answer or "insurance_specialist" not in (answer.allowed_roles or []):
+                errors.append("claim_objection: an internal insurance specialist must be able to answer")
+            if not close or not close.closes_case or not (
+                {"department_head", "system_admin"} & set(close.allowed_roles or [])
+            ):
+                errors.append("claim_objection: only Department Head/System Admin may close")
