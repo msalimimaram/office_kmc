@@ -8,6 +8,7 @@ from django.shortcuts import render
 
 from accounts.access import company_ids_for, has_global_access, has_role
 from accounts.models import RoleAssignment
+from core.permissions import scoped_claims_for, scoped_requests_for
 from auditlog.services import record_event
 from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment
 from .forms import CompanyLeadershipTitleForm
@@ -16,34 +17,56 @@ from .forms import CompanyLeadershipTitleForm
 @login_required
 def people_list(request):
     user = request.user
-    if has_global_access(user):
-        people = Person.objects.select_related("company", "employee", "user")
-    elif has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
-        company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-        employment_people = PersonEmployment.objects.filter(
-            company_id__in=company_ids
-        ).values_list("person_id", flat=True)
-        people = Person.objects.filter(
-            Q(company_id__in=company_ids) | Q(pk__in=employment_people)
-        ).select_related("company", "employee", "user")
-    elif has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
-        # Specialists can see the insured register as needed for their line work.
-        people = Person.objects.select_related("company", "employee", "user")
-    elif has_role(user, RoleAssignment.Role.INSURED_PERSON):
-        people = Person.objects.filter(
-            Q(user_id=user.pk) | Q(employee__user_id=user.pk)
-        ).select_related("company", "employee", "user")
-        if not people.exists() and user.national_id:
-            people = Person.objects.filter(
-                Q(national_id=user.national_id) | Q(employee__national_id=user.national_id)
-            ).select_related("company", "employee", "user")
-    else:
-        raise PermissionDenied
 
-    people = people.prefetch_related("leadership_titles")
+    if has_global_access(user):
+        people = Person.objects.all()
+    else:
+        # A user may hold several simultaneous assignments. Build the union of
+        # each valid scope instead of letting the first matching role shadow the
+        # rest. Specialists must never receive the unrestricted people register.
+        visible_people = Q(pk__in=[])
+        has_people_scope = False
+
+        if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+            company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+            if company_ids:
+                employment_people = PersonEmployment.objects.filter(
+                    company_id__in=company_ids
+                ).values_list("person_id", flat=True)
+                visible_people |= (
+                    Q(company_id__in=company_ids) | Q(pk__in=employment_people)
+                )
+                has_people_scope = True
+
+        if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+            claims = scoped_claims_for(user)
+            assigned_requests = scoped_requests_for(user).exclude(person__isnull=True)
+            visible_people |= (
+                Q(pk__in=claims.values("person_id"))
+                | Q(pk__in=claims.exclude(primary_insured__isnull=True).values("primary_insured_id"))
+                | Q(pk__in=assigned_requests.values("person_id"))
+            )
+            has_people_scope = True
+
+        if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+            visible_people |= Q(user_id=user.pk) | Q(employee__user_id=user.pk)
+            if user.national_id:
+                visible_people |= Q(national_id=user.national_id) | Q(employee__national_id=user.national_id)
+            has_people_scope = True
+
+        if not has_people_scope:
+            raise PermissionDenied
+        people = Person.objects.filter(visible_people)
+
+    people = people.select_related("company", "employee", "user").prefetch_related(
+        "leadership_titles"
+    )
 
     query = request.GET.get("q", "").strip()[:100]
-    if query and (has_global_access(user) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, RoleAssignment.Role.INSURANCE_SPECIALIST)):
+    if query and (
+        has_global_access(user)
+        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    ):
         people = people.filter(
             Q(first_name__icontains=query)
             | Q(last_name__icontains=query)
@@ -58,7 +81,6 @@ def people_list(request):
         "page_obj": page_obj,
         "search_query": query,
     })
-
 
 
 @login_required

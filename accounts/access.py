@@ -74,7 +74,7 @@ def has_role(
     on_date: date | None = None,
 ) -> bool:
     """Check an operational role with optional company, insurer and line scope."""
-    if not getattr(user, "is_authenticated", False):
+    if not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
         return False
     if getattr(user, "is_superuser", False):
         return True

@@ -4,6 +4,7 @@ from django.test import TestCase, Client
 from django.urls import reverse
 from accounts.models import RoleAssignment, User
 from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment
+from requests_portal.models import ServiceRequest
 
 class OrganizationScopeTests(TestCase):
     def test_employee_cannot_list_other_company_people(self):
@@ -209,3 +210,52 @@ class PersonAdminChangeProtectionTests(TestCase):
         self.person.refresh_from_db()
         self.assertEqual(self.person.mobile, "09120000000")
         self.assertEqual(self.person.iban, "IR120000000000000000000000")
+
+
+class SpecialistPeopleScopeTests(TestCase):
+    def test_specialist_sees_only_people_linked_to_assigned_non_confidential_work(self):
+        company = Company.objects.create(code="SPEC-PEOPLE", name="شرکت حوزه کارشناس")
+        visible_person = Person.objects.create(
+            company=company,
+            national_id="7777777777",
+            first_name="فرد",
+            last_name="مرتبط",
+            birth_date=date(1990, 1, 1),
+        )
+        unrelated_person = Person.objects.create(
+            company=company,
+            national_id="8888888888",
+            first_name="فرد",
+            last_name="نامرتبط",
+            birth_date=date(1991, 1, 1),
+        )
+        specialist = User.objects.create_user(
+            username="scoped-people-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="تخصیص رشته برای آزمون فهرست اشخاص",
+        )
+        ServiceRequest.objects.create(
+            reference="REQ-SPEC-PEOPLE-001",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=specialist,
+            person=visible_person,
+            company=company,
+            assigned_to=specialist,
+            title="رسیدگی مرتبط",
+            description="درخواست غیرمحرمانه تخصیص‌یافته",
+        )
+
+        client = Client()
+        client.force_login(specialist)
+        response = client.get(reverse("people_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "مرتبط")
+        self.assertNotContains(response, "نامرتبط")

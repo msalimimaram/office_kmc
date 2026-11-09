@@ -108,3 +108,17 @@ class ScopedRoleAssignmentTests(TestCase):
             RoleAssignment.Role.INSURER_REP,
             insurer_id=insurer_b.pk,
         ))
+
+
+class InactiveAccountAuthorizationTests(TestCase):
+    def test_inactive_superuser_cannot_use_global_role_bypass(self):
+        inactive_admin = User.objects.create_user(
+            username="inactive-superuser",
+            password="StrongPass!2026",
+            is_active=False,
+            is_superuser=True,
+            is_staff=True,
+            must_change_password=False,
+        )
+        self.assertFalse(has_role(inactive_admin, RoleAssignment.Role.SYSTEM_ADMIN))
+        self.assertFalse(has_global_access(inactive_admin))
