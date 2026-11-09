@@ -135,7 +135,7 @@ docker compose -f docker-compose.local.yml down
 .\scripts\final_preflight.ps1
 ```
 
-در **CMD ویندوز** از هر مسیر:
+در **CMD ویندوز** پس از رفتن به ریشهٔ مخزن:
 
 ```cmd
 scripts\final_preflight.cmd
