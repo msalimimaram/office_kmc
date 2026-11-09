@@ -22,14 +22,12 @@ def delegation_inbox(request):
         and not WorkDelegation.objects.filter(delegate_to=request.user).exists()
     ):
         raise PermissionDenied("صندوق تفویض فقط برای گیرنده تفویض یا مدیران مجاز است.")
-    synchronization_blocked = False
     try:
         synchronize_delegations()
     except ValidationError as exc:
         # A legacy overlapping rule must not turn the recipient's whole
         # dashboard into a 500. The conflicted case stays untouched until
         # a manager resolves the ambiguity.
-        synchronization_blocked = True
         messages.error(
             request,
             f"همگام‌سازی کامل انجام نشد؛ یک تعارض در قوانین تفویض باید توسط مدیر رفع شود: {exc}",
