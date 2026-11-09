@@ -510,6 +510,42 @@ class PersonChangeRequest(models.Model):
 
         if target == self.Status.APPROVED:
             self.apply_approved_change(actor=actor)
+            self.notify_requester(actor=actor, approved=True)
+        elif target == self.Status.REJECTED:
+            self.notify_requester(actor=actor, approved=False)
+
+    def notify_requester(self, *, actor, approved):
+        from django.conf import settings
+        from django.core.mail import send_mail
+        from django.db import transaction
+        from django.urls import reverse
+        from accounts.models import UserNotification
+
+        title = (
+            "درخواست اصلاح اطلاعات تأیید شد"
+            if approved else "درخواست اصلاح اطلاعات رد شد"
+        )
+        body = (
+            f"درخواست {self.get_change_type_display()} شما بررسی شد و تغییر اطلاعات با تأیید نهایی اعمال گردید."
+            if approved else
+            f"درخواست {self.get_change_type_display()} شما در گردش بررسی رد شد. برای مشاهده وضعیت و توضیحات به پرونده درخواست مراجعه کنید."
+        )
+        target_url = reverse("person_change_detail", args=[self.pk])
+        UserNotification.objects.create(
+            recipient=self.requested_by,
+            actor=actor,
+            title=title,
+            body=body,
+            target_url=target_url,
+        )
+        if self.requested_by.email:
+            transaction.on_commit(lambda: send_mail(
+                subject=title,
+                message=body,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[self.requested_by.email],
+                fail_silently=True,
+            ))
 
     def apply_approved_change(self, *, actor):
         from django.contrib.auth import get_user_model
