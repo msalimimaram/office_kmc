@@ -146,6 +146,74 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(case.status, case.Status.OPEN)
         self.assertEqual(case.current_assignee_id, insurer_user.pk)
 
+    def test_workflow_steps_synchronize_service_request_status_and_final_close(self):
+        definition = WorkflowDefinition.objects.create(
+            code="request-status-sync",
+            title="گردش کار همگام‌سازی وضعیت درخواست",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.IN_REVIEW,
+            title="بررسی کارشناس",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        final = WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.COMPLETED,
+            title="انجام‌شده",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=final,
+            action_code="send-to-head",
+            title="ارجاع برای تأیید",
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=final,
+            action_code="close-request",
+            title="بستن درخواست",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+        case = start_workflow(
+            obj=self.request,
+            code="request-status-sync",
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, ServiceRequest.Status.IN_REVIEW)
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="send-to-head",
+            recipient=self.admin,
+        )
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, ServiceRequest.Status.COMPLETED)
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.admin,
+            action_code="close-request",
+        )
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, ServiceRequest.Status.CLOSED)
+
     def test_workflow_start_and_routing_record_every_transition(self):
         case = start_workflow(
             obj=self.request,
