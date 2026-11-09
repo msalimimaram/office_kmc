@@ -45,6 +45,7 @@ def delegation_inbox(request):
         "case_count": case_count,
         "overdue_count": overdue_count,
         "active_rule_count": active_rules.count(),
+        "now": timezone.now(),
     })
 
 
