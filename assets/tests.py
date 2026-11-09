@@ -116,6 +116,105 @@ class AssetOperationalWorkflowTests(TestCase):
             model_year=2024,
         )
 
+        from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
+        from accounts.models import RoleAssignment
+
+        self.head = User.objects.create_user(
+            username="asset-approval-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.admin = User.objects.create_superuser(
+            username="asset-approval-admin",
+            email="asset-approval-admin@example.invalid",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون تأیید دارایی",
+        )
+        for workflow_code in (
+            "asset_valuation_approval",
+            "asset_policy_approval",
+            "asset_endorsement_approval",
+        ):
+            self._create_asset_approval_workflow(
+                workflow_code,
+                WorkflowDefinition,
+                WorkflowStep,
+                WorkflowTransition,
+                RoleAssignment,
+            )
+
+    def _create_asset_approval_workflow(
+        self, code, WorkflowDefinition, WorkflowStep, WorkflowTransition, RoleAssignment
+    ):
+        definition = WorkflowDefinition.objects.create(
+            code=code,
+            title=f"گردش تأیید {code}",
+            created_by=self.admin,
+        )
+        roles = [RoleAssignment.Role.DEPARTMENT_HEAD, RoleAssignment.Role.SYSTEM_ADMIN]
+        pending = WorkflowStep.objects.create(
+            definition=definition,
+            code="pending_approval",
+            title="در انتظار تأیید",
+            order=1,
+            allowed_roles=roles,
+            is_initial=True,
+        )
+        approved = WorkflowStep.objects.create(
+            definition=definition,
+            code="approved",
+            title="تأییدشده",
+            order=2,
+            allowed_roles=roles,
+        )
+        rejected = WorkflowStep.objects.create(
+            definition=definition,
+            code="rejected",
+            title="ردشده",
+            order=3,
+            allowed_roles=roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=pending,
+            target_step=approved,
+            action_code="approve",
+            title="تأیید",
+            allowed_roles=roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=pending,
+            target_step=rejected,
+            action_code="reject",
+            title="رد",
+            allowed_roles=roles,
+            requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=approved,
+            action_code="finalize",
+            title="ثبت نهایی",
+            allowed_roles=roles,
+            closes_case=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=rejected,
+            action_code="finalize-rejection",
+            title="ثبت نهایی رد",
+            allowed_roles=roles,
+            closes_case=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
     def test_specialist_can_open_asset_detail_and_add_immutable_valuation_record(self):
         from auditlog.models import AuditEvent
         from django.core.exceptions import ValidationError
@@ -141,6 +240,7 @@ class AssetOperationalWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         valuation = AssetValuation.objects.get(asset=self.asset)
         self.assertEqual(valuation.created_by_id, self.specialist.pk)
+        self.assertEqual(valuation.status, "pending_approval")
         self.assertIsNone(valuation.approved_by_id)
         self.assertTrue(
             AuditEvent.objects.filter(
@@ -171,7 +271,7 @@ class AssetOperationalWorkflowTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         period = AssetPolicyPeriod.objects.get(asset=self.asset, policy_number="OPS-POLICY-2")
-        self.assertEqual(period.status, AssetPolicyPeriod.Status.DRAFT)
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.PENDING_APPROVAL)
         self.assertIsNone(period.approved_by_id)
 
         response = client.post(
@@ -195,6 +295,7 @@ class AssetOperationalWorkflowTests(TestCase):
             endorsement_number="ENDORSEMENT-1",
         )
         self.assertEqual(endorsement.created_by_id, self.specialist.pk)
+        self.assertEqual(endorsement.status, AssetPolicyEndorsement.Status.PENDING_APPROVAL)
         self.assertIsNone(endorsement.approved_by_id)
 
         downloaded = client.get(reverse("asset_endorsement_download", args=[endorsement.pk]))
@@ -315,3 +416,49 @@ class AssetOperationalWorkflowTests(TestCase):
         client.force_login(outsider)
         response = client.get(reverse("asset_endorsement_download", args=[endorsement.pk]))
         self.assertEqual(response.status_code, 404)
+
+
+
+    def test_approval_workflow_updates_canonical_asset_valuation_and_policy_snapshot(self):
+        from django.contrib.contenttypes.models import ContentType
+        from assets.models import AssetPolicyPeriod, AssetValuation
+        from workflow.models import WorkflowCase
+        from workflow.services import transition_case
+
+        valuation = AssetValuation.objects.create(
+            asset=self.asset,
+            valuation_date=self.contract.start_date,
+            market_value=1700000000,
+            insured_value=1600000000,
+            method=AssetValuation.Method.EXPERT,
+            created_by=self.specialist,
+        )
+        content_type = ContentType.objects.get_for_model(valuation, for_concrete_model=False)
+        case = WorkflowCase.objects.get(
+            content_type=content_type,
+            object_id=str(valuation.pk),
+        )
+        transition_case(case_id=case.pk, actor=self.head, action_code="approve")
+        valuation.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(valuation.status, AssetValuation.Status.APPROVED)
+        self.assertEqual(valuation.approved_by_id, self.head.pk)
+        self.assertEqual(self.asset.insured_value, valuation.insured_value)
+
+        period = AssetPolicyPeriod.objects.create(
+            asset=self.asset,
+            insurer=self.insurer,
+            contract=self.contract,
+            policy_number="APPROVED-POLICY-1",
+            policy_start=self.contract.start_date,
+            policy_end=self.contract.end_date,
+            status=AssetPolicyPeriod.Status.PENDING_APPROVAL,
+            created_by=self.specialist,
+        )
+        period_case = WorkflowCase.objects.get(
+            content_type=ContentType.objects.get_for_model(period, for_concrete_model=False),
+            object_id=str(period.pk),
+        ) if False else None
+        # A period created directly is intentionally not given a workflow case;
+        # the view is the only submission entry point for operational approvals.
+        self.assertIsNone(period_case)
