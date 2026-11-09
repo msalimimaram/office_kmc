@@ -6,16 +6,17 @@
 
 1. PostgreSQL مستقل و دارای backup تهیه شود.
 2. دامنه و TLS/HTTPS روی reverse proxy (مثلاً Nginx) تنظیم شود؛ نمونه پیکربندی در `deploy/nginx/office-kmc.conf.example` قرار دارد.
-3. متغیرهای `.env` واقعی روی سرور قرار گیرد؛ فایل secrets هرگز commit نشود.
-4. `pip install -r requirements.txt` اجرا شود.
-5. Migrationهای نسخه‌بندی‌شده موجود در مخزن را ابتدا روی دیتابیس خالی و یک کپی از داده آزمایشی بررسی کنید. `makemigrations --check --dry-run`، `migrate --plan` و `migrate` باید بدون اختلاف اجرا شوند؛ Migration جدید فقط پس از بررسی state مدل و تست upgrade ثبت شود.
-6. `python manage.py migrate` اجرا شود.
-7. `python manage.py collectstatic --noinput` اجرا شود.
-8. `python manage.py check --deploy` و `python manage.py audit_workflows` اجرا شوند؛ هر دو باید بدون خطا باشند.
-9. یک superuser اولیه ساخته و بلافاصله رمز قوی و MFA واقعی برای آن فعال شود.
-10. Gunicorn با نمونه واحد systemd در `deploy/systemd/office-kmc.service.example` فقط روی `127.0.0.1` اجرا شود و پشت reverse proxy قرار گیرد.
-11. مسیر `/private-media/` نباید در Nginx alias یا expose شود؛ نمونه پیکربندی آن را صریحاً رد می‌کند. دانلود فایل فقط از view دارای authorization انجام شود.
-12. backup و restore آزمایشی قبل از go-live انجام شود.
+3. سرویس ClamAV در شبکه خصوصی برنامه نصب و به‌روزرسانی امضاهای آن زمان‌بندی شود؛ پورت TCP آن فقط از میزبان/کانتینر برنامه قابل دسترسی باشد. `CLAMD_HOST`، `CLAMD_PORT` و `CLAMD_TIMEOUT` در `.env` تنظیم شوند. برنامه در Production بدون `CLAMD_HOST` شروع نمی‌شود و در صورت قطع اسکنر، فایل جدید را fail-closed رد می‌کند.
+4. متغیرهای `.env` واقعی روی سرور قرار گیرد؛ فایل secrets هرگز commit نشود.
+5. `pip install -r requirements.txt` اجرا شود.
+6. Migrationهای نسخه‌بندی‌شده موجود در مخزن را ابتدا روی دیتابیس خالی و یک کپی از داده آزمایشی بررسی کنید. `makemigrations --check --dry-run`، `migrate --plan` و `migrate` باید بدون اختلاف اجرا شوند؛ Migration جدید فقط پس از بررسی state مدل و تست upgrade ثبت شود.
+7. `python manage.py migrate` اجرا شود.
+8. `python manage.py collectstatic --noinput` اجرا شود.
+9. `python manage.py check --deploy` و `python manage.py audit_workflows` اجرا شوند؛ هر دو باید بدون خطا باشند.
+10. یک superuser اولیه ساخته و بلافاصله رمز قوی و MFA واقعی برای آن فعال شود.
+11. Gunicorn با نمونه واحد systemd در `deploy/systemd/office-kmc.service.example` فقط روی `127.0.0.1` اجرا شود و پشت reverse proxy قرار گیرد.
+12. مسیر `/private-media/` نباید در Nginx alias یا expose شود؛ نمونه پیکربندی آن را صریحاً رد می‌کند. دانلود فایل فقط از view دارای authorization انجام شود.
+13. backup و restore آزمایشی قبل از go-live انجام شود.
 
 ## 2) حداقل متغیرهای محیط تولید
 
@@ -24,6 +25,7 @@
 - `DJANGO_ALLOWED_HOSTS` فقط دامنه‌های واقعی
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://...`
 - `DATABASE_URL` برای PostgreSQL
+- `CLAMD_HOST`، `CLAMD_PORT` و `CLAMD_TIMEOUT` برای اسکنر ClamAV در شبکه خصوصی؛ بدون اسکنر، بارگذاری فایل در Production رد می‌شود.
 - `DB_SSLMODE=require` در صورت پشتیبانی سرویس DB
 - `DJANGO_SECURE_SSL_REDIRECT=True`
 - `DJANGO_TRUST_PROXY_SSL_HEADER=True` فقط وقتی TLS در Nginx خاتمه می‌یابد و Nginx هدر `X-Forwarded-Proto` را خودش بازنویسی می‌کند؛ پورت Gunicorn باید از اینترنت قابل دسترسی نباشد.
@@ -45,6 +47,7 @@
 - [ ] بیمه‌شده فقط خودش و افراد تحت تکفل مجاز را می‌بیند
 - [ ] درخواست محرمانه پزشکی برای کارشناس عادی قابل مشاهده نیست
 - [ ] فایل خصوصی با URL مستقیم قابل دریافت نیست
+- [ ] ClamAV در دسترس است؛ فایل پاک پذیرفته و فایل آزمایشی EICAR رد می‌شود؛ قطع سرویس اسکنر نیز باعث رد upload می‌شود
 - [ ] تغییر شبا/اطلاعات حساس بدون workflow تأیید نهایی نمی‌شود
 
 ### عملیات
