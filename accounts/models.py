@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -283,3 +284,75 @@ class PositionAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user} — {self.position}"
+
+
+
+class ImmutableUserNotificationQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("اعلان‌های کاربر فقط از مسیر علامت‌گذاری به‌عنوان خوانده‌شده تغییر می‌کنند.")
+
+    def delete(self):
+        raise ValidationError("سوابق اعلان حذف نمی‌شوند.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی اعلان‌ها مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی اعلان‌ها مجاز نیست.")
+
+
+class UserNotification(models.Model):
+    objects = ImmutableUserNotificationQuerySet.as_manager()
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="notifications",
+        verbose_name="دریافت‌کننده",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="notifications_created",
+        verbose_name="ثبت‌کننده رویداد",
+    )
+    title = models.CharField("عنوان", max_length=180)
+    body = models.TextField("متن اعلان", max_length=2000)
+    target_url = models.CharField("نشانی داخلی مقصد", max_length=255, blank=True)
+    read_at = models.DateTimeField("زمان مشاهده", null=True, blank=True)
+    created_at = models.DateTimeField("زمان ایجاد", auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+        indexes = [
+            models.Index(fields=("recipient", "read_at", "created_at"), name="user_notice_unread"),
+        ]
+        verbose_name = "اعلان کاربر"
+        verbose_name_plural = "اعلان‌های کاربران"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            update_fields = set(kwargs.get("update_fields") or ())
+            if not update_fields or not update_fields.issubset({"read_at"}):
+                raise ValidationError("اعلان پس از ثبت قابل ویرایش نیست.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("اعلان‌های ثبت‌شده حذف نمی‌شوند.")
+
+    def mark_read(self, *, user):
+        if self.recipient_id != user.pk:
+            raise ValidationError("این اعلان متعلق به حساب کاربری شما نیست.")
+        if self.read_at is None:
+            self.read_at = timezone.now()
+            self.save(update_fields=["read_at"])
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
+
+    def __str__(self):
+        return f"{self.recipient} — {self.title}"
