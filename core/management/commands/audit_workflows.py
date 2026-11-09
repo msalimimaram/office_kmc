@@ -160,6 +160,56 @@ class Command(BaseCommand):
                                 f"{code}/{transition.action_code}: مرحله تصمیم فقط باید به رئیس اداره/مدیر سامانه ارجاع شود."
                             )
 
+                if code == "person_change":
+                    source_code = transition.source_step.code
+                    target_code = transition.target_step.code if transition.target_step else None
+                    allowed_roles = set(
+                        transition.allowed_roles or transition.source_step.allowed_roles
+                    )
+                    recipient_roles = set(
+                        transition.recipient_roles
+                        or (transition.target_step.allowed_roles if transition.target_step else [])
+                    )
+                    company_approvers = {
+                        RoleAssignment.Role.SUBSIDIARY_REP,
+                        RoleAssignment.Role.DEPARTMENT_HEAD,
+                        RoleAssignment.Role.SYSTEM_ADMIN,
+                    }
+                    if (
+                        source_code == PersonChangeRequest.Status.COMPANY_REVIEW
+                        and target_code == PersonChangeRequest.Status.INSURER_UPDATE
+                    ):
+                        if not allowed_roles.issubset(company_approvers):
+                            errors.append("person_change: ارجاع به بیمه‌گر فقط از نماینده شرکت/مدیر مجاز است.")
+                        if RoleAssignment.Role.INSURER_REP not in recipient_roles:
+                            errors.append("person_change: مرحله اقدام بیمه‌گر باید به نماینده/کارشناس بیمه‌گر ارجاع شود.")
+                    if (
+                        source_code == PersonChangeRequest.Status.INSURER_UPDATE
+                        and target_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
+                    ):
+                        if RoleAssignment.Role.INSURER_REP not in allowed_roles:
+                            errors.append("person_change: بازگشت از بیمه‌گر باید توسط نقش بیمه‌گر انجام شود.")
+                        if RoleAssignment.Role.SUBSIDIARY_REP not in recipient_roles:
+                            errors.append("person_change: بازبینی نهایی باید به نماینده شرکت بازگردد.")
+                    if (
+                        source_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
+                        and target_code in {
+                            PersonChangeRequest.Status.APPROVED,
+                            PersonChangeRequest.Status.REJECTED,
+                        }
+                    ):
+                        if not allowed_roles.issubset(company_approvers):
+                            errors.append("person_change: تصمیم نهایی درخواست متقاضی فقط برای نماینده شرکت/مدیر مجاز است.")
+                    if transition.closes_case:
+                        if source_code not in {
+                            PersonChangeRequest.Status.APPROVED,
+                            PersonChangeRequest.Status.REJECTED,
+                            PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        }:
+                            errors.append("person_change: بستن درخواست فقط پس از بازبینی نهایی شرکت مجاز است.")
+                        if not allowed_roles.issubset(company_approvers):
+                            errors.append("person_change: بستن درخواست فقط برای نماینده شرکت/رئیس/مدیر سامانه مجاز است.")
+
                 if code in {"claim_objection", "contract_approval", "contract_termination"} and transition.closes_case:
                     closing_roles = set(
                         transition.allowed_roles or transition.source_step.allowed_roles
