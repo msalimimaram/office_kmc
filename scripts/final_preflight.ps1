@@ -59,6 +59,9 @@ if ($Production) {
     if (-not $env:DJANGO_ALLOWED_HOSTS) {
         throw "Production preflight requires explicit DJANGO_ALLOWED_HOSTS."
     }
+    if (-not $env:CLAMD_HOST) {
+        throw "Production preflight requires CLAMD_HOST for malware scanning."
+    }
     if (-not $env:DJANGO_SECRET_KEY -or $env:DJANGO_SECRET_KEY.Length -lt 50) {
         throw "Production preflight requires a strong DJANGO_SECRET_KEY (at least 50 characters)."
     }
