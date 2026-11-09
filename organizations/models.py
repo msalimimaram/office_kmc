@@ -469,12 +469,14 @@ class PersonChangeRequest(models.Model):
 
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
         terminal_decisions = {self.Status.APPROVED, self.Status.REJECTED}
-        if step_code in terminal_decisions and not closed:
-            return
-        if step_code in dict(self.Status.choices):
-            target = step_code
-        elif closed and self.status == self.Status.COMPANY_FINAL_REVIEW:
+        if closed and self.status == self.Status.COMPANY_FINAL_REVIEW:
             target = self.Status.APPROVED
+        elif step_code in terminal_decisions:
+            if not closed:
+                return
+            target = step_code
+        elif step_code in dict(self.Status.choices):
+            target = step_code
         else:
             return
 
