@@ -375,6 +375,21 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         )
     if (
         transition.closes_case
+        and case.definition.code == "person_change"
+        and not (
+            has_global_access(actor)
+            or has_role(
+                actor,
+                RoleAssignment.Role.SUBSIDIARY_REP,
+                company_id=scope.get("company_id"),
+            )
+        )
+    ):
+        raise PermissionDenied(
+            "بستن درخواست اصلاح اطلاعات فقط برای نماینده همان شرکت یا مدیر/رئیس اداره مجاز است."
+        )
+    if (
+        transition.closes_case
         and not has_global_access(actor)
         and scope.get("insurer_id")
         and has_role(
