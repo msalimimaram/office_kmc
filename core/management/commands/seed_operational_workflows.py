@@ -123,7 +123,7 @@ class Command(BaseCommand):
 
         steps = {}
         step_specs = (
-            (ServiceRequest.Status.SUBMITTED, "ثبت‌شده", company_roles + global_roles, True, False),
+            (ServiceRequest.Status.SUBMITTED, "ثبت‌شده", company_roles, True, False),
             (ServiceRequest.Status.IN_REVIEW, "در حال بررسی", review_roles, False, False),
             (ServiceRequest.Status.NEEDS_INFO, "نیازمند تکمیل اطلاعات", employee_roles, False, False),
             (ServiceRequest.Status.REFERRED, "ارجاع‌شده به بیمه‌گر", insurer_roles, False, False),
