@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 
-from accounts.access import company_ids_for, has_global_access, has_role
+from accounts.access import company_ids_for, has_global_access, has_role, line_codes_for
 from accounts.models import RoleAssignment
 from core.permissions import scoped_claims_for, scoped_requests_for
 from auditlog.services import record_event
@@ -155,7 +155,16 @@ def _person_change_scope(user):
     allowed = Q(requested_by_id=user.pk)
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        allowed |= Q(company_id__in=company_ids)
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= Q(company_id__in=company_ids)
+        elif representative_lines:
+            allowed |= Q(
+                company_id__in=company_ids,
+                contract__line__in=representative_lines,
+            )
 
     content_type = ContentType.objects.get_for_model(
         PersonChangeRequest, for_concrete_model=False
@@ -196,6 +205,7 @@ def person_change_list(request):
     return render(request, "organizations/person_change_list.html", {
         "changes": page_obj.object_list,
         "page_obj": page_obj,
+        "can_create": has_role(request.user, RoleAssignment.Role.INSURED_PERSON),
     })
 
 
