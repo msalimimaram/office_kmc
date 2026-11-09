@@ -493,3 +493,47 @@ class WorkflowEngineTests(TestCase):
         self.assertFalse(_has_any_role(
             representative, roles, company_id=company_a.pk, line_code="motor"
         ))
+
+
+
+class OperationalWorkflowSeedCommandTests(TestCase):
+    def test_seed_command_publishes_contract_and_asset_approval_workflows_idempotently(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        head = User.objects.create_user(
+            username="workflow-seed-head",
+            password="StrongPass!123",
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون seed گردش کار",
+        )
+
+        call_command("seed_operational_workflows")
+        expected = {
+            "contract_approval",
+            "contract_termination",
+            "asset_valuation_approval",
+            "asset_policy_approval",
+            "asset_endorsement_approval",
+        }
+        active = set(
+            WorkflowDefinition.objects.filter(is_active=True).values_list("code", flat=True)
+        )
+        self.assertTrue(expected.issubset(active))
+
+        versions_before = dict(
+            WorkflowDefinition.objects.filter(code__in=expected).values_list("code", "version")
+        )
+        call_command("seed_operational_workflows")
+        versions_after = dict(
+            WorkflowDefinition.objects.filter(code__in=expected).values_list("code", "version")
+        )
+        self.assertEqual(versions_before, versions_after)
+        self.assertEqual(
+            WorkflowDefinition.objects.filter(code__in=expected, is_active=True).count(),
+            len(expected),
+        )
