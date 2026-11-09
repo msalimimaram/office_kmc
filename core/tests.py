@@ -1,7 +1,7 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from core.uploads import validate_uploaded_file
 
