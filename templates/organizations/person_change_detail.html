@@ -15,9 +15,10 @@
     <div><small>تاریخ ثبت</small><strong>{{ item.created_at|date:"Y/m/d H:i" }}</strong></div>
     <div><small>وضعیت فعلی</small><strong>{{ item.get_status_display }}</strong></div>
     <div><small>تأیید نهایی</small><strong>{{ item.approved_by|default:"انجام نشده" }}</strong></div>
-    <div><small>مقدار ثبت‌شده هنگام درخواست</small><strong>{{ item.current_value|default:"—" }}</strong></div>
-    <div><small>مقدار درخواستی</small><strong>{{ item.requested_value }}</strong></div>
+    <div><small>مقدار ثبت‌شده هنگام درخواست</small><strong>{{ current_value_display|default:"—" }}</strong></div>
+    <div><small>مقدار درخواستی</small><strong>{{ requested_value_display|default:"—" }}</strong></div>
   </div>
+  {% if not can_view_full_values %}<p class="muted">مقادیر حساس برای نماینده غیرمسئول به‌صورت ماسک‌شده نمایش داده می‌شوند.</p>{% endif %}
   <h3>دلیل درخواست</h3>
   <p class="long-text">{{ item.reason|linebreaksbr }}</p>
   {% if item.approved_at %}<p>زمان اعمال نهایی: {{ item.approved_at|date:"Y/m/d H:i" }}</p>{% endif %}
