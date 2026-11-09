@@ -241,3 +241,80 @@ class ClaimObjectionReviewFlowTests(TestCase):
             "status": ClaimObjection.Status.CLOSED, "response": "پرش وضعیت",
         })
         self.assertEqual(response.status_code, 403)
+
+    def test_configured_objection_is_routed_through_generic_workflow(self):
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
+
+        definition = WorkflowDefinition.objects.create(
+            code="claim_objection",
+            title="گردش کار اعتراض خسارت",
+            created_by=self.head,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code=ClaimObjection.Status.IN_REVIEW,
+            title="بررسی تخصصی",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        answered = WorkflowStep.objects.create(
+            definition=definition,
+            code=ClaimObjection.Status.ANSWERED,
+            title="پاسخ اداره",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=answered,
+            action_code="answer-objection",
+            title="ثبت پاسخ و ارجاع به اداره",
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=answered,
+            action_code="close-objection",
+            title="بستن نهایی اعتراض",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
+        definition.approved_by = self.head
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(self.owner)
+        submitted = client.post(
+            reverse("claim_detail", args=[self.claim.pk]),
+            {"description": "درخواست بررسی مجدد مبلغ خسارت"},
+        )
+        self.assertEqual(submitted.status_code, 302)
+
+        objection = ClaimObjection.objects.exclude(pk=self.objection.pk).get()
+        case = WorkflowCase.objects.get(
+            definition=definition,
+            object_id=str(objection.pk),
+        )
+        self.assertEqual(case.current_assignee_id, self.specialist.pk)
+        objection.refresh_from_db()
+        self.assertEqual(objection.status, ClaimObjection.Status.IN_REVIEW)
+
+        client.force_login(self.head)
+        legacy_review = client.post(
+            reverse("claim_objection_review", args=[self.claim.pk, objection.pk]),
+            {"status": ClaimObjection.Status.CLOSED, "response": "بستن مستقیم"},
+        )
+        self.assertEqual(legacy_review.status_code, 302)
+        self.assertEqual(legacy_review.url, reverse("workflow_case_detail", args=[case.pk]))
+        objection.refresh_from_db()
+        self.assertEqual(objection.status, ClaimObjection.Status.IN_REVIEW)
+
+        client.force_login(self.specialist)
+        detail = client.get(reverse("workflow_case_detail", args=[case.pk]))
+        self.assertEqual(detail.status_code, 200)
+
