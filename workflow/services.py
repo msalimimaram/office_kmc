@@ -428,7 +428,9 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     ])
     _sync_domain_status(
         case.content_object,
-        step_code=case.current_step.code if case.current_step else None,
+        step_code=old_step.code if transition.closes_case else (
+            case.current_step.code if case.current_step else None
+        ),
         closed=transition.closes_case,
         actor=actor,
     )
