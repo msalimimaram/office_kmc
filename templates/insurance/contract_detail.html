@@ -36,7 +36,7 @@
       {% if revision.approved_by %}<small>تأییدکننده: {{ revision.approved_by }} · {{ revision.approved_at|date:"Y/m/d H:i" }}</small>{% endif %}
       {% if revision.workflow_case %}<p><a href="{% url 'workflow_case_detail' revision.workflow_case.pk %}">مشاهده گردش تأیید</a></p>{% endif %}
       {% if revision.document %}<p><a href="{% url "contract_revision_download" contract.pk revision.pk %}">دریافت سند نسخه</a></p>{% endif %}
-      {% if revision.applied_at %}<small>نسخه در {{ revision.applied_at|date:"Y/m/d H:i" }} اعمال شده است.</small>{% elif revision.status == "approved" %}<small>تأیید شده و منتظر رسیدن تاریخ اثر است.</small>{% endif %}
+      {% if revision.applied_at %}<small>نسخه در {{ revision.applied_at|date:"Y/m/d H:i" }} اعمال شده است.</small>{% elif revision.status == "approved" or revision.status == "terminated" %}<small>تصمیم نهایی ثبت شده و منتظر رسیدن تاریخ اثر است.</small>{% endif %}
     </div>
   {% empty %}
     <p class="empty">هنوز نسخه‌ای برای قرارداد ثبت نشده است.</p>
