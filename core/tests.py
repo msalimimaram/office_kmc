@@ -49,3 +49,13 @@ class WorkflowCoverageCommandTests(TestCase):
         with self.assertRaises(CommandError):
             call_command("audit_workflows", stdout=output)
         self.assertIn("identity_change", output.getvalue())
+
+
+class StaticAndPrivateMediaUrlTests(SimpleTestCase):
+    def test_static_and_private_media_urls_are_root_relative(self):
+        from django.conf import settings
+        from django.templatetags.static import static
+
+        self.assertTrue(settings.STATIC_URL.startswith("/"))
+        self.assertTrue(settings.MEDIA_URL.startswith("/"))
+        self.assertTrue(static("css/site.css").startswith("/static/"))

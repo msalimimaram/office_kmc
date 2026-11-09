@@ -1,0 +1,47 @@
+# Example only: replace domain, certificate paths and upstream as required.
+# The Gunicorn listener must remain private (127.0.0.1), not internet-facing.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name insurance.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name insurance.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/insurance.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/insurance.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+
+    client_max_body_size 25m;
+
+    location /static/ {
+        alias /srv/office_kmc/staticfiles/;
+        access_log off;
+        expires 7d;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    # Uploaded documents are private. Never alias MEDIA_ROOT here.
+    location ^~ /private-media/ {
+        return 404;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Overwrite, do not append/forward a client-supplied value.
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_redirect off;
+        proxy_read_timeout 60s;
+    }
+}

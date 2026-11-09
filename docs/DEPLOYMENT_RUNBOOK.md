@@ -5,7 +5,7 @@
 ## 1) ترتیب استقرار
 
 1. PostgreSQL مستقل و دارای backup تهیه شود.
-2. دامنه و TLS/HTTPS روی reverse proxy (مثلاً Nginx) تنظیم شود.
+2. دامنه و TLS/HTTPS روی reverse proxy (مثلاً Nginx) تنظیم شود؛ نمونه پیکربندی در `deploy/nginx/office-kmc.conf.example` قرار دارد.
 3. متغیرهای `.env` واقعی روی سرور قرار گیرد؛ فایل secrets هرگز commit نشود.
 4. `pip install -r requirements.txt` اجرا شود.
 5. Migrationهای نسخه‌بندی‌شده موجود در مخزن را ابتدا روی دیتابیس خالی و یک کپی از داده آزمایشی بررسی کنید. `makemigrations --check --dry-run`، `migrate --plan` و `migrate` باید بدون اختلاف اجرا شوند؛ Migration جدید فقط پس از بررسی state مدل و تست upgrade ثبت شود.
@@ -13,8 +13,8 @@
 7. `python manage.py collectstatic --noinput` اجرا شود.
 8. `python manage.py check --deploy` و `python manage.py audit_workflows` اجرا شوند؛ هر دو باید بدون خطا باشند.
 9. یک superuser اولیه ساخته و بلافاصله رمز قوی و MFA واقعی برای آن فعال شود.
-10. Gunicorn اجرا و پشت reverse proxy قرار گیرد.
-11. `/private_media` نباید مستقیماً از وب قابل دسترس باشد؛ دانلود فایل فقط از view دارای authorization انجام شود.
+10. Gunicorn با نمونه واحد systemd در `deploy/systemd/office-kmc.service.example` فقط روی `127.0.0.1` اجرا شود و پشت reverse proxy قرار گیرد.
+11. مسیر `/private-media/` نباید در Nginx alias یا expose شود؛ نمونه پیکربندی آن را صریحاً رد می‌کند. دانلود فایل فقط از view دارای authorization انجام شود.
 12. backup و restore آزمایشی قبل از go-live انجام شود.
 
 ## 2) حداقل متغیرهای محیط تولید
@@ -26,7 +26,10 @@
 - `DATABASE_URL` برای PostgreSQL
 - `DB_SSLMODE=require` در صورت پشتیبانی سرویس DB
 - `DJANGO_SECURE_SSL_REDIRECT=True`
-- HSTS پس از اطمینان از HTTPS کامل فعال بماند.
+- `DJANGO_TRUST_PROXY_SSL_HEADER=True` فقط وقتی TLS در Nginx خاتمه می‌یابد و Nginx هدر `X-Forwarded-Proto` را خودش بازنویسی می‌کند؛ پورت Gunicorn باید از اینترنت قابل دسترسی نباشد.
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://your-domain` با scheme و دامنه واقعی.
+- `SESSION_COOKIE_SECURE` و `CSRF_COOKIE_SECURE` در Production به‌صورت اجباری فعال‌اند.
+- HSTS یک‌ساله پس از اطمینان از HTTPS کامل فعال بماند؛ `includeSubDomains` و `preload` فقط پس از بررسی همه زیردامنه‌ها.
 
 ## 3) معیار پذیرش قبل از ورود اولین بیمه‌شده
 

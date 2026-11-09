@@ -1,0 +1,22 @@
+[Unit]
+Description=Office KMC Django application
+After=network.target postgresql.service redis-server.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=officekmc
+Group=www-data
+WorkingDirectory=/srv/office_kmc
+EnvironmentFile=/etc/office-kmc/office-kmc.env
+ExecStart=/srv/office_kmc/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 60 --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/office_kmc/private_media
+
+[Install]
+WantedBy=multi-user.target
