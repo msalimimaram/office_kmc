@@ -224,11 +224,25 @@ def person_change_create(request):
                 contract = form.cleaned_data["contract"]
                 change_type = form.cleaned_data["change_type"]
                 field_name = PersonChangeRequest.FIELD_MAP[change_type]
-                current = getattr(person, field_name)
-                current_value = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
                 company_id = current_company_id_for_person(person)
                 if not company_id:
                     raise ValidationError("شرکت محل اشتغال فعال برای شخص انتخاب‌شده پیدا نشد.")
+
+                if change_type == PersonChangeRequest.ChangeType.PERSONNEL_CODE:
+                    today = timezone.localdate()
+                    employment = PersonEmployment.objects.filter(
+                        person_id=person.pk,
+                        company_id=company_id,
+                        status=PersonEmployment.Status.ACTIVE,
+                    ).filter(
+                        Q(valid_from__isnull=True) | Q(valid_from__lte=today)
+                    ).filter(
+                        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+                    ).order_by("-valid_from", "-pk").first()
+                    current = employment.personnel_code if employment else person.personnel_code
+                else:
+                    current = getattr(person, field_name)
+                current_value = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
 
                 item = PersonChangeRequest(
                     person=person,
