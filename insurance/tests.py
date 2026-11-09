@@ -1,9 +1,11 @@
 from datetime import date
 
+from django.contrib import admin
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 
-from insurance.models import Contract, Insurer, InsuranceLine
+from accounts.models import RoleAssignment, User
+from insurance.models import Contract, ContractRevision, Insurer, InsuranceLine
 
 
 class ContractValidationTests(TestCase):
@@ -30,12 +32,6 @@ class ContractValidationTests(TestCase):
             end_date=date(2026, 12, 31),
         )
         self.assertEqual(contract.end_date, date(2026, 12, 31))
-
-from django.contrib import admin
-from django.test import RequestFactory
-
-from accounts.models import RoleAssignment, User
-from insurance.models import ContractRevision
 
 
 class InsuranceAdminBoundaryTests(TestCase):
