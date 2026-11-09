@@ -91,3 +91,42 @@ class ContractForm(forms.ModelForm):
             if error:
                 self.add_error("revision_document", error)
         return cleaned
+
+class ContractTerminationForm(forms.Form):
+    effective_date = forms.DateField(
+        label="تاریخ اثر فسخ",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    notice_date = forms.DateField(
+        label="تاریخ اعلام به بیمه‌گر",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    reason = forms.CharField(
+        label="علت و مستندات فسخ",
+        min_length=10,
+        max_length=5000,
+        widget=forms.Textarea(attrs={"rows": 5}),
+    )
+    document = forms.FileField(label="سند درخواست فسخ", required=False)
+
+    def __init__(self, *args, contract, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.contract = contract
+
+    def clean(self):
+        cleaned = super().clean()
+        effective_date = cleaned.get("effective_date")
+        notice_date = cleaned.get("notice_date")
+        if effective_date and effective_date < self.contract.start_date:
+            self.add_error("effective_date", "تاریخ اثر فسخ نمی‌تواند قبل از شروع قرارداد باشد.")
+        if effective_date and effective_date > self.contract.end_date:
+            self.add_error("effective_date", "تاریخ اثر فسخ نمی‌تواند بعد از پایان قرارداد باشد.")
+        if notice_date and effective_date and notice_date > effective_date:
+            self.add_error("notice_date", "تاریخ اعلام نمی‌تواند بعد از تاریخ اثرگذاری باشد.")
+        upload = cleaned.get("document")
+        if upload:
+            error = validate_uploaded_file(upload, max_size=20 * 1024 * 1024)
+            if error:
+                self.add_error("document", error)
+        return cleaned
