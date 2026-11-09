@@ -57,9 +57,13 @@ def active_assignments(user, *, on_date: date | None = None):
 
 
 def _legacy_fallback_allowed(user) -> bool:
-    # Any assignment history suppresses the legacy single-role fallback.
-    # This makes expiry/revocation effective rather than silently restoring access.
-    return not assignment_history(user).exists()
+    # Inactive accounts must not recover scope through legacy role fields.
+    # Any assignment history also suppresses legacy fallback after expiry/revocation.
+    return (
+        getattr(user, "is_authenticated", False)
+        and getattr(user, "is_active", False)
+        and not assignment_history(user).exists()
+    )
 
 
 def _legacy_role(user):
