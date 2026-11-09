@@ -8,6 +8,7 @@ from .models import (
     PositionAssignment,
     RoleAssignment,
     User,
+    UserNotification,
 )
 
 
@@ -138,6 +139,30 @@ class PositionAssignmentAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return is_system_admin(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+
+@admin.register(UserNotification)
+class UserNotificationAdmin(admin.ModelAdmin):
+    list_display = ("recipient", "title", "actor", "created_at", "read_at")
+    list_filter = ("created_at", "read_at")
+    search_fields = ("recipient__username", "title", "body")
+    readonly_fields = tuple(field.name for field in UserNotification._meta.fields)
+
+    def has_module_permission(self, request):
+        return is_system_admin(request)
+
+    def has_view_permission(self, request, obj=None):
+        return is_system_admin(request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False
