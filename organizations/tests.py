@@ -685,6 +685,24 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertEqual(case.current_assignee_id, self.company_rep.pk)
         return item, case
 
+    def test_insured_user_who_is_also_only_company_rep_can_receive_own_request(self):
+        RoleAssignment.objects.filter(
+            user__in=[self.company_rep, self.other_company_rep],
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+        ).update(is_active=False)
+        RoleAssignment.objects.create(
+            user=self.insured,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code=InsuranceLine.HEALTH,
+            valid_from=self.today,
+            reason="بیمه‌شده و تنها نماینده شرکت",
+        )
+        item, case = self._create_request()
+        self.assertEqual(item.requested_by_id, self.insured.pk)
+        self.assertEqual(case.current_assignee_id, self.insured.pk)
+
     def test_mobile_change_applies_only_after_company_insurer_company_review(self):
         item, case = self._create_request()
         self.assertEqual(item.status, PersonChangeRequest.Status.COMPANY_REVIEW)
