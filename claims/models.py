@@ -283,3 +283,17 @@ class ClaimObjection(models.Model):
             self.deadline_at = self.claim.result_sent_at + timedelta(days=60)
         self.full_clean()
         return super().save(*args, **kwargs)
+
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        if closed and self.status == self.Status.ANSWERED:
+            target = self.Status.CLOSED
+        else:
+            target = {
+                "in_review": self.Status.IN_REVIEW,
+                "answered": self.Status.ANSWERED,
+                "closed": self.Status.CLOSED,
+            }.get(step_code)
+        if not target or self.status == target:
+            return
+        self.status = target
+        self.save(update_fields=["status", "updated_at"])
