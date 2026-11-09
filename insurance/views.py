@@ -325,7 +325,7 @@ def contract_terminate(request, pk):
             except (ValidationError, PermissionDenied) as exc:
                 form.add_error(None, str(exc))
             else:
-                messages.success(request, "درخواست فسخ ثبت شد؛ قرارداد تا تأیید و رسیدن تاریخ اثر فعال می‌ماند.")
+                messages.success(request, "درخواست فسخ ثبت شد؛ وضعیت جاری قرارداد تا تأیید نهایی و رسیدن تاریخ اثر تغییر نمی‌کند.")
                 return redirect("contract_detail", pk=contract.pk)
 
     return render(request, "insurance/contract_termination_form.html", {
