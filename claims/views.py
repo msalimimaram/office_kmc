@@ -8,11 +8,12 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.access import has_global_access, has_role
-from accounts.models import RoleAssignment
+from accounts.models import RoleAssignment, UserNotification
 from auditlog.services import record_event
 from core.permissions import can_decide_claim, scoped_claims_for
 from .forms import (
@@ -545,6 +546,15 @@ def claim_duplicate_declare(request, pk):
             "source_duplicate_note", "source_duplicate_reported_at",
             "source_duplicate_reported_by", "updated_at",
         ])
+        recipient_person = claim.primary_insured or claim.person
+        if recipient_person.user_id:
+            UserNotification.objects.create(
+                recipient=recipient_person.user,
+                actor=request.user,
+                title="اعلام تکراری بودن پرونده خسارت",
+                body="بیمه‌گر این پرونده را تکراری اعلام کرده است. برای مشاهده جزئیات و مرجع اعلام، پرونده خسارت را باز کنید.",
+                target_url=reverse("claim_detail", args=[claim.pk]),
+            )
         record_event(
             actor=request.user,
             action="claim_duplicate_declared_by_insurer",
