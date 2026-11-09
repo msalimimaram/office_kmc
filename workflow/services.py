@@ -493,6 +493,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         sent_at=timezone.now(),
     )
     _notify_assignee(case, actor, assignee, delegated=delegation is not None)
+    _notify_workflow_owners(case, actor, started=True)
     return case
 
 
@@ -699,6 +700,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     )
     if case.current_assignee_id and case.current_assignee_id != actor.pk:
         _notify_assignee(case, actor, case.current_assignee, delegated=is_delegated_assignee(case, case.current_assignee))
+    _notify_workflow_owners(case, actor, closed=transition.closes_case)
     return case
 
 
