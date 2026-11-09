@@ -222,7 +222,13 @@ def contract_detail(request, pk):
         cases_by_object = {case.object_id: case for case in cases}
         for revision in revisions:
             revision.workflow_case = cases_by_object.get(str(revision.pk))
-    can_submit_revision = _can_submit_contract(request.user, contract.line)
+    pending_revision = contract.revisions.filter(
+        status=ContractRevision.Status.PENDING_APPROVAL
+    ).first()
+    can_submit_revision = (
+        _can_submit_contract(request.user, contract.line)
+        and pending_revision is None
+    )
     can_request_termination = (
         can_submit_revision
         and contract.status in {Contract.Status.ACTIVE, Contract.Status.APPROVED}
@@ -232,6 +238,7 @@ def contract_detail(request, pk):
         "revisions": revisions,
         "can_submit_revision": can_submit_revision,
         "can_request_termination": can_request_termination,
+        "pending_revision": pending_revision,
     })
 
 
@@ -242,6 +249,8 @@ def contract_terminate(request, pk):
         raise PermissionDenied
     if contract.status not in {Contract.Status.ACTIVE, Contract.Status.APPROVED}:
         raise PermissionDenied("فقط قرارداد فعال یا تأییدشده قابل ارسال برای فسخ است.")
+    if contract.revisions.filter(status=ContractRevision.Status.PENDING_APPROVAL).exists():
+        raise PermissionDenied("تا تعیین تکلیف نسخه در انتظار تأیید، درخواست فسخ مجاز نیست.")
 
     open_claims = Claim.objects.filter(contract=contract).exclude(
         status__in=[Claim.Status.PAID, Claim.Status.CLOSED]
@@ -369,6 +378,8 @@ def contract_revision_create(request, pk):
     contract = get_object_or_404(_contract_scope(request.user), pk=pk)
     if not _can_submit_contract(request.user, contract.line):
         raise PermissionDenied
+    if contract.revisions.filter(status=ContractRevision.Status.PENDING_APPROVAL).exists():
+        raise PermissionDenied("تا تعیین تکلیف نسخه در انتظار تأیید، ثبت نسخه جدید مجاز نیست.")
     form = ContractForm(
         request.POST or None,
         request.FILES or None,
