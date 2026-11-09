@@ -1,6 +1,6 @@
 # سند جامع پروژه Office KMC
 > وضعیت سند: **ممیزی و تکمیل سورس روی `main` ادامه دارد؛ پذیرش اجرایی و آمادگی Production هنوز تأیید نشده است.**  
-> آخرین HEAD ثبت‌شده هنگام به‌روزرسانی این سند: `e4d93a506bef5808b436b72f331b9b6f8de066ea` روی شاخهٔ `main` (2026-11-09).  
+> آخرین snapshot تکمیلی GitHub در 2026-11-09: شاخه main با HEAD برابر 11ec3021536027e463ae5bd239693a1ec9e8d044. snapshotهای تاریخی در الحاقات حفظ شده‌اند؛ وضعیت جدید در بخش 17.33 ثبت شده است.  
 > تغییرات سورس و تست‌های جدید هنوز نیازمند اجرای واقعی Django و تأیید journeyها هستند؛ این سند جایگزین تست runtime یا بازبینی مالک کسب‌وکار نیست.
 
 ## 1. معرفی پروژه
@@ -1117,3 +1117,58 @@ Commits:
 - تست‌های جدید: تأیید و فعال‌سازی قرارداد، اعمال تاریخ اثر آینده، فسخ و حفظ خسارت باز، immutability نسخه، ثبت قرارداد با workflow، رد ثبت بدون workflow فعال، محدودیت رشته کارشناس و پیش‌نمایش خسارت‌های باز.
 
 **محدودیت پذیرش:** workflowهای contract_approval و contract_termination باید در دیتابیس با نقش‌ها/گیرنده‌های معتبر تعریف و فعال شوند؛ timer باید روی staging نصب و اجرا شود. مدل مستقل بیمه‌نامه اجرایی/پوشش، اثر فسخ بر پوشش‌های اشخاص/دارایی‌ها و هشدار سررسید هنوز کامل نیست. Migration و تست‌های این موج هنوز روی Django اجرا نشده‌اند؛ شمارش static تست‌ها از ۱۶۷ به **۱۷۴** و migrationها از ۳۹ به **۴۰** رسیده‌اند. پروژه هنوز برای Production تأیید نشده است.
+
+
+### 17.33 بازشناسی فاز صفر از HEAD واقعی GitHub — 2026-11-09
+
+**مبنای این الحاق:** خواندن مستقیم درخت و فایل‌های مخزن GitHub روی main؛ این snapshot جایگزین بخش‌های تاریخی قبلی نیست.
+
+#### هویت مخزن و Git
+- مخزن: msalimimaram/office_kmc؛ شاخه پیش‌فرض: main.
+- HEAD فعلی مشاهده‌شده: 11ec3021536027e463ae5bd239693a1ec9e8d044؛ پیام: fix(auth): use canonical role assignment enum values.
+- آخرین commit فقط مقدار نقش seed شده در core/management/commands/seed_operational_workflows.py را از INSURER به INSURER_REP تغییر داده است.
+- GitHub در این snapshot سه شاخه نشان می‌دهد: main، implementation/insurance-platform-core-2026-11-04 و audit/project-assessment-2026-10-29. هر سه بدون branch protection گزارش شده‌اند؛ این snapshot با یادداشت قدیمی‌تر «تنها main» یکسان نیست.
+- درخت recursive شاخه main شامل 348 entry (287 فایل و 61 directory) است. مخزن عمومی است و GitHub Actions در پروژه تعریف نشده است.
+
+#### ساختار و فناوری تأییدشده از فایل‌های فعلی
+- Django server-rendered modular monolith؛ وابستگی Django>=5.2,<5.3 در requirements.txt.
+- INSTALLED_APPS شامل ۱۵ اپ پروژه است: accounts, organizations, insurance, claims, requests_portal, tasks, documents, imports, auditlog, dashboard, assets, announcements, correspondence, workflow و core.
+- ROOT_URLCONF=config.urls، AUTH_USER_MODEL=accounts.User و template root برابر templates/ است؛ APP_DIRS=True.
+- DRF در requirements یا INSTALLED_APPS فعلی وجود ندارد؛ فایل serializer یا پروژه Flutter نیز در درخت recursive این snapshot دیده نشد.
+- SQLite فقط در DEBUG و بدون DATABASE_URL؛ PostgreSQL در حالت غیر DEBUG اجباری است. Redis مشترک برای cache ورود در حالت غیر DEBUG الزامی است.
+- زبان fa، منطقه زمانی Asia/Tehran؛ media در private_media/ تنظیم شده است. private بودن مسیر به‌تنهایی تنظیم امن وب‌سرور را ثابت نمی‌کند.
+- درخت فعلی ۳۷ فایل HTML، ۴۰ فایل migration شماره‌دار و ۱۸ فایل تست دارد. آخرین شمارش مستند، ۱۷۴ تعریف test_* در سورس است؛ این عدد شمارش ایستا است، نه تعداد تست اجراشده روی HEAD فعلی.
+
+#### نقشه اپ‌ها و وجود اجزای سطح اول
+| App | Models | Views | Forms | URLs | Admin | Tests |
+|---|---|---|---|---|---|---|
+| accounts | دارد | دارد | دارد | در root | دارد | دارد؛ دو فایل |
+| organizations | دارد | دارد | دارد | دارد | دارد | دارد |
+| insurance | دارد | دارد | در سطح app ندارد | دارد | دارد | دارد |
+| claims | دارد | دارد | دارد | دارد | دارد | دارد؛ دو فایل |
+| requests_portal | دارد | دارد | دارد | دارد | دارد | دارد |
+| tasks | دارد | دارد | دارد | دارد | دارد | دارد |
+| documents | دارد | دارد | در سطح app ندارد | دارد | دارد | دارد |
+| imports | دارد | دارد | دارد | دارد | دارد | دارد |
+| auditlog | دارد | ندارد؛ سرویس‌محور | ندارد | ندارد | دارد؛ فقط‌خواندنی | دارد |
+| dashboard | ندارد؛ view/service محور | دارد | ندارد | از root | ندارد | دارد |
+| assets | دارد | دارد | دارد | دارد | دارد | دارد |
+| announcements | دارد | دارد | دارد | دارد | دارد | دارد |
+| correspondence | دارد | دارد | دارد | دارد | دارد | دارد |
+| workflow | دارد | دارد | ندارد | دارد | دارد | دارد |
+| core | ندارد؛ زیرساختی | ندارد | ندارد | ندارد | ندارد | دارد |
+
+این جدول وجود فایل‌ها/اجزای اصلی را ثبت می‌کند؛ کاتالوگ دقیق هر مدل، view، form، URL، template و admin باید در فاز ۱ از کد هر اپ استخراج شود. نبود URL یا view در اپ‌های زیرساختی/سرویس‌محور به‌تنهایی شکاف محسوب نمی‌شود.
+
+#### وضعیت اجرای واقعی و اختلاف checkout
+- اجرای مستقیم manage.py روی HEAD فعلی در این نشست ممکن نشد: تلاش برای clone مخزن به‌دلیل عدم resolve شدن github.com شکست خورد. بنابراین check، showmigrations، test و runserver روی HEAD فعلی اجرا نشده‌اند.
+- خروجی محلی قبلی مالک در 2026-11-09 حدود ساعت 05:03: manage.py check موفق؛ makemigrations --check --dry-run با پیام No changes detected؛ pip check موفق؛ و ۱۴۶ تست با نتیجه OK. این شواهد مربوط به checkout محلی همان زمان است و به HEAD فعلی یا ۱۷۴ تست فعلی تعمیم داده نمی‌شود.
+- در همان snapshot محلی، HEAD برابر d6ed2a6 گزارش شده بود، origin/main...main = 0 367 بود و working tree شامل تغییرات organizations/tests.py، organizations/views.py و فایل untracked tasks/migrations/0004_alter_taskevent_event_type.py بود؛ پس clean بودن آن checkout تأیید نشده است.
+- خروجی واقعی showmigrations و startup موفق runserver برای snapshot محلی در شواهد موجود نیست؛ هیچ‌یک PASS فرض نمی‌شوند.
+- check --deploy در همان اجرای محلی ۶ هشدار امنیتی گزارش کرده بود؛ این نتیجه با PASS شدن check عادی متفاوت است.
+- نتیجه فاز صفر اجرایی برای HEAD فعلی: BLOCKED — runtime verification؛ علت: نبود checkout قابل اجرا در این نشست و عدم انطباق snapshot محلی قبلی با HEAD فعلی. برای بستن این مورد باید همین commit در محیط محلی/اجرایی دریافت و check، showmigrations، test و runserver مجدداً اجرا شوند.
+
+#### قواعد ادامه ممیزی
+- HEAD و فایل‌های این بخش مبنای ممیزی سورس فعلی‌اند؛ هر نتیجه اجرای محلی باید همراه commit hash و وضعیت working tree ثبت شود.
+- تعداد migrationهای فایل‌شده معادل migrationهای اعمال‌شده در دیتابیس نیست؛ شمارش test_* معادل تست اجراشده/پاس‌شده نیست.
+- تا دریافت خروجی واقعی روی HEAD فعلی، آمادگی Production تأیید نمی‌شود.
