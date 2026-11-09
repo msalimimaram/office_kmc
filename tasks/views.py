@@ -160,7 +160,8 @@ def task_update(request, pk):
                     task=locked, actor=request.user, event_type=TaskEvent.EventType.COMMENT, note=note,
                 )
             if action_occurred and not locked.events.filter(
-                event_type=TaskEvent.EventType.FIRST_ACTION
+                event_type=TaskEvent.EventType.FIRST_ACTION,
+                actor=request.user,
             ).exists():
                 TaskEvent.objects.create(
                     task=locked,
@@ -173,7 +174,10 @@ def task_update(request, pk):
 
     with transaction.atomic():
         locked = InternalTask.objects.select_for_update().get(pk=task.pk)
-        if not locked.events.filter(event_type=TaskEvent.EventType.FIRST_VIEWED).exists():
+        if not locked.events.filter(
+            event_type=TaskEvent.EventType.FIRST_VIEWED,
+            actor=request.user,
+        ).exists():
             TaskEvent.objects.create(
                 task=locked,
                 actor=request.user,
