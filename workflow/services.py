@@ -125,6 +125,23 @@ def _has_any_role(
     return False
 
 
+def _sync_domain_status(obj, *, step_code=None, closed=False):
+    """Synchronize an opted-in domain status when a workflow step uses its choice key."""
+    if obj is None or not hasattr(obj, "status"):
+        return
+    status_model = getattr(obj, "Status", None)
+    choices = getattr(status_model, "choices", ())
+    allowed = dict(choices)
+    target = "closed" if closed and "closed" in allowed else step_code
+    if not target or target not in allowed or getattr(obj, "status", None) == target:
+        return
+    obj.status = target
+    update_fields = ["status"]
+    if any(field.name == "updated_at" for field in obj._meta.fields):
+        update_fields.append("updated_at")
+    obj.save(update_fields=update_fields)
+
+
 def _calendar_is_working_day(calendar, day):
     holiday = calendar.holidays.filter(date=day).first()
     if holiday:
@@ -253,6 +270,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note=""):
     )
     if not created:
         raise ValidationError("برای این رکورد، پرونده‌ای از همین نسخه گردش کار وجود دارد.")
+    _sync_domain_status(obj, step_code=initial.code)
     if initial.sla_minutes:
         case.sla_due_at = add_business_minutes(case.opened_at, initial.sla_minutes, calendar)
         case.save(update_fields=["sla_due_at"])
@@ -394,6 +412,11 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         "current_step", "current_assignee", "status", "closed_at",
         "sla_due_at", "first_action_at",
     ])
+    _sync_domain_status(
+        case.content_object,
+        step_code=case.current_step.code if case.current_step else None,
+        closed=transition.closes_case,
+    )
     WorkflowEvent.objects.create(
         workflow_case=case,
         actor=actor,
