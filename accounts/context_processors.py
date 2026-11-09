@@ -26,13 +26,22 @@ def access_flags(request):
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
         or has_role(user, RoleAssignment.Role.INSURER_REP)
     )
+    delegation_inbox_access = has_global_access(user)
+    if not delegation_inbox_access:
+        # A recipient sees the inbox link only when a delegation was issued
+        # to this account. Historical rules keep the read-only empty inbox
+        # available after revocation for a bookmarked URL.
+        from delegations.models import WorkDelegation
+        delegation_inbox_access = WorkDelegation.objects.filter(
+            delegate_to=user
+        ).exists()
     return {
         "unread_notification_count": UserNotification.objects.filter(
             recipient=user, read_at__isnull=True
         ).count() if notification_access else 0,
         "access": {
             "notifications": notification_access,
-            "delegation_inbox": True,
+            "delegation_inbox": delegation_inbox_access,
             "delegation_manage": has_global_access(user),
             "staff": staff,
             "global": has_global_access(user),
