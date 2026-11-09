@@ -332,6 +332,15 @@ class UserNotification(models.Model):
         verbose_name = "اعلان کاربر"
         verbose_name_plural = "اعلان‌های کاربران"
 
+    def clean(self):
+        super().clean()
+        if self.target_url and (
+            not self.target_url.startswith("/")
+            or self.target_url.startswith("//")
+            or "\\\" in self.target_url
+        ):
+            raise ValidationError({"target_url": "مقصد اعلان باید یک مسیر داخلی معتبر باشد."})
+
     def save(self, *args, **kwargs):
         if self.pk:
             update_fields = set(kwargs.get("update_fields") or ())
