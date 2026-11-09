@@ -519,6 +519,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             "asset_valuation_approval",
             "asset_policy_approval",
             "asset_endorsement_approval",
+            "person_change",
         }
         active = set(
             WorkflowDefinition.objects.filter(is_active=True).values_list("code", flat=True)
