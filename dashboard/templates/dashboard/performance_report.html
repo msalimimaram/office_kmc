@@ -14,11 +14,11 @@
 <div class="panel">
   {% if rows %}
   <div class="table-wrap"><table>
-    <thead><tr><th>کارشناس</th><th>کار جاری</th><th>پرونده واگذارشده در بازه</th><th>اقدام</th><th>ارجاع</th><th>بازگشت</th><th>میانگین اولین مشاهده (دقیقه)</th><th>میانگین اولین اقدام (دقیقه)</th><th>معوق</th></tr></thead>
+    <thead><tr><th>کارشناس</th><th>کار جاری</th><th>نوبت دریافت / ارجاع</th><th>پرونده یکتا</th><th>اقدام</th><th>ارجاع</th><th>بازگشت</th><th>میانگین زمان تا مشاهده (دقیقه)</th><th>میانگین زمان تا اقدام (دقیقه)</th><th>معوق</th></tr></thead>
     <tbody>{% for row in rows %}
       <tr>
         <td>{{ row.user.get_full_name|default:row.user.username }}</td>
-        <td>{{ row.active_cases }}</td><td>{{ row.initial_cases }}</td><td>{{ row.actions }}</td>
+        <td>{{ row.active_cases }}</td><td>{{ row.initial_cases }}</td><td>{{ row.unique_received_cases }}</td><td>{{ row.actions }}</td>
         <td>{{ row.referrals }}</td><td>{{ row.returns }}</td>
         <td>{{ row.avg_first_view_minutes|default:"—" }}</td>
         <td>{{ row.avg_first_action_minutes|default:"—" }}</td><td>{{ row.overdue }}</td>
