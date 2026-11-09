@@ -157,6 +157,34 @@ class WorkflowEngineTests(TestCase):
         with self.assertRaises(ValidationError):
             WorkflowDefinition.objects.filter(pk=self.definition.pk).delete()
 
+    def test_workflow_configuration_rejects_bulk_create_bypass(self):
+        with self.assertRaises(ValidationError):
+            WorkflowDefinition.objects.bulk_create([
+                WorkflowDefinition(code="bulk-definition", title="تعریف گروهی", created_by=self.admin)
+            ])
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.bulk_create([
+                WorkflowStep(
+                    definition=self.definition,
+                    code="bulk-step",
+                    title="مرحله گروهی",
+                    order=9,
+                    allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+                )
+            ])
+        with self.assertRaises(ValidationError):
+            WorkflowTransition.objects.bulk_create([
+                WorkflowTransition(
+                    definition=self.definition,
+                    source_step=self.initial,
+                    target_step=self.final,
+                    action_code="bulk-transition",
+                    title="مسیر گروهی",
+                    allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+                    recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+                )
+            ])
+
     def test_workflow_events_reject_queryset_mutation(self):
         case = start_workflow(
             obj=self.request,

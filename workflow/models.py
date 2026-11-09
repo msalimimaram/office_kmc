@@ -38,6 +38,9 @@ class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
             raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
         return super().delete()
 
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("تعریف گردش کار باید از مسیر اعتبارسنجی‌شده save ایجاد شود.")
+
 
 class PublishedWorkflowChildQuerySet(models.QuerySet):
     def _guard_published(self):
@@ -55,6 +58,9 @@ class PublishedWorkflowChildQuerySet(models.QuerySet):
     def bulk_update(self, objs, fields, batch_size=None):
         self._guard_published()
         return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("مراحل و مسیرهای گردش کار باید از مسیر اعتبارسنجی‌شده save ایجاد شوند.")
 
 
 class WorkflowDefinition(models.Model):
