@@ -224,3 +224,286 @@ def normalize_national_id(value: str) -> str:
     )
     digits = digits.translate(translation)
     return "".join(ch for ch in digits if ch.isdigit())
+
+
+
+class PersonChangeRequest(models.Model):
+    class ChangeType(models.TextChoices):
+        MOBILE = "mobile", "شماره همراه"
+        IBAN = "iban", "شماره شبا"
+        NATIONAL_ID = "national_id", "کد ملی"
+        FIRST_NAME = "first_name", "نام"
+        LAST_NAME = "last_name", "نام خانوادگی"
+        PERSONNEL_CODE = "personnel_code", "کد پرسنلی"
+        BIRTH_DATE = "birth_date", "تاریخ تولد"
+
+    class Status(models.TextChoices):
+        SUBMITTED = "submitted", "ثبت‌شده"
+        COMPANY_REVIEW = "company_review", "بررسی نماینده شرکت"
+        INSURER_UPDATE = "insurer_update", "اقدام بیمه‌گر"
+        COMPANY_FINAL_REVIEW = "company_final_review", "بازبینی نهایی نماینده شرکت"
+        APPROVED = "approved", "تأیید و اعمال‌شده"
+        REJECTED = "rejected", "ردشده"
+
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="change_requests",
+        verbose_name="شخص",
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.PROTECT,
+        related_name="person_change_requests",
+        verbose_name="شرکت در زمان درخواست",
+    )
+    contract = models.ForeignKey(
+        "insurance.Contract",
+        on_delete=models.PROTECT,
+        related_name="person_change_requests",
+        verbose_name="قرارداد/بیمه‌گر مرتبط",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="person_change_requests",
+        verbose_name="درخواست‌کننده",
+    )
+    change_type = models.CharField(
+        "نوع تغییر",
+        max_length=24,
+        choices=ChangeType.choices,
+    )
+    current_value = models.CharField("مقدار ثبت‌شده هنگام درخواست", max_length=160, blank=True)
+    requested_value = models.CharField("مقدار درخواستی", max_length=160)
+    reason = models.TextField("دلیل و توضیحات", max_length=2000)
+    status = models.CharField(
+        "وضعیت",
+        max_length=32,
+        choices=Status.choices,
+        default=Status.SUBMITTED,
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="approved_person_change_requests",
+    )
+    approved_at = models.DateTimeField("زمان تأیید نهایی", null=True, blank=True)
+    rejected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="rejected_person_change_requests",
+    )
+    rejected_at = models.DateTimeField("زمان رد", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("person", "change_type"),
+                condition=models.Q(
+                    status__in=[
+                        "submitted",
+                        "company_review",
+                        "insurer_update",
+                        "company_final_review",
+                    ]
+                ),
+                name="uniq_open_person_change_field",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("company", "status", "created_at"), name="person_change_company_status"),
+            models.Index(fields=("requested_by", "created_at"), name="person_change_requester"),
+        ]
+        verbose_name = "درخواست تغییر اطلاعات بیمه‌شده"
+        verbose_name_plural = "درخواست‌های تغییر اطلاعات بیمه‌شدگان"
+
+    FIELD_MAP = {
+        ChangeType.MOBILE: "mobile",
+        ChangeType.IBAN: "iban",
+        ChangeType.NATIONAL_ID: "national_id",
+        ChangeType.FIRST_NAME: "first_name",
+        ChangeType.LAST_NAME: "last_name",
+        ChangeType.PERSONNEL_CODE: "personnel_code",
+        ChangeType.BIRTH_DATE: "birth_date",
+    }
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        field_name = self.FIELD_MAP.get(self.change_type)
+        if not field_name:
+            errors["change_type"] = "نوع تغییر انتخاب‌شده پشتیبانی نمی‌شود."
+        if self.contract_id and self.company_id:
+            if not self.contract.companies.filter(pk=self.company_id).exists():
+                errors["contract"] = "قرارداد انتخاب‌شده متعلق به شرکت این درخواست نیست."
+        value = (self.requested_value or "").strip()
+        if not value:
+            errors["requested_value"] = "مقدار جدید الزامی است."
+        elif self.change_type == self.ChangeType.NATIONAL_ID:
+            value = normalize_national_id(value)
+            if len(value) != 10:
+                errors["requested_value"] = "کد ملی باید دقیقاً ۱۰ رقم باشد."
+        elif self.change_type == self.ChangeType.IBAN:
+            value = "".join(value.upper().split())
+            if len(value) != 26 or not value.startswith("IR") or not value[2:].isdigit():
+                errors["requested_value"] = "شماره شبا باید با IR شروع شود و ۲۴ رقم داشته باشد."
+        elif self.change_type == self.ChangeType.MOBILE:
+            normalized = value.replace(" ", "").replace("-", "")
+            digits = normalized[1:] if normalized.startswith("+") else normalized
+            if not digits.isdigit() or not 8 <= len(digits) <= 15:
+                errors["requested_value"] = "شماره همراه باید بین ۸ تا ۱۵ رقم معتبر باشد."
+        elif self.change_type in {self.ChangeType.FIRST_NAME, self.ChangeType.LAST_NAME}:
+            if len(value) > 100:
+                errors["requested_value"] = "طول نام بیش از حد مجاز است."
+        elif self.change_type == self.ChangeType.PERSONNEL_CODE and len(value) > 50:
+            errors["requested_value"] = "طول کد پرسنلی بیش از حد مجاز است."
+        elif self.change_type == self.ChangeType.BIRTH_DATE:
+            from datetime import date
+
+            try:
+                parsed = date.fromisoformat(value)
+                if parsed > timezone.localdate():
+                    errors["requested_value"] = "تاریخ تولد نمی‌تواند در آینده باشد."
+            except ValueError:
+                errors["requested_value"] = "تاریخ تولد باید با قالب YYYY-MM-DD ثبت شود."
+        if field_name and self.person_id:
+            current = getattr(self.person, field_name)
+            current_text = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
+            if current_text == value:
+                errors["requested_value"] = "مقدار جدید با مقدار فعلی یکسان است."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = type(self).objects.get(pk=self.pk)
+            mutable = {
+                "status", "approved_by", "approved_at",
+                "rejected_by", "rejected_at", "updated_at",
+            }
+            changed = [
+                field.name
+                for field in self._meta.concrete_fields
+                if field.name not in {"id"} | mutable
+                and getattr(previous, field.attname) != getattr(self, field.attname)
+            ]
+            if changed:
+                raise ValidationError("درخواست ثبت‌شده قابل ویرایش نیست؛ اطلاعات فقط از مسیر گردش کار تغییر می‌کند.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("درخواست تغییر اطلاعات حذف نمی‌شود؛ سوابق باید حفظ شوند.")
+
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        if step_code in dict(self.Status.choices):
+            target = step_code
+        elif closed and self.status == self.Status.COMPANY_FINAL_REVIEW:
+            target = self.Status.APPROVED
+        else:
+            return
+
+        if self.status == target and (
+            target != self.Status.APPROVED or self.approved_by_id == getattr(actor, "pk", None)
+        ):
+            return
+
+        self.status = target
+        update_fields = ["status", "updated_at"]
+        if target == self.Status.APPROVED:
+            self.approved_by = actor
+            self.approved_at = timezone.now()
+            update_fields.extend(["approved_by", "approved_at"])
+        elif target == self.Status.REJECTED:
+            self.rejected_by = actor
+            self.rejected_at = timezone.now()
+            update_fields.extend(["rejected_by", "rejected_at"])
+        self.save(update_fields=update_fields)
+
+        if target == self.Status.APPROVED:
+            self.apply_approved_change(actor=actor)
+
+    def apply_approved_change(self, *, actor):
+        from django.contrib.auth import get_user_model
+        from django.db import transaction
+        from auditlog.services import record_event
+
+        User = get_user_model()
+        field_name = self.FIELD_MAP[self.change_type]
+        with transaction.atomic():
+            person = Person.objects.select_for_update().select_related("user").get(pk=self.person_id)
+            current = getattr(person, field_name)
+            current_text = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
+            if current_text != self.current_value:
+                raise ValidationError(
+                    "اطلاعات پایه پس از ثبت درخواست تغییر کرده است؛ این درخواست را رد و درخواست جدید ثبت کنید."
+                )
+
+            raw_value = self.requested_value.strip()
+            if self.change_type == self.ChangeType.NATIONAL_ID:
+                new_value = normalize_national_id(raw_value)
+            elif self.change_type == self.ChangeType.IBAN:
+                new_value = "".join(raw_value.upper().split())
+            elif self.change_type == self.ChangeType.MOBILE:
+                new_value = raw_value.replace(" ", "").replace("-", "")
+            elif self.change_type == self.ChangeType.BIRTH_DATE:
+                from datetime import date
+                new_value = date.fromisoformat(raw_value)
+            else:
+                new_value = raw_value
+
+            setattr(person, field_name, new_value)
+            person.save(update_fields=[field_name, "updated_at"])
+
+            if person.user_id:
+                user = User.objects.select_for_update().get(pk=person.user_id)
+                user_fields = []
+                if self.change_type == self.ChangeType.NATIONAL_ID:
+                    if User.objects.exclude(pk=user.pk).filter(username=new_value).exists():
+                        raise ValidationError("کد ملی جدید قبلاً به‌عنوان نام کاربری ثبت شده است.")
+                    if user.username == self.current_value:
+                        user.username = new_value
+                        user_fields.append("username")
+                    user.national_id = new_value
+                    user_fields.append("national_id")
+                elif self.change_type == self.ChangeType.MOBILE:
+                    user.mobile = new_value
+                    user_fields.append("mobile")
+                elif self.change_type == self.ChangeType.FIRST_NAME:
+                    user.first_name = new_value
+                    user_fields.append("first_name")
+                elif self.change_type == self.ChangeType.LAST_NAME:
+                    user.last_name = new_value
+                    user_fields.append("last_name")
+                if user_fields:
+                    user.save(update_fields=user_fields)
+
+            def audit_value(value):
+                value = str(value or "")
+                if self.change_type in {
+                    self.ChangeType.MOBILE,
+                    self.ChangeType.IBAN,
+                    self.ChangeType.NATIONAL_ID,
+                }:
+                    return ("*" * max(0, len(value) - 4)) + value[-4:]
+                return value
+
+            record_event(
+                actor=actor,
+                action="person_change_approved",
+                obj=person,
+                summary=f"درخواست تغییر {self.get_change_type_display()} پس از تأیید نهایی اعمال شد.",
+                before_data={field_name: audit_value(self.current_value)},
+                after_data={field_name: audit_value(new_value)},
+            )
+
+    def __str__(self):
+        return f"{self.person} · {self.get_change_type_display()} · {self.get_status_display()}"
