@@ -154,6 +154,14 @@ def _person_change_scope(user):
         return queryset
 
     allowed = Q(requested_by_id=user.pk)
+    if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        # A company representative may submit a change on behalf of the
+        # insured person; the person (or primary employee for a dependent)
+        # must still be able to follow their own request.
+        allowed |= (
+            Q(person__user_id=user.pk)
+            | Q(person__employee__user_id=user.pk)
+        )
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
         representative_lines = line_codes_for(
@@ -350,9 +358,17 @@ def person_change_detail(request, pk):
             or case.current_assignee_id == request.user.pk
         )
     )
+    is_person_owner = bool(
+        item.person.user_id == request.user.pk
+        or (
+            item.person.employee_id
+            and item.person.employee.user_id == request.user.pk
+        )
+    )
     can_view_full_values = bool(
         has_global_access(request.user)
         or item.requested_by_id == request.user.pk
+        or is_person_owner
         or (case and case.current_assignee_id == request.user.pk)
     )
     current_value_display = item.current_value
