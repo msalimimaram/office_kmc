@@ -3,6 +3,7 @@ from django.db.models import Q, Max
 from django.utils import timezone
 
 from accounts.models import RoleAssignment
+from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
 
 
@@ -78,6 +79,32 @@ class Command(BaseCommand):
             definition.save()
             created.append(code)
 
+        # Every ServiceRequest kind is routed through the same audited state
+        # contract, while each kind keeps its own immutable workflow definition.
+        for code, title in ServiceRequest.Kind.choices:
+            if WorkflowDefinition.objects.filter(code=code, is_active=True).exists():
+                skipped.append(code)
+                continue
+            version = (
+                WorkflowDefinition.objects.filter(code=code)
+                .aggregate(value=Max("version"))["value"] or 0
+            ) + 1
+            definition = WorkflowDefinition.objects.create(
+                code=code,
+                title=f"گردش درخواست: {title}",
+                version=version,
+                created_by=actor,
+                description=(
+                    "گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
+                    "تأیید رئیس اداره بیمه یا مدیر سامانه تغییر می‌کنند."
+                ),
+            )
+            self._build_service_request(definition, global_roles)
+            definition.approved_by = actor
+            definition.is_active = True
+            definition.save()
+            created.append(code)
+
         if created:
             self.stdout.write(self.style.SUCCESS("Created and published: " + ", ".join(created)))
         if skipped:
@@ -86,6 +113,99 @@ class Command(BaseCommand):
             "Contract and asset approvals are restricted to Department Head/System Admin. "
             "Person changes follow Company Representative → Insurer Representative → "
             "Company Representative; insurer representatives cannot close requests."
+        )
+
+    def _build_service_request(self, definition, global_roles):
+        company_roles = [RoleAssignment.Role.SUBSIDIARY_REP]
+        insurer_roles = [RoleAssignment.Role.INSURER_REP]
+        employee_roles = [RoleAssignment.Role.INSURED_PERSON]
+        review_roles = global_roles + [RoleAssignment.Role.INSURANCE_SPECIALIST]
+
+        steps = {}
+        step_specs = (
+            (ServiceRequest.Status.SUBMITTED, "ثبت‌شده", company_roles + global_roles, True, False),
+            (ServiceRequest.Status.IN_REVIEW, "در حال بررسی", review_roles, False, False),
+            (ServiceRequest.Status.NEEDS_INFO, "نیازمند تکمیل اطلاعات", employee_roles, False, False),
+            (ServiceRequest.Status.REFERRED, "ارجاع‌شده به بیمه‌گر", insurer_roles, False, False),
+            (ServiceRequest.Status.APPROVED, "تأییدشده", global_roles, False, False),
+            (ServiceRequest.Status.REJECTED, "ردشده", global_roles, False, False),
+            (ServiceRequest.Status.COMPLETED, "انجام‌شده", global_roles, False, False),
+            (ServiceRequest.Status.CLOSED, "بسته‌شده", global_roles, False, True),
+        )
+        for order, (code, title, roles, initial, terminal) in enumerate(step_specs, start=1):
+            steps[code] = WorkflowStep.objects.create(
+                definition=definition,
+                code=code,
+                title=title,
+                order=order,
+                allowed_roles=roles,
+                is_initial=initial,
+                is_terminal=terminal,
+                allow_return=not terminal,
+            )
+
+        def transition(source, target, action, title, allowed, recipients, *, note=False, closes=False):
+            WorkflowTransition.objects.create(
+                definition=definition,
+                source_step=steps[source],
+                target_step=None if closes else steps[target],
+                action_code=action,
+                title=title,
+                allowed_roles=allowed,
+                recipient_roles=[] if closes else recipients,
+                requires_note=note,
+                closes_case=closes,
+            )
+
+        transition(
+            ServiceRequest.Status.SUBMITTED, ServiceRequest.Status.IN_REVIEW,
+            "accept_for_review", "پذیرش و شروع بررسی",
+            company_roles + global_roles, global_roles,
+        )
+        transition(
+            ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.NEEDS_INFO,
+            "request_information", "درخواست تکمیل اطلاعات",
+            review_roles, employee_roles, note=True,
+        )
+        transition(
+            ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.REFERRED,
+            "refer_to_insurer", "ارجاع به بیمه‌گر",
+            review_roles, insurer_roles, note=True,
+        )
+        transition(
+            ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.APPROVED,
+            "approve", "تأیید درخواست",
+            global_roles, global_roles,
+        )
+        transition(
+            ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.REJECTED,
+            "reject", "رد درخواست",
+            global_roles, global_roles, note=True,
+        )
+        transition(
+            ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.IN_REVIEW,
+            "submit_information", "ارسال اطلاعات تکمیلی",
+            employee_roles, global_roles, note=True,
+        )
+        transition(
+            ServiceRequest.Status.REFERRED, ServiceRequest.Status.IN_REVIEW,
+            "return_from_insurer", "دریافت پاسخ بیمه‌گر",
+            insurer_roles, global_roles, note=True,
+        )
+        transition(
+            ServiceRequest.Status.APPROVED, ServiceRequest.Status.COMPLETED,
+            "mark_completed", "ثبت انجام درخواست",
+            global_roles, global_roles,
+        )
+        transition(
+            ServiceRequest.Status.REJECTED, None,
+            "finalize_rejection", "ثبت نهایی رد",
+            global_roles, [], closes=True,
+        )
+        transition(
+            ServiceRequest.Status.COMPLETED, None,
+            "finalize_completion", "بستن نهایی درخواست",
+            global_roles, [], closes=True,
         )
 
     def _build_global_approval(self, definition, approved_step_code, roles):
