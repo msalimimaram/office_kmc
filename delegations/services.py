@@ -185,7 +185,7 @@ def apply_delegation_to_open_cases(delegation, *, actor=None, conflict_counter=N
         except ValidationError:
             if conflict_counter is None:
                 raise
-            conflict_counter["conflicts"] = conflict_counter.get("conflicts", 0) + 1
+            conflict_counter.setdefault("_conflict_case_ids", set()).add(case.pk)
             continue
         # Existing and newly-created cases must obey the same rule precedence.
         if not selected or selected.pk != delegation.pk:
@@ -491,6 +491,7 @@ def synchronize_delegations(*, delegate_to=None):
             event_type=event_type,
             note=summary + " پرونده‌های باز به تفویض‌کننده بازگردانده شدند.",
         )
+    report["conflicts"] = len(report.pop("_conflict_case_ids", set()))
     return report
 
 
