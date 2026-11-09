@@ -1,15 +1,57 @@
 """Shared validation for user-uploaded files.
 
 Extension and client-provided MIME types are not trusted. Validate a small
-signature/structure check and always rewind the upload before saving it.
+signature/structure check, scan with ClamAV when configured, and always rewind
+the upload before saving it.
 """
 from pathlib import Path
+import socket
+import struct
 from zipfile import BadZipFile, ZipFile
 
+from django.conf import settings
 from PIL import Image, UnidentifiedImageError
 
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".png", ".jpg", ".jpeg"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xlsm", ".png", ".jpg", ".jpeg"}
+
+
+def scan_uploaded_file(upload):
+    """Scan a validated upload with ClamAV INSTREAM; fail closed outside DEBUG."""
+    host = getattr(settings, "CLAMD_HOST", "").strip()
+    if not host:
+        if settings.DEBUG:
+            return None
+        return "اسکنر بدافزار در محیط عملیاتی پیکربندی نشده است؛ بارگذاری فایل متوقف شد."
+
+    port = int(getattr(settings, "CLAMD_PORT", 3310))
+    timeout = float(getattr(settings, "CLAMD_TIMEOUT", 10))
+    try:
+        upload.seek(0)
+        with socket.create_connection((host, port), timeout=timeout) as client:
+            client.settimeout(timeout)
+            client.sendall(b"zINSTREAM\0")
+            while True:
+                chunk = upload.read(64 * 1024)
+                if not chunk:
+                    break
+                client.sendall(struct.pack("!I", len(chunk)))
+                client.sendall(chunk)
+            client.sendall(struct.pack("!I", 0))
+            response = client.recv(4096)
+    except (OSError, ValueError, TypeError):
+        return "ارتباط با اسکنر بدافزار برقرار نشد؛ بارگذاری فایل متوقف شد."
+    finally:
+        try:
+            upload.seek(0)
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    if b"FOUND" in response:
+        return "فایل بارگذاری‌شده توسط اسکنر بدافزار آلوده تشخیص داده شد."
+    if b"OK" in response:
+        return None
+    return "پاسخ اسکنر بدافزار معتبر نیست؛ بارگذاری فایل متوقف شد."
 
 
 def validate_uploaded_file(upload, *, max_size, allowed_extensions=ALLOWED_EXTENSIONS):
@@ -40,7 +82,7 @@ def validate_uploaded_file(upload, *, max_size, allowed_extensions=ALLOWED_EXTEN
                 return "محتوای فایل با قالب JPEG مطابقت ندارد."
             with Image.open(upload) as image:
                 image.verify()
-        elif extension in {".docx", ".xlsx"}:
+        elif extension in {".docx", ".xlsx", ".xlsm"}:
             try:
                 with ZipFile(upload) as archive:
                     entries = archive.infolist()
@@ -54,6 +96,9 @@ def validate_uploaded_file(upload, *, max_size, allowed_extensions=ALLOWED_EXTEN
                         return "محتوای فایل با قالب انتخاب‌شده مطابقت ندارد."
             except (BadZipFile, OSError):
                 return "فایل Office معتبر نیست."
+        scan_error = scan_uploaded_file(upload)
+        if scan_error:
+            return scan_error
         return None
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         return "محتوای فایل معتبر یا قابل خواندن نیست."
