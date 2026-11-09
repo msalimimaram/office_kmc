@@ -438,13 +438,16 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
 
 
 @transaction.atomic
-def synchronize_delegations():
-    """Expire invalid rules, return their open cases, and route eligible initial-stage work."""
+def synchronize_delegations(*, delegate_to=None):
+    """Reconcile all rules, or only one recipient's rules for their private inbox."""
     today = timezone.localdate()
     report = {"expired": 0, "suspended": 0, "routed": 0, "conflicts": 0}
     active = WorkDelegation.objects.select_for_update().filter(
         status=WorkDelegation.Status.ACTIVE
-    ).select_related("delegate_to", "granted_by")
+    )
+    if delegate_to is not None:
+        active = active.filter(delegate_to=delegate_to)
+    active = active.select_related("delegate_to", "granted_by")
     for delegation in active:
         # Future-dated delegations must not be suspended before they begin.
         if delegation.valid_from > today:
