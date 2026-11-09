@@ -314,6 +314,19 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         raise PermissionDenied("این اقدام در مرحله جاری تعریف نشده است.")
     scope = _scope_for_object(case.content_object)
     _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles, scope=scope)
+    if (
+        transition.closes_case
+        and not has_global_access(actor)
+        and scope.get("insurer_id")
+        and has_role(
+            actor,
+            RoleAssignment.Role.INSURER_REP,
+            insurer_id=scope["insurer_id"],
+        )
+    ):
+        raise PermissionDenied(
+            "نماینده بیمه‌گر مجاز به بستن نهایی پرونده نیست؛ پرونده باید به اداره بیمه ارجاع شود."
+        )
     if transition.requires_note and not note.strip():
         raise ValidationError({"note": "برای این اقدام درج توضیحات الزامی است."})
     if transition.is_return and not case.current_step.allow_return:
