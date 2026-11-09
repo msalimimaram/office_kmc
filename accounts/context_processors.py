@@ -20,11 +20,18 @@ def access_flags(request):
             PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
         ],
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+    notification_access = (
+        staff
+        or has_role(user, RoleAssignment.Role.INSURED_PERSON)
+        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+        or has_role(user, RoleAssignment.Role.INSURER_REP)
+    )
     return {
         "unread_notification_count": UserNotification.objects.filter(
             recipient=user, read_at__isnull=True
-        ).count(),
+        ).count() if notification_access else 0,
         "access": {
+            "notifications": notification_access,
             "staff": staff,
             "global": has_global_access(user),
             "system_admin": has_role(user, RoleAssignment.Role.SYSTEM_ADMIN),
