@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block title %}خسارت‌ها{% endblock %}
-{% block content %}<div class="page-heading"><div><p class="eyebrow">خدمات بیمه‌ای</p><h1>خسارت‌ها</h1><p class="muted">فقط خسارت‌های مجاز برای حساب شما نمایش داده می‌شوند.</p></div></div>
+{% block content %}<div class="page-heading"><div><p class="eyebrow">خدمات بیمه‌ای</p><h1>خسارت‌ها</h1><p class="muted">فقط خسارت‌های مجاز برای حساب شما نمایش داده می‌شوند.</p></div>{% if can_create %}<a class="btn primary" href="{% url 'claim_create' %}">ثبت خسارت جدید</a>{% endif %}</div>
 <section class="panel">
 <form method="get" class="filter-bar">
 <label>جست‌وجو<input type="search" name="q" value="{{ search_query }}" placeholder="شناسه خسارت، نام بیمه‌شده یا نوع خدمت"></label>
