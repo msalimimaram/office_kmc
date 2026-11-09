@@ -9,6 +9,7 @@
   </div>
   <div class="actions">
     {% if can_submit_revision %}<a class="btn primary" href="{% url 'contract_revision_create' contract.pk %}">ثبت نسخه / اصلاحیه</a>{% endif %}
+    {% if can_request_termination %}<a class="btn danger" href="{% url 'contract_terminate' contract.pk %}">درخواست فسخ</a>{% endif %}
     <a class="btn secondary" href="{% url 'contract_list' %}">بازگشت به فهرست</a>
   </div>
 </div>
