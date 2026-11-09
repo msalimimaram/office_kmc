@@ -13,6 +13,7 @@ from workflow.services import is_delegated_assignee, resolve_initial_assignee, s
 from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowTransition
 
+from .forms import WorkDelegationForm
 from .models import WorkDelegation
 from .services import (
     apply_delegation_to_open_cases,
@@ -585,6 +586,39 @@ class DelegationRoutingTests(TestCase):
         response = client.get(reverse("delegation_management"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "مدیریت تفویض اختیار")
+
+    def test_delegation_form_lists_recipient_whose_assignment_starts_on_future_date(self):
+        start_date = timezone.localdate() + timedelta(days=15)
+        future_specialist = User.objects.create_user(
+            username="delegation.future.form",
+            password="TestPass!23456",
+        )
+        RoleAssignment.objects.create(
+            user=future_specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            is_active=True,
+            valid_from=start_date,
+            reason="انتصاب آتی برای آزمون فرم تفویض",
+        )
+        form = WorkDelegationForm(data={
+            "workflow_code": "person_change",
+            "item_type": "iban",
+            "delegate_role": RoleAssignment.Role.INSURANCE_SPECIALIST,
+            "delegate_to": str(future_specialist.pk),
+            "company": str(self.company.pk),
+            "insurer": "",
+            "line_code": "health",
+            "valid_from": start_date.isoformat(),
+            "valid_until": "",
+            "reason": "تفویض از تاریخ شروع انتصاب آتی کارشناس",
+        })
+
+        self.assertIn(
+            future_specialist,
+            form.fields["delegate_to"].queryset,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_future_dated_delegation_is_not_suspended_before_its_start(self):
         start_date = timezone.localdate() + timedelta(days=10)
