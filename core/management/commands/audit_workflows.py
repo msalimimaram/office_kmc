@@ -4,6 +4,7 @@ from accounts.models import RoleAssignment
 from claims.models import ClaimObjection
 from insurance.models import ContractRevision
 from requests_portal.models import ServiceRequest
+from organizations.models import PersonChangeRequest
 from workflow.models import WorkflowDefinition
 
 
@@ -13,7 +14,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         required_codes = (
             {value for value, _label in ServiceRequest.Kind.choices}
-            | {"claim_objection", "contract_approval", "contract_termination"}
+            | {"claim_objection", "contract_approval", "contract_termination", "person_change"}
         )
         active_definitions = list(
             WorkflowDefinition.objects.filter(
@@ -67,6 +68,28 @@ class Command(BaseCommand):
                         errors.append(
                             f"{code}: مرحله آغازین فقط باید به رئیس اداره/مدیر سامانه واگذار شود."
                         )
+            elif code == "person_change":
+                valid_statuses = set(dict(PersonChangeRequest.Status.choices))
+                decision_steps = {
+                    PersonChangeRequest.Status.APPROVED,
+                    PersonChangeRequest.Status.REJECTED,
+                }
+                if len(initial_steps) == 1:
+                    initial = initial_steps[0]
+                    if initial.code != PersonChangeRequest.Status.COMPANY_REVIEW:
+                        errors.append("person_change: مرحله آغازین باید company_review باشد.")
+                    if RoleAssignment.Role.SUBSIDIARY_REP not in (initial.allowed_roles or []):
+                        errors.append("person_change: مرحله آغازین باید به نماینده شرکت واگذار شود.")
+                required_person_steps = {
+                    PersonChangeRequest.Status.INSURER_UPDATE,
+                    PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                }
+                missing_person_steps = required_person_steps - {step.code for step in steps}
+                if missing_person_steps:
+                    errors.append(
+                        "person_change: مراحل ضروری تعریف نشده‌اند: "
+                        + ", ".join(sorted(missing_person_steps))
+                    )
             else:
                 valid_statuses = set(dict(ServiceRequest.Status.choices))
                 decision_steps = set()
