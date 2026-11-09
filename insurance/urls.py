@@ -8,6 +8,7 @@ urlpatterns = [
     path("contracts/new/", views.contract_create, name="contract_create"),
     path("contracts/<int:pk>/", views.contract_detail, name="contract_detail"),
     path("contracts/<int:pk>/revisions/new/", views.contract_revision_create, name="contract_revision_create"),
+    path("contracts/<int:pk>/terminate/", views.contract_terminate, name="contract_terminate"),
     path(
         "contracts/<int:pk>/revisions/<int:revision_pk>/download/",
         views.contract_revision_download,
