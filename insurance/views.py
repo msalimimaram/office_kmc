@@ -41,7 +41,7 @@ def _contract_scope(user):
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         return scoped
     # External company/insurer users see approved active contracts only.
-    return scoped.filter(status=Contract.Status.ACTIVE, is_active=True)
+    return scoped.filter(status__in=[Contract.Status.ACTIVE, Contract.Status.EXPIRED, Contract.Status.TERMINATED, Contract.Status.LEGACY_INACTIVE])
 
 
 def _can_submit_contract(user, line=None):
@@ -191,6 +191,18 @@ def contract_create(request):
 def contract_detail(request, pk):
     contract = get_object_or_404(_contract_scope(request.user), pk=pk)
     revisions = list(contract.revisions.select_related("created_by", "approved_by").all())
+    internal_view = has_global_access(request.user) or has_role(
+        request.user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+    )
+    if not internal_view:
+        revisions = [
+            revision for revision in revisions
+            if revision.status in {
+                ContractRevision.Status.APPROVED,
+                ContractRevision.Status.LEGACY,
+                ContractRevision.Status.TERMINATED,
+            }
+        ]
     if revisions:
         content_type = ContentType.objects.get_for_model(
             ContractRevision, for_concrete_model=False
