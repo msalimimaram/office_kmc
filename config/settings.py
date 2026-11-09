@@ -126,6 +126,16 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/private-media/"
 MEDIA_ROOT = BASE_DIR / "private_media"
+CLAMD_HOST = os.getenv("CLAMD_HOST", "").strip()
+try:
+    CLAMD_PORT = int(os.getenv("CLAMD_PORT", "3310"))
+    CLAMD_TIMEOUT = float(os.getenv("CLAMD_TIMEOUT", "10"))
+except ValueError as exc:
+    raise RuntimeError("CLAMD_PORT and CLAMD_TIMEOUT must be numeric") from exc
+if not 1 <= CLAMD_PORT <= 65535 or CLAMD_TIMEOUT <= 0:
+    raise RuntimeError("ClamAV port/timeout configuration is invalid")
+if not DEBUG and not CLAMD_HOST:
+    raise RuntimeError("CLAMD_HOST must be configured in production; uploads fail closed without malware scanning")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
