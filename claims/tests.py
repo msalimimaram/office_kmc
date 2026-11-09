@@ -318,3 +318,160 @@ class ClaimObjectionReviewFlowTests(TestCase):
         detail = client.get(reverse("workflow_case_detail", args=[case.pk]))
         self.assertEqual(detail.status_code, 200)
 
+
+
+
+class ManualClaimWorkflowTests(TestCase):
+    def setUp(self):
+        from datetime import date, timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        from accounts.models import RoleAssignment, User
+        from insurance.models import Contract, Insurer, InsuranceLine
+        from organizations.models import Company, Person
+
+        today = timezone.localdate()
+        self.company = Company.objects.create(code="CLM-MAN", name="شرکت خسارت دستی")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر خسارت دستی")
+        self.contract = Contract.objects.create(
+            code="CLM-CONTRACT-1",
+            title="قرارداد درمان",
+            insurer=self.insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=60),
+            end_date=today + timedelta(days=305),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.contract.companies.add(self.company)
+        self.person = Person.objects.create(
+            company=self.company,
+            national_id="9876543210",
+            first_name="بیمه‌شده",
+            last_name="آزمایش خسارت",
+            birth_date=date(1988, 4, 2),
+            mobile="09120001111",
+            iban="IR111111111111111111111111",
+            is_insured=True,
+        )
+        self.specialist = User.objects.create_user(
+            username="claim-review-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.head = User.objects.create_user(
+            username="claim-review-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.HEALTH,
+            reason="کارشناس رشته برای آزمون ثبت خسارت",
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای تصمیم نهایی خسارت",
+        )
+        call_command("seed_operational_workflows")
+
+    def test_manual_claim_assessment_head_decision_and_result_dispatch(self):
+        from django.contrib.contenttypes.models import ContentType
+        from accounts.models import RoleAssignment
+        from claims.models import Claim
+        from workflow.models import WorkflowCase
+        from workflow.services import transition_case
+
+        client = Client()
+        client.force_login(self.specialist)
+        today = timezone.localdate()
+        response = client.post(reverse("claim_create"), {
+            "claim_number": "MANUAL-CLAIM-001",
+            "source_claim_number": "INSURER-FILE-001",
+            "person": str(self.person.pk),
+            "contract": str(self.contract.pk),
+            "service_date": today.isoformat(),
+            "registered_date": today.isoformat(),
+            "service_type": "هزینه درمان",
+            "requested_amount": "1000000",
+            "source_reference": "REF-001",
+        })
+        self.assertEqual(response.status_code, 302)
+        claim = Claim.objects.get(claim_number="MANUAL-CLAIM-001")
+        self.assertEqual(claim.status, Claim.Status.UNDER_REVIEW)
+        self.assertEqual(claim.insurer_id, self.insurer.pk)
+        self.assertEqual(claim.company_snapshot_id, self.company.pk)
+
+        case = WorkflowCase.objects.get(
+            content_type=ContentType.objects.get_for_model(claim, for_concrete_model=False),
+            object_id=str(claim.pk),
+        )
+        self.assertEqual(case.current_assignee_id, self.specialist.pk)
+
+        assessment_response = client.post(reverse("claim_assess", args=[claim.pk]), {
+            "assessed_amount": "900000",
+            "payable_amount": "800000",
+            "assessment_note": "مدارک مالی بررسی شد و مبلغ قابل پرداخت تعیین گردید.",
+        })
+        self.assertEqual(assessment_response.status_code, 302)
+        claim.refresh_from_db()
+        self.assertEqual(claim.assessed_by_id, self.specialist.pk)
+        self.assertIsNotNone(claim.assessed_at)
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="submit_for_decision",
+            recipient=self.head,
+            note="ارزیابی کامل شد و برای تصمیم نهایی ارجاع می‌شود.",
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.head,
+            action_code="approve",
+            note="ارزیابی بررسی و تأیید شد.",
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.head,
+            action_code="finalize",
+            note="تصمیم نهایی ثبت شد.",
+        )
+        claim.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(claim.status, Claim.Status.APPROVED)
+        self.assertEqual(case.status, WorkflowCase.Status.CLOSED)
+
+        client.force_login(self.head)
+        send_response = client.post(reverse("claim_result_send", args=[claim.pk]))
+        self.assertEqual(send_response.status_code, 302)
+        claim.refresh_from_db()
+        self.assertIsNotNone(claim.result_sent_at)
+        self.assertEqual(claim.result_sent_by_id, self.head.pk)
+        self.assertEqual(
+            claim.objection_deadline,
+            claim.result_sent_at + timedelta(days=60),
+        )
+
+    def test_manual_claim_form_rejects_contract_outside_service_date(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        client = Client()
+        client.force_login(self.specialist)
+        future_service_date = timezone.localdate() + timedelta(days=500)
+        response = client.post(reverse("claim_create"), {
+            "claim_number": "MANUAL-CLAIM-002",
+            "person": str(self.person.pk),
+            "contract": str(self.contract.pk),
+            "service_date": future_service_date.isoformat(),
+            "registered_date": timezone.localdate().isoformat(),
+            "service_type": "هزینه درمان",
+            "requested_amount": "1000000",
+            "source_reference": "",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Claim.objects.filter(claim_number="MANUAL-CLAIM-002").exists())
+        self.assertContains(response, "خارج از بازه اعتبار قرارداد")
