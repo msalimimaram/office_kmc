@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import User, UserNotification
 from organizations.models import Company
 
 
@@ -97,3 +97,59 @@ class LoginThrottlingTests(TestCase):
         self.assertNotIn("login_throttled", [
             error.code for error in response.context["form"].errors.as_data().get("__all__", [])
         ])
+
+
+
+class UserNotificationTests(TestCase):
+    def setUp(self):
+        self.recipient = User.objects.create_user(
+            username="notification-recipient",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.other = User.objects.create_user(
+            username="notification-other",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.notification = UserNotification.objects.create(
+            recipient=self.recipient,
+            actor=self.other,
+            title="درخواست اصلاح اطلاعات تأیید شد",
+            body="درخواست شما با موفقیت بررسی شد.",
+            target_url="/organizations/person-changes/42/",
+        )
+
+    def test_notification_inbox_is_private_and_exposes_unread_count(self):
+        client = Client()
+        client.force_login(self.recipient)
+        response = client.get(reverse("notification_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.notification.title)
+        self.assertEqual(response.context["unread_notification_count"], 1)
+
+        client.force_login(self.other)
+        other_response = client.get(reverse("notification_list"))
+        self.assertEqual(other_response.status_code, 200)
+        self.assertNotContains(other_response, self.notification.title)
+
+    def test_recipient_can_mark_notification_read_and_is_redirected_to_internal_target(self):
+        client = Client()
+        client.force_login(self.recipient)
+        response = client.post(
+            reverse("notification_mark_read", args=[self.notification.pk])
+        )
+        self.assertRedirects(response, self.notification.target_url)
+        self.notification.refresh_from_db()
+        self.assertIsNotNone(self.notification.read_at)
+
+    def test_other_user_cannot_read_or_mutate_another_users_notification(self):
+        client = Client()
+        client.force_login(self.other)
+        response = client.post(
+            reverse("notification_mark_read", args=[self.notification.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            UserNotification.objects.filter(pk=self.notification.pk).update(read_at=None)
