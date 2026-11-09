@@ -357,14 +357,6 @@ class Command(BaseCommand):
             order=2,
             allowed_roles=reviewer_roles,
         )
-        closed = WorkflowStep.objects.create(
-            definition=definition,
-            code="closed",
-            title="بسته‌شده",
-            order=3,
-            allowed_roles=global_roles,
-            allow_return=False,
-        )
         WorkflowTransition.objects.create(
             definition=definition, source_step=in_review, target_step=answered,
             action_code="answer", title="ثبت پاسخ اعتراض",
