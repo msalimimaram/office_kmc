@@ -20,9 +20,15 @@ class Command(BaseCommand):
         missing = sorted(required_codes - set(definitions))
         errors = []
 
+        valid_request_statuses = set(dict(ServiceRequest.Status.choices))
         for code, definition in sorted(definitions.items()):
             steps = list(definition.steps.all())
             initial_steps = [step for step in steps if step.is_initial]
+            for step in steps:
+                if step.code not in valid_request_statuses:
+                    errors.append(
+                        f"{code}/{step.code}: کد مرحله باید با یکی از وضعیت‌های ServiceRequest یکسان باشد تا وضعیت دامنه همگام بماند."
+                    )
             if len(initial_steps) != 1:
                 errors.append(f"{code}: باید دقیقاً یک مرحله آغازین داشته باشد.")
             step_ids = {step.pk for step in steps}
