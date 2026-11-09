@@ -76,7 +76,14 @@ def find_matching_delegation(*, workflow_code, item_type="", company_id=None, in
             continue
         if rule.line_code and rule.line_code != line_code:
             continue
-        score = (bool(rule.item_type), bool(rule.company_id), bool(rule.insurer_id), bool(rule.line_code))
+        # Prefer the rule with the greatest number of explicit scope constraints.
+        # Equal-specificity rules that both match are rejected as ambiguous.
+        score = sum((
+            bool(rule.item_type),
+            bool(rule.company_id),
+            bool(rule.insurer_id),
+            bool(rule.line_code),
+        ))
         matches.append((score, rule))
     if not matches:
         return None
@@ -147,10 +154,15 @@ def apply_delegation_to_open_cases(delegation, *, actor=None):
             or getattr(obj, "kind", None)
             or ""
         )
-        if not delegation_matches(
-            delegation, workflow_code=case.definition.code,
-            item_type=item_type, scope=scope,
-        ):
+        selected = find_matching_delegation(
+            workflow_code=case.definition.code,
+            item_type=item_type,
+            company_id=scope.get("company_id"),
+            insurer_id=scope.get("insurer_id"),
+            line_code=scope.get("line_code"),
+        )
+        # Existing and newly-created cases must obey the same rule precedence.
+        if not selected or selected.pk != delegation.pk:
             continue
         if case.current_assignee_id == delegation.delegate_to_id and case.delegation_id == delegation.pk:
             continue
@@ -199,10 +211,9 @@ def create_work_delegation(*, cleaned_data, actor):
         raise ValidationError("نقش انتخاب‌شده اجازه دریافت مسئولیت مرحله آغازین این گردش‌کار را ندارد.")
     if not _role_assignment_is_active(delegation):
         raise ValidationError("گیرنده در محدوده انتخاب‌شده انتصاب فعال ندارد.")
-    conflicts = WorkDelegation.objects.filter(
+    conflicts = WorkDelegation.objects.select_for_update().filter(
         workflow_code=delegation.workflow_code,
         item_type=delegation.item_type,
-        delegate_role=delegation.delegate_role,
         company_id=delegation.company_id,
         insurer_id=delegation.insurer_id,
         line_code=delegation.line_code,
@@ -239,7 +250,10 @@ def create_work_delegation(*, cleaned_data, actor):
 
 
 def _release_cases(delegation, *, actor, event_type, note):
-    cases = WorkflowCase.objects.select_related(
+    """Move cases off a suspended/revoked rule without losing a valid fallback rule."""
+    from workflow.services import _scope_for_object
+
+    cases = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "content_type"
     ).filter(
         delegation=delegation,
@@ -248,8 +262,61 @@ def _release_cases(delegation, *, actor, event_type, note):
     )
     released = 0
     for case in cases:
+        obj = case.content_object
+        replacement_rule = None
+        if obj is not None:
+            scope = _scope_for_object(obj)
+            item_type = str(
+                getattr(obj, "change_type", None)
+                or getattr(obj, "kind", None)
+                or ""
+            )
+            # A broader still-active rule may legitimately take over.
+            replacement_rule = find_matching_delegation(
+                workflow_code=case.definition.code,
+                item_type=item_type,
+                company_id=scope.get("company_id"),
+                insurer_id=scope.get("insurer_id"),
+                line_code=scope.get("line_code"),
+            )
+
+        if replacement_rule and replacement_rule.pk != delegation.pk:
+            DelegationEvent.objects.create(
+                delegation=delegation,
+                actor=actor,
+                event_type=DelegationEvent.EventType.CASE_RETURNED,
+                summary=(note + " پرونده به تفویض معتبر دیگری منتقل شد.")[:1000],
+                metadata={
+                    "workflow_case_id": case.pk,
+                    "next_delegation_id": replacement_rule.pk,
+                    "next_assignee_id": replacement_rule.delegate_to_id,
+                },
+            )
+            _route_case(
+                case, replacement_rule, actor,
+                event_type=DelegationEvent.EventType.CASE_ROUTED,
+                note="انتقال خودکار به تفویض معتبر جایگزین پس از تغییر وضعیت قاعده قبلی.",
+            )
+            released += 1
+            continue
+
         previous = case.current_assignee
         replacement = delegation.granted_by if delegation.granted_by.is_active else None
+        if replacement is None:
+            today = timezone.localdate()
+            replacement = User.objects.filter(
+                is_active=True,
+                role_assignments__role__in=[
+                    RoleAssignment.Role.SYSTEM_ADMIN,
+                    RoleAssignment.Role.DEPARTMENT_HEAD,
+                ],
+                role_assignments__is_active=True,
+                role_assignments__valid_from__lte=today,
+            ).filter(
+                Q(role_assignments__valid_until__isnull=True)
+                | Q(role_assignments__valid_until__gte=today)
+            ).distinct().order_by("pk").first()
+
         delegation_id = case.delegation_id
         case.current_assignee = replacement
         case.delegation = None
