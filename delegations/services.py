@@ -229,10 +229,17 @@ def create_work_delegation(*, cleaned_data, actor):
     conflicts = WorkDelegation.objects.select_for_update().filter(
         workflow_code=delegation.workflow_code,
         status=WorkDelegation.Status.ACTIVE,
-        valid_from__lte=delegation.valid_until or timezone.localdate().replace(year=9999),
+        valid_from__lte=(delegation.valid_until or timezone.localdate()),
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from)
     ).exclude(pk=delegation.pk)
+    if delegation.valid_until is None:
+        conflicts = WorkDelegation.objects.select_for_update().filter(
+            workflow_code=delegation.workflow_code,
+            status=WorkDelegation.Status.ACTIVE,
+        ).filter(
+            Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from)
+        ).exclude(pk=delegation.pk)
     for existing in conflicts:
         if _rules_have_ambiguous_overlap(existing, delegation):
             raise ValidationError(
