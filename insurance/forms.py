@@ -105,7 +105,7 @@ class ContractTerminationForm(forms.Form):
     )
     notice_date = forms.DateField(
         label="تاریخ اعلام به بیمه‌گر",
-        required=False,
+        required=True,
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     reason = forms.CharField(
