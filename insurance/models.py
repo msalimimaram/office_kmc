@@ -149,20 +149,18 @@ class ContractRevision(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             previous = type(self).objects.get(pk=self.pk)
-            terminal = {
-                self.Status.APPROVED,
-                self.Status.REJECTED,
-                self.Status.TERMINATED,
-                self.Status.LEGACY,
-            }
-            if previous.status in terminal:
-                changed = [
-                    field.name for field in self._meta.concrete_fields
-                    if field.name not in {"id", "applied_at"}
-                    and getattr(previous, field.attname) != getattr(self, field.attname)
-                ]
-                if changed:
-                    raise ValidationError("نسخه تأییدشده/نهایی قرارداد قابل ویرایش نیست.")
+            allowed = {"applied_at"}
+            if getattr(self, "_workflow_status_update", False):
+                allowed.update({"status", "approved_by", "approved_at"})
+            changed = [
+                field.name for field in self._meta.concrete_fields
+                if field.name not in {"id", *allowed}
+                and getattr(previous, field.attname) != getattr(self, field.attname)
+            ]
+            if changed:
+                raise ValidationError(
+                    "محتوای نسخه قرارداد پس از ثبت قابل ویرایش نیست؛ نسخه جدید ثبت کنید."
+                )
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -181,7 +179,11 @@ class ContractRevision(models.Model):
             self.approved_by = actor
             self.approved_at = timezone.now()
             update_fields.extend(["approved_by", "approved_at"])
-        self.save(update_fields=update_fields)
+        self._workflow_status_update = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            del self._workflow_status_update
 
         if step_code in {self.Status.APPROVED, self.Status.TERMINATED}:
             today = timezone.localdate()
