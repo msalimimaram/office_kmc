@@ -12,7 +12,7 @@ from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowTransition
 
 from .models import WorkDelegation
-from .services import update_delegation_status
+from .services import apply_delegation_to_open_cases, update_delegation_status
 
 
 User = get_user_model()
@@ -293,6 +293,117 @@ class DelegationRoutingTests(TestCase):
                 metadata__delegation_id=broad.pk,
             ).exists()
         )
+
+    def test_creating_category_rule_routes_existing_open_initial_cases(self):
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="درخواست درمان",
+            version=81,
+            created_by=self.head,
+            approved_by=self.head,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="company_review",
+            title="بررسی اولیه",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.is_active = True
+        definition.save()
+        item = ServiceRequest.objects.create(
+            reference="DELEGATION-BULK-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.representative,
+            company=self.company,
+            title="پرونده باز پیش از تفویض",
+            description="آزمون انتقال پرونده‌های جاری",
+            is_confidential=True,
+        )
+        case = start_workflow(
+            obj=item,
+            code=item.kind,
+            actor=self.representative,
+            assignee=self.representative,
+        )
+        self.assertEqual(case.current_assignee, self.representative)
+        rule = WorkDelegation.objects.create(
+            workflow_code=item.kind,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="واگذاری دسته‌ای پرونده‌های درمان",
+            valid_from=timezone.localdate(),
+        )
+
+        routed = apply_delegation_to_open_cases(rule, actor=self.head)
+
+        case.refresh_from_db()
+        self.assertEqual(routed, 1)
+        self.assertEqual(case.current_assignee, self.specialist)
+        self.assertEqual(case.delegation, rule)
+        self.assertTrue(case.events.filter(
+            action_code="delegation_route",
+            metadata__delegation_id=rule.pk,
+        ).exists())
+        self.assertTrue(UserNotification.objects.filter(
+            recipient=self.specialist,
+            target_url=reverse("workflow_case_detail", args=[case.pk]),
+        ).exists())
+
+    def test_bulk_delegation_never_routes_requester_to_themselves(self):
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="درخواست درمان",
+            version=82,
+            created_by=self.head,
+            approved_by=self.head,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="company_review",
+            title="بررسی اولیه",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.is_active = True
+        definition.save()
+        item = ServiceRequest.objects.create(
+            reference="DELEGATION-SELF-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.specialist,
+            company=self.company,
+            title="درخواست شخصی کارشناس",
+            description="نباید به خود درخواست‌دهنده واگذار شود",
+            is_confidential=True,
+        )
+        case = start_workflow(
+            obj=item,
+            code=item.kind,
+            actor=self.specialist,
+            assignee=self.representative,
+        )
+        rule = WorkDelegation.objects.create(
+            workflow_code=item.kind,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="آزمون جلوگیری از واگذاری به درخواست‌دهنده",
+            valid_from=timezone.localdate(),
+        )
+
+        routed = apply_delegation_to_open_cases(rule, actor=self.head)
+
+        case.refresh_from_db()
+        self.assertEqual(routed, 0)
+        self.assertEqual(case.current_assignee, self.representative)
+        self.assertIsNone(case.delegation_id)
 
     def test_recipient_inbox_shows_assigned_work_and_creates_notification(self):
         definition = WorkflowDefinition.objects.create(
