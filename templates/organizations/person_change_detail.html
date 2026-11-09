@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}جزئیات درخواست اصلاح اطلاعات | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">درخواست اصلاح اطلاعات · شماره {{ item.pk }}</p>
+    <h1>{{ item.get_change_type_display }} — {{ item.person }}</h1>
+    <p class="muted">{{ item.company.name }} · {{ item.contract.insurer.name }} · {{ item.contract.code }}</p>
+  </div>
+  <a class="btn secondary" href="{% url 'person_change_list' %}">بازگشت به درخواست‌ها</a>
+</div>
+<section class="panel">
+  <div class="detail-grid">
+    <div><small>درخواست‌کننده</small><strong>{{ item.requested_by.get_full_name|default:item.requested_by.username }}</strong></div>
+    <div><small>تاریخ ثبت</small><strong>{{ item.created_at|date:"Y/m/d H:i" }}</strong></div>
+    <div><small>وضعیت فعلی</small><strong>{{ item.get_status_display }}</strong></div>
+    <div><small>تأیید نهایی</small><strong>{{ item.approved_by|default:"انجام نشده" }}</strong></div>
+    <div><small>مقدار ثبت‌شده هنگام درخواست</small><strong>{{ item.current_value|default:"—" }}</strong></div>
+    <div><small>مقدار درخواستی</small><strong>{{ item.requested_value }}</strong></div>
+  </div>
+  <h3>دلیل درخواست</h3>
+  <p class="long-text">{{ item.reason|linebreaksbr }}</p>
+  {% if item.approved_at %}<p>زمان اعمال نهایی: {{ item.approved_at|date:"Y/m/d H:i" }}</p>{% endif %}
+  {% if item.rejected_at %}<p>زمان رد: {{ item.rejected_at|date:"Y/m/d H:i" }}</p>{% endif %}
+  {% if workflow_case and can_open_workflow %}
+    <a class="btn primary" href="{% url 'workflow_case_detail' workflow_case.pk %}">بازکردن گردش کار و اقدام</a>
+  {% elif workflow_case %}
+    <p class="muted">درخواست در مرحله «{{ workflow_case.current_step.title|default:"در حال بررسی" }}» قرار دارد.</p>
+  {% endif %}
+</section>
+{% endblock %}
