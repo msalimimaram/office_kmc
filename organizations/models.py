@@ -549,6 +549,8 @@ class PersonChangeRequest(models.Model):
                 if self.change_type == self.ChangeType.NATIONAL_ID:
                     if User.objects.exclude(pk=user.pk).filter(username=new_value).exists():
                         raise ValidationError("کد ملی جدید قبلاً به‌عنوان نام کاربری ثبت شده است.")
+                    if User.objects.exclude(pk=user.pk).filter(national_id=new_value).exists():
+                        raise ValidationError("کد ملی جدید قبلاً به حساب کاربری دیگری متصل شده است.")
                     if user.username != self.current_value:
                         raise ValidationError("نام کاربری حساب با کد ملی ثبت‌شده هم‌خوان نیست؛ اصلاح باید ابتدا توسط مدیر سامانه بررسی شود.")
                     user.username = new_value
