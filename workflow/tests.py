@@ -497,9 +497,10 @@ class WorkflowEngineTests(TestCase):
 
 
 class OperationalWorkflowSeedCommandTests(TestCase):
-    def test_seed_command_publishes_contract_and_asset_approval_workflows_idempotently(self):
+    def test_seed_command_publishes_all_operational_workflows_idempotently(self):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
+        from requests_portal.models import ServiceRequest
         from workflow.models import WorkflowDefinition
 
         head = User.objects.create_user(
@@ -522,11 +523,15 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             "person_change",
             "claim_review",
             "claim_objection",
-        }
+        } | set(ServiceRequest.Kind.values)
         active = set(
             WorkflowDefinition.objects.filter(is_active=True).values_list("code", flat=True)
         )
         self.assertTrue(expected.issubset(active))
+
+        # The audit is the publication gate: all request kinds and domain
+        # workflows must have valid status mappings, roles, and transitions.
+        call_command("audit_workflows")
 
         versions_before = dict(
             WorkflowDefinition.objects.filter(code__in=expected).values_list("code", "version")
