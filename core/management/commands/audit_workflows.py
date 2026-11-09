@@ -23,6 +23,60 @@ class Command(BaseCommand):
             ).prefetch_related("steps__outgoing_transitions")
         )
         errors = []
+        required_domain_workflows = {
+            "contract_approval",
+            "contract_termination",
+            "asset_valuation_approval",
+            "asset_policy_approval",
+            "asset_endorsement_approval",
+            "person_change",
+        }
+        active_domain_codes = set(
+            WorkflowDefinition.objects.filter(
+                code__in=required_domain_workflows,
+                is_active=True,
+            ).values_list("code", flat=True)
+        )
+        for missing_code in sorted(required_domain_workflows - active_domain_codes):
+            errors.append(f"Missing active domain workflow: {missing_code}")
+
+        for definition in WorkflowDefinition.objects.filter(
+            code__in=required_domain_workflows,
+            is_active=True,
+        ).prefetch_related("steps", "transitions"):
+            initial_steps = [step for step in definition.steps.all() if step.is_initial]
+            if len(initial_steps) != 1:
+                errors.append(
+                    f"{definition.code}: expected exactly one initial step, found {len(initial_steps)}"
+                )
+            for step in definition.steps.all():
+                if not step.is_terminal and not definition.transitions.filter(source_step=step).exists():
+                    errors.append(f"{definition.code}/{step.code}: non-terminal step has no outgoing transition")
+                if "*" in (step.allowed_roles or []):
+                    errors.append(f"{definition.code}/{step.code}: wildcard role is forbidden")
+            for transition in definition.transitions.all():
+                if "*" in (transition.allowed_roles or []) or "*" in (transition.recipient_roles or []):
+                    errors.append(f"{definition.code}/{transition.action_code}: wildcard role is forbidden")
+                if transition.closes_case and "insurer_rep" in (transition.allowed_roles or []):
+                    errors.append(f"{definition.code}/{transition.action_code}: insurer representative cannot close a case")
+
+        person_change = WorkflowDefinition.objects.filter(
+            code="person_change", is_active=True
+        ).order_by("-version").first()
+        if person_change:
+            transitions = {
+                transition.action_code: transition
+                for transition in person_change.transitions.all()
+            }
+            refer = transitions.get("refer_to_insurer")
+            returned = transitions.get("return_to_company")
+            final = transitions.get("approve_and_close")
+            if not refer or "insurer_rep" not in (refer.recipient_roles or []):
+                errors.append("person_change: initial company representative must route to insurer representative")
+            if not returned or "subsidiary_rep" not in (returned.recipient_roles or []):
+                errors.append("person_change: insurer representative must return the request to company representative")
+            if not final or not final.closes_case or "subsidiary_rep" not in (final.allowed_roles or []):
+                errors.append("person_change: only company representative can perform final approval and closure")
         definitions = {}
         for definition in active_definitions:
             if definition.code in definitions:
