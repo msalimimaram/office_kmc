@@ -218,8 +218,12 @@ def personnel_performance_metrics(user, *, start_date=None, end_date=None) -> li
                     max(0, (first_action.sent_at - received.sent_at).total_seconds() / 60)
                 )
 
+        # Count workflow actions only when the specialist was the
+        # responsible assignee for that action, not unrelated audit actions
+        # they may perform under another role.
         events = WorkflowEvent.objects.filter(
             actor=person,
+            from_assignee=person,
             sent_at__date__gte=start_date,
             sent_at__date__lte=end_date,
         )
