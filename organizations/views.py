@@ -256,7 +256,15 @@ def person_change_create(request):
                     insurer_id=contract.insurer_id,
                     line_code=contract.line,
                     owner_user_id=request.user.pk,
-                    exclude_user_id=request.user.pk,
+                    exclude_user_id=(
+                        None
+                        if has_role(
+                            request.user,
+                            RoleAssignment.Role.SUBSIDIARY_REP,
+                            company_id=company_id,
+                        )
+                        else request.user.pk
+                    ),
                 )
                 case = start_workflow(
                     obj=item,
@@ -324,8 +332,33 @@ def person_change_detail(request, pk):
             or case.current_assignee_id == request.user.pk
         )
     )
+    can_view_full_values = bool(
+        has_global_access(request.user)
+        or item.requested_by_id == request.user.pk
+        or (case and case.current_assignee_id == request.user.pk)
+    )
+    current_value_display = item.current_value
+    requested_value_display = item.requested_value
+    if not can_view_full_values:
+        current_text = str(item.current_value or "")
+        requested_text = str(item.requested_value or "")
+        if item.change_type == PersonChangeRequest.ChangeType.IBAN:
+            current_value_display = f"••••{current_text[-4:]}" if current_text else "—"
+            requested_value_display = f"••••{requested_text[-4:]}" if requested_text else "—"
+        elif item.change_type == PersonChangeRequest.ChangeType.MOBILE:
+            current_value_display = f"{current_text[:3]}••••{current_text[-2:]}" if current_text else "—"
+            requested_value_display = f"{requested_text[:3]}••••{requested_text[-2:]}" if requested_text else "—"
+        elif item.change_type == PersonChangeRequest.ChangeType.NATIONAL_ID:
+            current_value_display = f"••••••{current_text[-4:]}" if current_text else "—"
+            requested_value_display = f"••••••{requested_text[-4:]}" if requested_text else "—"
+        elif item.change_type == PersonChangeRequest.ChangeType.BIRTH_DATE:
+            current_value_display = "••••/••/••" if current_text else "—"
+            requested_value_display = "••••/••/••" if requested_text else "—"
     return render(request, "organizations/person_change_detail.html", {
         "item": item,
         "workflow_case": case,
         "can_open_workflow": can_open_workflow,
+        "can_view_full_values": can_view_full_values,
+        "current_value_display": current_value_display,
+        "requested_value_display": requested_value_display,
     })
