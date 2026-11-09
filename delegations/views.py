@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from accounts.access import has_global_access
 from workflow.models import WorkflowCase
+from workflow.services import is_delegated_assignee
 
 from .forms import WorkDelegationForm
 from .models import WorkDelegation
@@ -39,7 +40,7 @@ def delegation_inbox(request):
             request,
             f"همگام‌سازی کامل انجام نشد؛ یک تعارض در قوانین تفویض باید توسط مدیر رفع شود: {exc}",
         )
-    cases = WorkflowCase.objects.filter(
+    cases_queryset = WorkflowCase.objects.filter(
         current_assignee=request.user,
         delegation__isnull=False,
         delegation__status=WorkDelegation.Status.ACTIVE,
@@ -51,14 +52,23 @@ def delegation_inbox(request):
     ).select_related(
         "definition", "current_step", "delegation", "delegation__granted_by",
     ).order_by("sla_due_at", "opened_at")
+    # Do not expose a case as actionable when rule selection is ambiguous
+    # or the recipient no longer holds the effective delegation.
+    cases = [
+        case for case in cases_queryset
+        if is_delegated_assignee(case, request.user)
+    ]
     today = timezone.localdate()
     active_rules = WorkDelegation.objects.filter(
         delegate_to=request.user,
         status=WorkDelegation.Status.ACTIVE,
         valid_from__lte=today,
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-    case_count = cases.count()
-    overdue_count = cases.filter(sla_due_at__lt=timezone.now()).count()
+    case_count = len(cases)
+    now = timezone.now()
+    overdue_count = sum(
+        1 for case in cases if case.sla_due_at and case.sla_due_at < now
+    )
     page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
     return render(request, "delegations/delegation_inbox.html", {
         "cases": page_obj.object_list,
@@ -66,7 +76,7 @@ def delegation_inbox(request):
         "case_count": case_count,
         "overdue_count": overdue_count,
         "active_rule_count": active_rules.count(),
-        "now": timezone.now(),
+        "now": now,
     })
 
 
