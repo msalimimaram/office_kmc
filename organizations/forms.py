@@ -54,16 +54,19 @@ class PersonChangeRequestForm(forms.Form):
         people = Person.objects.filter(
             Q(user_id=user.pk) | Q(employee__user_id=user.pk),
             is_active=True,
+            is_insured=True,
         ).select_related("employee", "user").distinct()
         if not people.exists() and getattr(user, "national_id", ""):
             legacy = Person.objects.filter(
                 national_id=normalize_national_id(user.national_id),
                 is_active=True,
+                is_insured=True,
             ).first()
             if legacy:
                 people = Person.objects.filter(
                     Q(pk=legacy.pk) | Q(employee_id=legacy.pk),
                     is_active=True,
+                    is_insured=True,
                 ).select_related("employee", "user")
         self.fields["person"].queryset = people
 
