@@ -23,7 +23,9 @@ def delegation_inbox(request):
     ):
         raise PermissionDenied("صندوق تفویض فقط برای گیرنده تفویض یا مدیران مجاز است.")
     try:
-        sync_report = synchronize_delegations()
+        sync_report = synchronize_delegations(
+            delegate_to=None if has_global_access(request.user) else request.user
+        )
         if sync_report.get("conflicts"):
             messages.error(
                 request,
