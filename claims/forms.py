@@ -168,6 +168,7 @@ class ClaimForm(forms.ModelForm):
                 contracts = contracts.filter(line__in=lines)
         contracts = contracts.prefetch_related("companies").select_related("insurer").distinct()
         self.fields["contract"].queryset = contracts.order_by("code")
+        self.fields["contract"].required = True
 
         company_ids = set(
             contracts.values_list("companies__pk", flat=True).exclude(companies__pk__isnull=True)
