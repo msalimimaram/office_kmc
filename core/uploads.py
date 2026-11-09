@@ -40,7 +40,12 @@ def scan_uploaded_file(upload):
                 client.sendall(struct.pack("!I", len(chunk)))
                 client.sendall(chunk)
             client.sendall(struct.pack("!I", 0))
-            response = client.recv(4096)
+            response = bytearray()
+            while b"\\0" not in response and len(response) < 4096:
+                part = client.recv(4096 - len(response))
+                if not part:
+                    break
+                response.extend(part)
     except (OSError, ValueError, TypeError):
         return "ارتباط با اسکنر بدافزار برقرار نشد؛ بارگذاری فایل متوقف شد."
     finally:
