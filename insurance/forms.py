@@ -77,6 +77,14 @@ class ContractForm(forms.ModelForm):
         ):
             self.add_error("line", "ثبت قرارداد در این رشته در محدوده انتصاب شما نیست.")
 
+        effective_date = cleaned.get("effective_date")
+        start_date = cleaned.get("start_date")
+        end_date = cleaned.get("end_date")
+        if effective_date and start_date and effective_date < start_date:
+            self.add_error("effective_date", "تاریخ اثر نسخه نمی‌تواند قبل از شروع قرارداد باشد.")
+        if effective_date and end_date and effective_date > end_date:
+            self.add_error("effective_date", "تاریخ اثر نسخه نمی‌تواند بعد از پایان قرارداد باشد.")
+
         upload = cleaned.get("revision_document")
         if upload:
             error = validate_uploaded_file(upload, max_size=20 * 1024 * 1024)
