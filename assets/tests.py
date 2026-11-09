@@ -455,3 +455,34 @@ class AssetOperationalWorkflowTests(TestCase):
         client.force_login(outsider)
         response = client.get(reverse("asset_endorsement_download", args=[endorsement.pk]))
         self.assertEqual(response.status_code, 404)
+
+
+
+    def test_future_approved_policy_period_activates_only_when_effective_date_arrives(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from assets.models import AssetPolicyPeriod
+
+        today = timezone.localdate()
+        effective_date = today + timedelta(days=2)
+        period = AssetPolicyPeriod.objects.create(
+            asset=self.asset,
+            insurer=self.insurer,
+            contract=self.contract,
+            policy_number="FUTURE-APPROVED-POLICY",
+            policy_start=effective_date,
+            policy_end=effective_date + timedelta(days=180),
+            status=AssetPolicyPeriod.Status.APPROVED,
+            created_by=self.specialist,
+            approved_by=self.head,
+        )
+
+        self.assertFalse(period.activate_if_due(on_date=today))
+        period.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.APPROVED)
+
+        self.assertTrue(period.activate_if_due(on_date=effective_date))
+        period.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.ACTIVE)
+        self.assertEqual(self.asset.policy_number, period.policy_number)
