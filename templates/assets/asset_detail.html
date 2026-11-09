@@ -45,7 +45,7 @@
   <h2>تاریخچه ارزیابی</h2>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>تاریخ</th><th>ارزش روز</th><th>ارزش بیمه‌شده</th><th>روش</th><th>مرجع</th><th>ثبت‌کننده</th><th>تأیید</th></tr></thead>
+      <thead><tr><th>تاریخ</th><th>ارزش روز</th><th>ارزش بیمه‌شده</th><th>روش</th><th>مرجع</th><th>ثبت‌کننده</th><th>وضعیت تأیید</th><th>تأییدکننده</th></tr></thead>
       <tbody>
       {% for item in valuations %}
         <tr>
@@ -55,10 +55,11 @@
           <td>{{ item.get_method_display }}</td>
           <td>{{ item.source_reference|default:"—" }}</td>
           <td>{{ item.created_by }}</td>
+          <td>{{ item.get_status_display }}</td>
           <td>{{ item.approved_by|default:"تأییدنشده" }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="7" class="empty">سابقه ارزیابی ثبت نشده است.</td></tr>
+        <tr><td colspan="8" class="empty">سابقه ارزیابی ثبت نشده است.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -82,7 +83,7 @@
           <strong>{{ endorsement.endorsement_number }}</strong>
           <small>تاریخ اثر: {{ endorsement.effective_date|default:"—" }} · ثبت‌کننده: {{ endorsement.created_by }}</small>
           <p>{{ endorsement.description|linebreaksbr }}</p>
-          <p>تأییدکننده: {{ endorsement.approved_by|default:"تأییدنشده" }} · <a href="{% url 'asset_endorsement_download' endorsement.pk %}">دریافت امن فایل الحاقیه</a></p>
+          <p>وضعیت: {{ endorsement.get_status_display }} · تأییدکننده: {{ endorsement.approved_by|default:"تأییدنشده" }} · <a href="{% url 'asset_endorsement_download' endorsement.pk %}">دریافت امن فایل الحاقیه</a></p>
         </div>
       {% empty %}
         <p class="empty">الحاقیه‌ای ثبت نشده است.</p>
@@ -101,9 +102,9 @@
     {% csrf_token %}
     <input type="hidden" name="action" value="add_valuation">
     {{ valuation_form.as_p }}
-    <button class="btn primary" type="submit">ثبت ارزیابی</button>
+    <button class="btn primary" type="submit">ثبت و ارسال ارزیابی برای تأیید</button>
   </form>
-  <p class="muted">سوابق ارزیابی اصلاح یا حذف نمی‌شوند. وضعیت تأیید این سابقه تا تعیین مرجع مصوب، تأییدنشده باقی می‌ماند.</p>
+  <p class="muted">سوابق ارزیابی اصلاح یا حذف نمی‌شوند. ارزش جاری دارایی فقط پس از تأیید رئیس اداره یا مدیر سامانه تغییر می‌کند.</p>
 </section>
 
 <section class="panel narrow">
@@ -113,9 +114,9 @@
     {% csrf_token %}
     <input type="hidden" name="action" value="add_policy_period">
     {{ policy_period_form.as_p }}
-    <button class="btn primary" type="submit">ثبت پیش‌نویس بیمه‌نامه</button>
+    <button class="btn primary" type="submit">ثبت و ارسال دوره بیمه‌نامه برای تأیید</button>
   </form>
-  <p class="muted">دوره جدید با وضعیت پیش‌نویس ثبت می‌شود؛ مرجع و مسیر فعال‌سازی در قواعد مصوب دارایی مشخص نشده است.</p>
+  <p class="muted">دوره جدید تا تأیید نهایی در وضعیت انتظار می‌ماند و مشخصات بیمه‌نامه جاری را تغییر نمی‌دهد.</p>
 </section>
 
 <section class="panel narrow">
@@ -125,9 +126,9 @@
     {% csrf_token %}
     <input type="hidden" name="action" value="add_endorsement">
     {{ endorsement_form.as_p }}
-    <button class="btn primary" type="submit">ثبت الحاقیه</button>
+    <button class="btn primary" type="submit">ثبت و ارسال الحاقیه برای تأیید</button>
   </form>
-  <p class="muted">الحاقیه پس از ثبت، بدون تأییدکننده باقی می‌ماند تا مرجع تأیید مصوب روشن باشد.</p>
+  <p class="muted">الحاقیه پس از تأیید رئیس اداره یا مدیر سامانه به‌عنوان سند معتبر تاریخچه بیمه‌نامه ثبت می‌شود.</p>
 </section>
 {% endif %}
 {% endblock %}
