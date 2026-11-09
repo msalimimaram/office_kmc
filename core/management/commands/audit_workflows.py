@@ -47,7 +47,7 @@ class Command(BaseCommand):
             RoleAssignment.Role.SYSTEM_ADMIN,
         }
         company_approver_roles = global_roles | {RoleAssignment.Role.SUBSIDIARY_REP}
-        insurer_role = RoleAssignment.Role.INSURER
+        insurer_role = RoleAssignment.Role.INSURER_REP
         specialist_role = RoleAssignment.Role.INSURANCE_SPECIALIST
 
         for code, definition in sorted(definitions.items()):
