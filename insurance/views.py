@@ -125,9 +125,13 @@ def contract_list(request):
                 raise PermissionDenied("این رشته بیمه‌ای در انتصاب شما تعریف نشده است.")
         contracts = contracts.filter(line=line)
     if state == "active":
-        contracts = contracts.filter(is_active=True)
+        contracts = contracts.filter(status=Contract.Status.ACTIVE, is_active=True)
     elif state == "inactive":
         contracts = contracts.filter(is_active=False)
+    elif state == "pending":
+        contracts = contracts.filter(
+            status__in=[Contract.Status.DRAFT, Contract.Status.PENDING_APPROVAL, Contract.Status.APPROVED]
+        )
     page_obj = Paginator(
         contracts.distinct().order_by("-start_date", "code", "pk"), 25
     ).get_page(request.GET.get("page"))
