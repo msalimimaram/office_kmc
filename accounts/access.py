@@ -36,7 +36,11 @@ def _today(on_date: date | None = None) -> date:
 
 def assignment_history(user):
     """Return all assignment rows, including expired/revoked rows."""
-    if not getattr(user, "is_authenticated", False) or not getattr(user, "pk", None):
+    if (
+        not getattr(user, "is_authenticated", False)
+        or not getattr(user, "is_active", False)
+        or not getattr(user, "pk", None)
+    ):
         return RoleAssignment.objects.none()
     return RoleAssignment.objects.filter(user_id=user.pk)
 
@@ -167,6 +171,8 @@ def insurer_ids_for(user, *, on_date: date | None = None) -> set[int]:
 
 
 def line_codes_for(user, *, role: str | None = None, on_date: date | None = None) -> set[str]:
+    if not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
+        return set()
     qs = active_assignments(user, on_date=on_date)
     if role:
         qs = qs.filter(role=role)

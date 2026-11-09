@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from accounts.access import has_global_access, has_line_access, has_role, is_company_representative
+from accounts.access import company_ids_for, has_global_access, has_line_access, has_role, insurer_ids_for, is_company_representative, line_codes_for
 from accounts.models import RoleAssignment, User
 from insurance.models import Insurer
 from organizations.models import Company
@@ -122,3 +122,26 @@ class InactiveAccountAuthorizationTests(TestCase):
         )
         self.assertFalse(has_role(inactive_admin, RoleAssignment.Role.SYSTEM_ADMIN))
         self.assertFalse(has_global_access(inactive_admin))
+
+    def test_inactive_account_has_no_scoped_company_insurer_or_line_data(self):
+        company = Company.objects.create(code="INACTIVE-SCOPE", name="شرکت حساب غیرفعال")
+        insurer = Insurer.objects.create(name="بیمه‌گر حساب غیرفعال")
+        inactive_rep = User.objects.create_user(
+            username="inactive-representative",
+            password="StrongPass!2026",
+            role=User.Role.SUBSIDIARY_REP,
+            company=company,
+            is_active=False,
+            must_change_password=False,
+        )
+        inactive_insurer = User.objects.create_user(
+            username="inactive-insurer",
+            password="StrongPass!2026",
+            role=User.Role.INSURER,
+            insurer=insurer,
+            is_active=False,
+            must_change_password=False,
+        )
+        self.assertEqual(company_ids_for(inactive_rep), set())
+        self.assertEqual(line_codes_for(inactive_rep), set())
+        self.assertEqual(insurer_ids_for(inactive_insurer), set())
