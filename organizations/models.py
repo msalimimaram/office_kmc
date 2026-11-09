@@ -377,6 +377,13 @@ class PersonChangeRequest(models.Model):
         if self.person_id and not self.person.is_active:
             errors["person"] = "درخواست اصلاح برای شخص غیرفعال مجاز نیست."
 
+        if (
+            self.change_type == self.ChangeType.PERSONNEL_CODE
+            and self.person_id
+            and self.person.employee_id
+        ):
+            errors["change_type"] = "اصلاح کد پرسنلی فقط برای بیمه‌شده اصلی و سابقه اشتغال فعال مجاز است."
+
         if self.person_id and self.company_id:
             person = self.person
             employee = person.employee if person.employee_id else person
@@ -578,6 +585,21 @@ class PersonChangeRequest(models.Model):
 
             setattr(person, field_name, new_value)
             person.save(update_fields=[field_name, "updated_at"])
+
+            if self.change_type == self.ChangeType.PERSONNEL_CODE:
+                today = timezone.localdate()
+                employment = PersonEmployment.objects.select_for_update().filter(
+                    person_id=person.pk,
+                    company_id=self.company_id,
+                    status=PersonEmployment.Status.ACTIVE,
+                ).filter(
+                    models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+                ).filter(
+                    models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+                ).order_by("-valid_from", "-pk").first()
+                if employment:
+                    employment.personnel_code = new_value
+                    employment.save(update_fields=["personnel_code", "updated_at"])
 
             if person.user_id:
                 user = User.objects.select_for_update().get(pk=person.user_id)
