@@ -1172,3 +1172,49 @@ Commits:
 - HEAD و فایل‌های این بخش مبنای ممیزی سورس فعلی‌اند؛ هر نتیجه اجرای محلی باید همراه commit hash و وضعیت working tree ثبت شود.
 - تعداد migrationهای فایل‌شده معادل migrationهای اعمال‌شده در دیتابیس نیست؛ شمارش test_* معادل تست اجراشده/پاس‌شده نیست.
 - تا دریافت خروجی واقعی روی HEAD فعلی، آمادگی Production تأیید نمی‌شود.
+
+
+### 17.34 تطبیق شاخه محلی مالک با HEAD جاری و اصلاح snapshot — 2026-11-09
+
+این بخش، الحاق اصلاحی 17.33 است. بخش 17.33 در زمان ثبت، HEAD برابر 11ec302 را بررسی می‌کرد؛ پس از آن commit مستندسازی f7e63ba روی main ثبت شده است. مبنای ادامه کار، commit زیر است:
+
+- مخزن: `msalimimaram/office_kmc`
+- شاخه مبنا: `main`
+- HEAD مبنا: `f7e63ba38ba6658f437b3e9835acda4d6f35d1b9`
+- پیام: `docs: refresh phase-zero project snapshot on current main`
+- commit والد: `11ec3021536027e463ae5bd239693a1ec9e8d044`
+
+#### تطبیق وضعیت محلی گزارش‌شده با main
+
+خروجی Git مالک نشان می‌دهد checkout محلی روی `d6ed2a661da5c21ee875e9dd3cfdfd4ecfcf8f7b` قرار داشته و نسبت به `origin/main` یک commit اختصاصی و ۲۵۲ commit عقب‌ماندگی داشته است؛ merge-base برابر `e8c8ab99a9d283770bd53c8005667d4328df6d9e` بوده است.
+
+- commit اختصاصی محلی فقط فایل تاریخی `docs/archive/PROJECT_AUDIT_2026-10-29.md` را اضافه می‌کند؛ این فایل در درخت فعلی main وجود ندارد و در این همگام‌سازی به‌صورت خودکار حذف یا بازنویسی نشده است.
+- stash محلی سه مسیر داشته است: `organizations/tests.py`، `organizations/views.py` و `tasks/migrations/0004_alter_taskevent_event_type.py`.
+- در main جاری، `organizations/views.py` تابع `redirect` را import می‌کند؛ تست `CompanyLeadershipTitleFlowTests.test_company_representative_can_declare_title_for_own_company_and_title_appears_in_people_list` وجود دارد؛ و migration شماره 0004 وظیفه با event typeهای `first_viewed` و `first_action` موجود است. بنابراین نیاز عملکردی قابل مشاهده در هر سه مسیر در main حاضر است. برابری byte-to-byte محتوای stash با فایل‌های main ادعا نمی‌شود، زیرا stash فقط روی سیستم محلی مالک قرار دارد.
+- فایل مستند تاریخی اختصاصی و stash محلی باید در checkout محلی حفظ شوند تا مالک در صورت نیاز بتواند آن‌ها را جداگانه بازیابی کند؛ برای دریافت نسخه جاری پروژه نیازی به pop یا اعمال دوباره stash نیست.
+
+#### شمارش مجدد درخت جاری main
+
+شمارش مستقیم درخت recursive در HEAD مبنا:
+
+| شاخص | مقدار |
+|---|---:|
+| کل entryها | 348 |
+| فایل‌ها | 287 |
+| پوشه‌ها | 61 |
+| فایل‌های HTML | 38 |
+| migrationهای شماره‌دار | 48 |
+| فایل‌های تست | 18 |
+| تعریف‌های استاتیک `def test_*` | 193 |
+| فایل‌های GitHub Actions | 0 |
+
+این اعداد صرفاً شمارش ساختاری/ایستا هستند. ۱۹۳ تعریف تست به معنی اجرای موفق ۱۹۳ تست نیست؛ ۴۸ migration فایل‌شده نیز به معنی اعمال آن‌ها روی دیتابیس نیست.
+
+#### وضعیت کار و پذیرش
+
+- شاخه کاری `implementation/phase-zero-reconciliation-2026-11-09` از HEAD جاری main ساخته شده تا تغییرات بررسی‌شده بدون بازنویسی main قابل دریافت باشند.
+- هیچ migration محلی به‌صورت تکراری به main اضافه نشده است؛ migration شماره 0004 از قبل در main وجود دارد.
+- هیچ workflow مربوط به GitHub Actions ایجاد یا اجرا نشده است.
+- اجرای واقعی Django روی HEAD مبنا در این محیط ممکن نشد؛ بنابراین `check`، `migrate`، `makemigrations --check`، `test`، `audit_workflows`، `collectstatic` و اجرای مرورگر روی همین commit همچنان تأییدنشده‌اند.
+- حکم فاز صفر: **شناخت ساختار و تطبیق GitHub انجام شد؛ پذیرش runtime همچنان BLOCKED تا اجرای دستورات روی checkout دقیق همین commit در محیط مالک.**
+- Production readiness تأیید نشده است و نباید پیش از عبور از تست‌های runtime، ممیزی workflow، کنترل‌های امنیتی و سناریوهای پذیرش عملیاتی اعلام شود.
