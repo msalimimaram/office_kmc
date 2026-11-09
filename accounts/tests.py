@@ -1,7 +1,9 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import User, UserNotification
+from accounts.models import (
+    User, UserNotification, OrganizationalUnit, OrganizationalPosition, PositionAssignment,
+)
 from organizations.models import Company
 
 
@@ -133,6 +135,44 @@ class UserNotificationTests(TestCase):
         self.assertEqual(other_response.status_code, 200)
         self.assertNotContains(other_response, self.notification.title)
 
+
+    def test_active_position_holder_can_access_notifications_for_assigned_tasks(self):
+        user = User.objects.create_user(
+            username="notification-position-holder",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        unit = OrganizationalUnit.objects.create(
+            code="NOTICE-UNIT",
+            name="واحد دریافت‌کننده اعلان",
+        )
+        position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="NOTICE-SPECIALIST",
+            title="کارشناس",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        PositionAssignment.objects.create(
+            user=user,
+            unit=unit,
+            position=position,
+            valid_from=timezone.localdate(),
+            is_active=True,
+            reason="انتصاب برای دریافت وظایف داخلی",
+        )
+        UserNotification.objects.create(
+            recipient=user,
+            actor=self.other,
+            title="وظیفه جدید",
+            body="یک وظیفه برای اقدام به شما تخصیص داده شده است.",
+            target_url="/tasks/1/",
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("notification_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "وظیفه جدید")
+        self.assertEqual(response.context["unread_notification_count"], 1)
 
     def test_user_without_operational_role_cannot_access_notification_inbox_or_see_menu_link(self):
         unauthorized = User.objects.create_user(
