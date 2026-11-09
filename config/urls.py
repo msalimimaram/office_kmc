@@ -5,6 +5,7 @@ from django.urls import path, include
 from dashboard import views as dashboard_views
 from accounts.forms import ThrottledAuthenticationForm
 from accounts.views import RequiredPasswordChangeView
+from accounts import views as account_views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -16,6 +17,8 @@ urlpatterns = [
     path("accounts/password-change/", RequiredPasswordChangeView.as_view(
         template_name="registration/password_change.html", success_url="/"
     ), name="password_change"),
+    path("accounts/notifications/", account_views.notification_list, name="notification_list"),
+    path("accounts/notifications/<int:pk>/read/", account_views.notification_mark_read, name="notification_mark_read"),
     path("", dashboard_views.home, name="home"),
     path("dashboard/", dashboard_views.home, name="dashboard"),
     path("organizations/", include("organizations.urls")),
