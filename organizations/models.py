@@ -374,6 +374,9 @@ class PersonChangeRequest(models.Model):
             if not requester.is_active or not authorized:
                 errors["requested_by"] = "درخواست باید توسط خود بیمه‌شده اصلی یا حساب کاربر او برای فرد تحت تکفل ثبت شود."
 
+        if self.person_id and not self.person.is_active:
+            errors["person"] = "درخواست اصلاح برای شخص غیرفعال مجاز نیست."
+
         if self.person_id and self.company_id:
             person = self.person
             employee = person.employee if person.employee_id else person
@@ -439,6 +442,8 @@ class PersonChangeRequest(models.Model):
         if field_name and self.person_id:
             current = getattr(self.person, field_name)
             current_text = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
+            if self._state.adding and self.current_value != current_text:
+                errors["current_value"] = "مقدار فعلی شخص هنگام ثبت درخواست تغییر کرده است؛ فرم را تازه‌سازی کنید."
             if current_text == value:
                 errors["requested_value"] = "مقدار جدید با مقدار فعلی یکسان است."
         if errors:
