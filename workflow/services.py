@@ -42,7 +42,21 @@ def _infer_insurer_id(company_id, line_code):
     return insurer_ids[0] if len(insurer_ids) == 1 else None
 
 
-def _scope_for_object(obj):
+def _scope_for_object(obj, _seen=None):
+    """Resolve authorization scope from a domain object or its parent record.
+
+    Nested workflow records (for example a claim objection or an asset
+    endorsement) inherit company/insurer/line scope from their owning record.
+    Explicit scope on the child always takes precedence.
+    """
+    if obj is None:
+        return {"company_id": None, "insurer_id": None, "line_code": None, "owner_user_id": None}
+    seen = _seen if _seen is not None else set()
+    marker = (obj.__class__, getattr(obj, "pk", None) or id(obj))
+    if marker in seen:
+        return {"company_id": None, "insurer_id": None, "line_code": None, "owner_user_id": None}
+    seen.add(marker)
+
     company_id = getattr(obj, "company_id", None) or getattr(obj, "company_snapshot_id", None)
     insurer_id = getattr(obj, "insurer_id", None)
     line_code = getattr(obj, "line_code", None)
@@ -59,6 +73,19 @@ def _scope_for_object(obj):
     if contract:
         insurer_id = insurer_id or getattr(contract, "insurer_id", None)
         line_code = line_code or getattr(contract, "line", None)
+
+    # Follow only known ownership relations; do not walk arbitrary model
+    # relations or infer scope from a user-supplied content-type target.
+    for relation_name in ("claim", "policy_period", "asset", "correspondence", "service_request"):
+        parent = getattr(obj, relation_name, None)
+        if parent is None or parent is obj:
+            continue
+        parent_scope = _scope_for_object(parent, seen)
+        company_id = company_id or parent_scope["company_id"]
+        insurer_id = insurer_id or parent_scope["insurer_id"]
+        line_code = line_code or parent_scope["line_code"]
+        owner_user_id = owner_user_id or parent_scope["owner_user_id"]
+
     insurer_id = insurer_id or _infer_insurer_id(company_id, line_code)
     return {
         "company_id": company_id,
