@@ -186,6 +186,30 @@ class ContractWorkflowLifecycleTests(TestCase):
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             closes_case=True,
         )
+        rejected = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.REJECTED,
+            title="ردشده",
+            order=3,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=rejected,
+            action_code="reject-decision",
+            title="رد نسخه",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=rejected,
+            action_code="close-rejection",
+            title="ثبت نهایی رد",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
         definition.approved_by = self.admin
         definition.is_active = True
         definition.save()
@@ -409,6 +433,30 @@ class ContractSubmissionViewTests(TestCase):
             source_step=approved,
             action_code="finalize-contract",
             title="ثبت نهایی تأیید",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
+        rejected = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.REJECTED,
+            title="ردشده",
+            order=3,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=rejected,
+            action_code="reject-contract",
+            title="رد قرارداد",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=rejected,
+            action_code="finalize-rejection",
+            title="ثبت نهایی رد قرارداد",
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             closes_case=True,
         )
