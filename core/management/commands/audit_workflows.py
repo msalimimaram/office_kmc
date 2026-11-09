@@ -52,6 +52,16 @@ class Command(BaseCommand):
                     errors.append(f"{code}/{transition.action_code}: مرحله مقصد خارج از تعریف است.")
                 if transition.closes_case and RoleAssignment.Role.INSURER_REP in (transition.allowed_roles or []):
                     errors.append(f"{code}/{transition.action_code}: نماینده بیمه‌گر نباید پرونده را نهایی ببندد.")
+                if code in {"claim_objection", "contract_approval", "contract_termination"} and transition.closes_case:
+                    closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
+                    authorized_closers = {
+                        RoleAssignment.Role.DEPARTMENT_HEAD,
+                        RoleAssignment.Role.SYSTEM_ADMIN,
+                    }
+                    if not closing_roles or not closing_roles.issubset(authorized_closers):
+                        errors.append(
+                            f"{code}/{transition.action_code}: بستن/تأیید نهایی فقط برای رئیس اداره یا مدیر سامانه مجاز است."
+                        )
                 if not transition.closes_case and not (
                     transition.recipient_roles or (transition.target_step and transition.target_step.allowed_roles)
                 ):
