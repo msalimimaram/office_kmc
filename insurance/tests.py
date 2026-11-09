@@ -446,3 +446,94 @@ class ContractSubmissionViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Contract.objects.count(), 0)
+
+
+    def test_termination_request_previews_open_claims_and_waits_for_head_decision(self):
+        from claims.models import Claim
+        from organizations.models import Company, Person
+
+        definition = WorkflowDefinition.objects.create(
+            code="contract_termination",
+            title="گردش تأیید فسخ",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.PENDING_APPROVAL,
+            title="در انتظار تأیید",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            is_initial=True,
+        )
+        terminated = WorkflowStep.objects.create(
+            definition=definition,
+            code=ContractRevision.Status.TERMINATED,
+            title="فسخ تأییدشده",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=terminated,
+            action_code="approve-termination",
+            title="تأیید فسخ",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=terminated,
+            action_code="finalize-termination",
+            title="ثبت نهایی فسخ",
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            closes_case=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+        contract = Contract.objects.create(
+            code="CONTRACT-TERMINATION-VIEW",
+            title="قرارداد مشمول درخواست فسخ",
+            insurer=self.insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=self.today - timedelta(days=10),
+            end_date=self.today + timedelta(days=100),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        company = Company.objects.create(code="CONTRACT-TERM-CO", name="شرکت قرارداد فسخ")
+        person = Person.objects.create(
+            company=company,
+            national_id="8765432109",
+            first_name="بیمه‌شده",
+            last_name="دارای پرونده باز",
+            birth_date=date(1990, 1, 1),
+        )
+        Claim.objects.create(
+            claim_number="CONTRACT-TERM-OPEN-CLAIM",
+            person=person,
+            contract=contract,
+            insurer=self.insurer,
+            service_type="درمان",
+            service_date=self.today,
+            requested_amount=100,
+            status=Claim.Status.UNDER_REVIEW,
+        )
+
+        response = self.client.post(
+            reverse("contract_terminate", args=[contract.pk]),
+            {
+                "effective_date": self.today.isoformat(),
+                "notice_date": self.today.isoformat(),
+                "reason": "تغییر شرایط قرارداد و درخواست خاتمه با تأیید اداره",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        revision = contract.revisions.get(is_termination=True)
+        self.assertEqual(revision.status, ContractRevision.Status.PENDING_APPROVAL)
+        self.assertEqual(revision.termination_reason, "تغییر شرایط قرارداد و درخواست خاتمه با تأیید اداره")
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, Contract.Status.ACTIVE)
+        self.assertTrue(contract.is_active)
