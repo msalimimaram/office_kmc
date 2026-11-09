@@ -300,6 +300,144 @@ def _validate_actor(case, actor, roles, *, scope):
         raise PermissionDenied("نقش فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
 
 
+def _workflow_owner_candidates(obj):
+    """Return the people who can reasonably be notified about this workflow item."""
+    label = obj._meta.label_lower
+    candidates = []
+
+    if label == "requests_portal.servicerequest":
+        if getattr(obj, "submitted_by_id", None):
+            candidates.append(obj.submitted_by)
+    elif label == "organizations.personchangerequest":
+        if getattr(obj, "requested_by_id", None):
+            candidates.append(obj.requested_by)
+    elif label == "claims.claimobjection":
+        if getattr(obj, "submitted_by_id", None):
+            candidates.append(obj.submitted_by)
+        claim = obj.claim
+        person = claim.primary_insured or claim.person
+        if person and person.user_id:
+            candidates.append(person.user)
+    elif label == "claims.claim":
+        for person in (getattr(obj, "primary_insured", None), obj.person):
+            if person and person.user_id:
+                candidates.append(person.user)
+    elif label == "assets.insuredasset":
+        if getattr(obj, "created_by_id", None):
+            candidates.append(obj.created_by)
+    elif label == "insurance.contractrevision":
+        if getattr(obj, "created_by_id", None):
+            candidates.append(obj.created_by)
+
+    person = getattr(obj, "person", None)
+    if person is not None:
+        if person.user_id:
+            candidates.append(person.user)
+        employee = person.employee if person.employee_id else None
+        if employee and employee.user_id:
+            candidates.append(employee.user)
+
+    # Keep insertion order while preventing duplicate notifications.
+    unique = {}
+    for candidate in candidates:
+        if candidate and candidate.is_active:
+            unique[candidate.pk] = candidate
+    return list(unique.values())
+
+
+def _workflow_owner_can_view(obj, recipient, case):
+    """Resolve the real domain detail URL and verify its normal visibility scope."""
+    from django.urls import reverse
+
+    label = obj._meta.label_lower
+    if label == "requests_portal.servicerequest":
+        from core.permissions import can_view_request
+        return (
+            reverse("request_detail", args=[obj.pk])
+            if can_view_request(recipient, obj) else ""
+        )
+    if label == "organizations.personchangerequest":
+        allowed_role = any(
+            has_role(recipient, role)
+            for role in (
+                RoleAssignment.Role.INSURED_PERSON,
+                RoleAssignment.Role.SUBSIDIARY_REP,
+                RoleAssignment.Role.INSURER_REP,
+                RoleAssignment.Role.INSURANCE_SPECIALIST,
+            )
+        )
+        if allowed_role and (
+            obj.requested_by_id == recipient.pk
+            or case.current_assignee_id == recipient.pk
+            or has_global_access(recipient)
+        ):
+            return reverse("person_change_detail", args=[obj.pk])
+        return ""
+    if label in {"claims.claim", "claims.claimobjection"}:
+        from core.permissions import can_view_claim
+        claim = obj if label == "claims.claim" else obj.claim
+        return reverse("claim_detail", args=[claim.pk]) if can_view_claim(recipient, claim) else ""
+    if label == "assets.insuredasset":
+        from assets.views import _asset_scope
+        return (
+            reverse("asset_detail", args=[obj.pk])
+            if _asset_scope(recipient).filter(pk=obj.pk).exists() else ""
+        )
+    if label == "insurance.contractrevision":
+        from insurance.views import _contract_scope
+        return (
+            reverse("contract_detail", args=[obj.contract_id])
+            if _contract_scope(recipient).filter(pk=obj.contract_id).exists() else ""
+        )
+    return ""
+
+
+def _notify_workflow_owners(case, actor, *, started=False, closed=False):
+    """Notify only request owners who can open the corresponding domain record."""
+    from accounts.models import UserNotification
+
+    obj = case.content_object
+    if obj is None:
+        return
+    title = (
+        "رسیدگی به درخواست شما پایان یافت"
+        if closed else
+        "درخواست شما در سامانه ثبت شد"
+        if started else
+        "وضعیت درخواست شما به‌روزرسانی شد"
+    )
+    if closed:
+        body = "رسیدگی به درخواست شما به پایان رسیده است. برای مشاهده نتیجه، پرونده را باز کنید."
+    elif started:
+        body = "درخواست شما ثبت شده و در مسیر رسیدگی قرار گرفته است."
+    else:
+        step_title = case.current_step.title if case.current_step else "مرحله نهایی"
+        body = f"درخواست شما به مرحله «{step_title}» منتقل شده است."
+
+    for recipient in _workflow_owner_candidates(obj):
+        if recipient.pk == getattr(actor, "pk", None):
+            continue
+        notification_role = (
+            has_global_access(recipient)
+            or has_role(recipient, RoleAssignment.Role.INSURANCE_SPECIALIST)
+            or has_role(recipient, RoleAssignment.Role.INSURED_PERSON)
+            or has_role(recipient, RoleAssignment.Role.SUBSIDIARY_REP)
+            or has_role(recipient, RoleAssignment.Role.INSURER_REP)
+        )
+        if not notification_role:
+            continue
+        target_url = _workflow_owner_can_view(obj, recipient, case)
+        if not target_url:
+            continue
+        UserNotification.objects.create(
+            recipient=recipient,
+            actor=actor,
+            title=title,
+            body=body,
+            target_url=target_url,
+        )
+
+
 @transaction.atomic
 def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delegation=None):
     if not actor or not actor.is_authenticated or not actor.is_active:
