@@ -295,7 +295,7 @@ class ContractWorkflowLifecycleTests(TestCase):
             contract=contract,
             insurer=self.insurer,
             service_type="خدمت درمانی",
-            service_date=self.today - timedelta(days=2),
+            service_date=self.today,
             requested_amount=100,
             status=Claim.Status.UNDER_REVIEW,
         )
