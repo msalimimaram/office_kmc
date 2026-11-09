@@ -634,6 +634,22 @@ class PersonChangeRequestWorkflowTests(TestCase):
                 [],
                 True,
             ),
+            (
+                PersonChangeRequest.Status.COMPANY_REVIEW,
+                None,
+                "premature-close",
+                roles["company"],
+                [],
+                True,
+            ),
+            (
+                PersonChangeRequest.Status.INSURER_UPDATE,
+                None,
+                "insurer-close",
+                roles["insurer"],
+                [],
+                True,
+            ),
         ]
         for source, target, action, allowed, recipients, closes in transitions:
             WorkflowTransition.objects.create(
@@ -715,15 +731,6 @@ class PersonChangeRequestWorkflowTests(TestCase):
 
     def test_company_rep_cannot_close_before_final_review(self):
         item, case = self._create_request()
-        initial = case.current_step
-        WorkflowTransition.objects.create(
-            definition=case.definition,
-            source_step=initial,
-            action_code="premature-close",
-            title="بستن زودهنگام",
-            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
-            closes_case=True,
-        )
         with self.assertRaises(ValidationError):
             transition_case(
                 case_id=case.pk,
@@ -742,14 +749,6 @@ class PersonChangeRequestWorkflowTests(TestCase):
             actor=self.company_rep,
             action_code="refer-to-insurer",
             recipient=self.insurer_rep,
-        )
-        WorkflowTransition.objects.create(
-            definition=case.definition,
-            source_step=case.current_step,
-            action_code="insurer-close",
-            title="بستن توسط بیمه‌گر",
-            allowed_roles=[RoleAssignment.Role.INSURER_REP],
-            closes_case=True,
         )
         with self.assertRaises(PermissionDenied):
             transition_case(
