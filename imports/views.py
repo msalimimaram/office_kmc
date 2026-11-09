@@ -19,6 +19,7 @@ from .models import ImportBatch
 from auditlog.models import AuditEvent
 from accounts.access import has_global_access, has_role, insurer_ids_for, line_codes_for
 from accounts.models import RoleAssignment
+from core.uploads import validate_uploaded_file
 import jdatetime
 
 MAX_IMPORT_ROWS = 10000
@@ -93,6 +94,14 @@ def claim_import(request):
         form = ClaimImportForm(request.POST, request.FILES)
         if form.is_valid():
             upload = form.cleaned_data["file"]
+            file_error = validate_uploaded_file(
+                upload,
+                max_size=25 * 1024 * 1024,
+                allowed_extensions={".xlsx", ".xlsm"},
+            )
+            if file_error:
+                form.add_error("file", file_error)
+                return render(request, "imports/claim_import.html", {"form": form})
             wb = None
             try:
                 wb = load_workbook(upload, read_only=True, data_only=True)
