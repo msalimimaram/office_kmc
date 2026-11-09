@@ -73,7 +73,7 @@ def claim_detail(request, pk):
     claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
     user = request.user
     can_submit_objection = (
-        has_role(user, RoleAssignment.Role.INSURED_PERSON)
+        has_role(user, RoleAssignment.Role.EMPLOYEE)
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.company_snapshot_id or claim.person.company_id)
     )
     can_review_objections = can_decide_claim(user, claim)
