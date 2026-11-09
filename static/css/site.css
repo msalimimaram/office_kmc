@@ -97,3 +97,6 @@ textarea{min-height:110px}
 .userbox>a{color:#c5d7e8}
 @media(max-width:1100px){.topbar{align-items:flex-start}.topnav{gap:8px}.nav-group{gap:3px}.nav-primary{order:0}.nav-modules{order:1}}
 @media(max-width:650px){.topbar{padding:12px 4%;gap:10px}.topnav{display:flex;flex-basis:100%;gap:8px}.nav-group{width:100%}.nav-primary{width:auto}.nav-modules{padding:2px 0}.topnav a.nav-link{min-height:38px;padding:7px 9px}.userbox{width:100%;justify-content:space-between}}
+
+.topnav .nav-modules>a{display:inline-flex;align-items:center;min-height:36px;padding:7px 9px;border-radius:9px;color:#d5e0ed;font-size:11px;font-weight:500;white-space:nowrap;transition:background .18s ease,color .18s ease}
+.topnav .nav-modules>a:hover{background:#ffffff14;color:#fff}
