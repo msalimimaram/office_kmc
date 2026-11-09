@@ -61,6 +61,15 @@ def home(request):
 
     is_management = has_global_access(user)
     is_insured_dashboard = has_role(user, RoleAssignment.Role.INSURED_PERSON) and not is_management
+    delegated_cases = WorkflowCase.objects.filter(
+        current_assignee=user,
+        delegation__status="active",
+        delegation__valid_from__lte=timezone.localdate(),
+        status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+    ).filter(
+        Q(delegation__valid_until__isnull=True)
+        | Q(delegation__valid_until__gte=timezone.localdate())
+    ).select_related("definition", "current_step", "delegation")
 
     context = {
         "claim_count": claims.count(),
@@ -91,16 +100,8 @@ def home(request):
         "is_management": is_management,
         "management_kpis": management_kpis(user) if is_management else {},
         "insured_metrics": insured_dashboard_metrics(user) if is_insured_dashboard else {},
-        "delegated_work_cases": WorkflowCase.objects.filter(
-            current_assignee=user,
-            delegation__isnull=False,
-            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
-        ).select_related("definition", "current_step", "delegation")[:5],
-        "delegated_work_count": WorkflowCase.objects.filter(
-            current_assignee=user,
-            delegation__isnull=False,
-            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
-        ).count(),
+        "delegated_work_cases": delegated_cases.order_by("sla_due_at", "opened_at")[:5],
+        "delegated_work_count": delegated_cases.count(),
     }
     return render(request, "dashboard/home.html", context)
 
