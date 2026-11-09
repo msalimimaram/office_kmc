@@ -16,6 +16,9 @@ from accounts.models import RoleAssignment
 from auditlog.services import record_event
 from core.permissions import can_decide_claim, scoped_claims_for
 from .forms import (
+    ClaimForm,
+    ClaimAssessmentForm,
+    company_for_person_on_date,
     ClaimObjectionForm,
     ClaimObjectionReviewForm,
     ClaimPaymentForm,
@@ -50,7 +53,16 @@ def claim_list(request):
         "search_query": query,
         "selected_status": status,
         "statuses": Claim.Status.choices,
+        "can_create": has_global_access(request.user) or has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST),
     })
+
+
+def _claim_workflow_case(claim):
+    content_type = ContentType.objects.get_for_model(claim, for_concrete_model=False)
+    return WorkflowCase.objects.filter(
+        content_type=content_type,
+        object_id=str(claim.pk),
+    ).select_related("current_step", "current_assignee").first()
 
 
 
@@ -77,6 +89,21 @@ def claim_detail(request, pk):
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.company_snapshot_id or claim.person.company_id)
     )
     can_review_objections = can_decide_claim(user, claim)
+    workflow_case = _claim_workflow_case(claim)
+    can_assess = bool(
+        workflow_case
+        and workflow_case.current_step
+        and workflow_case.current_step.code in {"under_review", "needs_info"}
+        and (workflow_case.current_assignee_id == user.pk or has_global_access(user))
+        and can_decide_claim(user, claim)
+    )
+    can_send_result = bool(
+        claim.status in {Claim.Status.APPROVED, Claim.Status.REJECTED}
+        and not claim.result_sent_at
+        and can_decide_claim(user, claim)
+        and workflow_case
+        and workflow_case.status == WorkflowCase.Status.CLOSED
+    )
     if can_review_objections:
         objections = list(claim.objections.select_related("submitted_by").all())
     else:
@@ -162,6 +189,10 @@ def claim_detail(request, pk):
 
     return render(request, "claims/claim_detail.html", {
         "claim": claim,
+        "workflow_case": workflow_case,
+        "can_assess": can_assess,
+        "assessment_form": ClaimAssessmentForm(claim=claim) if can_assess else None,
+        "can_send_result": can_send_result,
         "objections": objections,
         "form": form,
         "can_submit_objection": can_submit_objection,
@@ -306,4 +337,157 @@ def claim_payment_reverse(request, pk, payment_pk):
         messages.error(request, "برگشت پرداخت انجام نشد: " + " ".join(exc.messages))
     else:
         messages.success(request, "رویداد برگشت با تأیید مستقل ثبت شد.")
+    return redirect("claim_detail", pk=claim.pk)
+
+
+@login_required
+def claim_create(request):
+    if not (
+        has_global_access(request.user)
+        or has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    ):
+        raise PermissionDenied
+    form = ClaimForm(request.POST or None, user=request.user)
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                claim = form.save(commit=False)
+                contract = claim.contract
+                company = company_for_person_on_date(claim.person, claim.service_date)
+                if not company:
+                    raise ValidationError("شرکت شخص در تاریخ خدمت از سوابق اشتغال قابل تعیین نیست.")
+                claim.company_snapshot = company
+                claim.insurer = contract.insurer
+                claim.contract_number_snapshot = contract.code
+                claim.status = Claim.Status.REGISTERED
+                claim.save()
+
+                definition = WorkflowDefinition.objects.filter(
+                    code="claim_review",
+                    is_active=True,
+                ).order_by("-version").first()
+                if not definition:
+                    raise ValidationError(
+                        "گردش‌کار فعال claim_review برای ارزیابی خسارت پیکربندی نشده است."
+                    )
+                assignee = resolve_initial_assignee(
+                    definition=definition,
+                    company_id=company.pk,
+                    insurer_id=contract.insurer_id,
+                    line_code=contract.line,
+                    owner_user_id=request.user.pk,
+                )
+                case = start_workflow(
+                    obj=claim,
+                    code="claim_review",
+                    actor=request.user,
+                    assignee=assignee,
+                    note="خسارت دستی ثبت و برای ارزیابی تخصصی ارجاع شد.",
+                )
+                record_event(
+                    actor=request.user,
+                    action="claim_manual_created",
+                    obj=claim,
+                    summary="خسارت دستی ثبت و برای ارزیابی ارجاع شد.",
+                    after_data={
+                        "claim_number": claim.claim_number,
+                        "person_id": claim.person_id,
+                        "company_id": company.pk,
+                        "insurer_id": contract.insurer_id,
+                        "contract_id": contract.pk,
+                        "workflow_case_id": case.pk,
+                    },
+                    request=request,
+                )
+        except (ValidationError, PermissionDenied) as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, "خسارت ثبت و برای ارزیابی تخصصی ارجاع شد.")
+            return redirect("claim_detail", pk=claim.pk)
+    return render(request, "claims/claim_form.html", {"form": form})
+
+
+@login_required
+@require_POST
+def claim_assess(request, pk):
+    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
+    case = _claim_workflow_case(claim)
+    if (
+        not case
+        or not case.current_step
+        or case.current_step.code not in {"under_review", "needs_info"}
+        or not (case.current_assignee_id == request.user.pk or has_global_access(request.user))
+        or not can_decide_claim(request.user, claim)
+    ):
+        raise PermissionDenied
+
+    form = ClaimAssessmentForm(request.POST, claim=claim)
+    if not form.is_valid():
+        messages.error(request, "اطلاعات ارزیابی معتبر نیست: " + " ".join(
+            str(error) for error in form.errors.values()
+        ))
+        return redirect("claim_detail", pk=claim.pk)
+
+    with transaction.atomic():
+        claim = Claim.objects.select_for_update().get(pk=claim.pk)
+        previous = {
+            "assessed_amount": str(claim.assessed_amount),
+            "payable_amount": str(claim.payable_amount),
+            "assessment_note": claim.assessment_note,
+        }
+        claim.assessed_amount = form.cleaned_data["assessed_amount"]
+        claim.payable_amount = form.cleaned_data["payable_amount"]
+        claim.assessment_note = form.cleaned_data["assessment_note"].strip()
+        claim.assessed_by = request.user
+        claim.assessed_at = timezone.now()
+        claim.save(update_fields=[
+            "assessed_amount", "payable_amount", "assessment_note",
+            "assessed_by", "assessed_at", "updated_at",
+        ])
+        record_event(
+            actor=request.user,
+            action="claim_assessed",
+            obj=claim,
+            summary="ارزیابی غیرپزشکی خسارت ثبت شد.",
+            before_data=previous,
+            after_data={
+                "assessed_amount": str(claim.assessed_amount),
+                "payable_amount": str(claim.payable_amount),
+                "assessment_note": claim.assessment_note,
+            },
+            request=request,
+        )
+    messages.success(request, "ارزیابی ثبت شد؛ برای تصمیم نهایی، گردش کار را به مرجع مجاز ارجاع دهید.")
+    return redirect("claim_detail", pk=claim.pk)
+
+
+@login_required
+@require_POST
+def claim_result_send(request, pk):
+    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
+    case = _claim_workflow_case(claim)
+    if (
+        claim.status not in {Claim.Status.APPROVED, Claim.Status.REJECTED}
+        or claim.result_sent_at
+        or not case
+        or case.status != WorkflowCase.Status.CLOSED
+        or not can_decide_claim(request.user, claim)
+    ):
+        raise PermissionDenied("ارسال نتیجه فقط پس از تصمیم و بستن گردش ارزیابی مجاز است.")
+    claim.result_sent_at = timezone.now()
+    claim.result_sent_by = request.user
+    claim.save(update_fields=["result_sent_at", "result_sent_by", "updated_at"])
+    record_event(
+        actor=request.user,
+        action="claim_result_sent",
+        obj=claim,
+        summary="نتیجه رسیدگی به بیمه‌شده اعلام شد؛ مهلت ۶۰ روزه اعتراض آغاز شد.",
+        after_data={
+            "result_sent_at": claim.result_sent_at.isoformat(),
+            "result_sent_by": request.user.pk,
+            "objection_deadline": claim.objection_deadline.isoformat(),
+        },
+        request=request,
+    )
+    messages.success(request, "زمان اعلام نتیجه ثبت شد و مهلت ۶۰ روزه اعتراض آغاز گردید.")
     return redirect("claim_detail", pk=claim.pk)
