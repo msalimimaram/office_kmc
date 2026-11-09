@@ -12,9 +12,12 @@
   <header class="topbar">
     <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark">ب</span><span>اداره بیمه<small>سامانه یکپارچه مدیریت بیمه</small></span></a>
     {% if request.user.is_authenticated %}
-    <nav class="topnav">
-      <a href="{% url 'dashboard' %}">داشبورد</a>
-      <a href="{% url 'notification_list' %}">اعلان‌ها{% if unread_notification_count %} ({{ unread_notification_count }}){% endif %}</a>
+    <nav class="topnav" aria-label="منوی اصلی">
+      <span class="nav-group nav-primary">
+      <a class="nav-link" href="{% url 'dashboard' %}"><span class="nav-symbol">⌂</span>داشبورد</a>
+      {% if access.notifications %}<a class="nav-link nav-notifications" href="{% url 'notification_list' %}"><span class="nav-symbol">♧</span>اعلان‌ها{% if unread_notification_count %}<span class="nav-count">{{ unread_notification_count }}</span>{% endif %}</a>{% endif %}
+      </span>
+      <span class="nav-group nav-modules">
       {% if access.claims %}<a href="{% url 'claim_list' %}">خسارت‌ها</a>{% endif %}
       {% if access.contracts %}<a href="{% url 'contract_list' %}">قراردادها</a>{% endif %}
       {% if access.assets %}<a href="{% url 'asset_list' %}">دارایی‌ها</a>{% endif %}
@@ -27,6 +30,7 @@
       {% if access.leadership_titles %}<a href="{% url 'company_leadership_titles' %}">سمت‌های مدیریتی</a>{% endif %}
       {% if access.tasks %}<a href="{% url 'task_list' %}">وظایف</a>{% endif %}
       {% if access.imports %}<a href="{% url 'claim_import' %}">ورود اکسل</a>{% endif %}
+      </span>
     </nav>
     <div class="userbox"><span>{{ request.user.get_full_name|default:request.user.username }}</span><a href="{% url 'password_change' %}">تغییر رمز</a>
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">خروج</button></form>
