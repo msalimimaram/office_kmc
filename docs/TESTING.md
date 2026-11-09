@@ -129,9 +129,19 @@ docker compose -f docker-compose.local.yml down
 
 برای اجرای متمرکز کنترل وابستگی‌ها، Django check، نبود migration جاافتاده، کل تست‌ها و ممیزی پیکربندی گردش‌کار:
 
+در **PowerShell** از ریشه مخزن:
+
 ```powershell
 .\scripts\final_preflight.ps1
 ```
+
+در **CMD ویندوز** از هر مسیر:
+
+```cmd
+scripts\final_preflight.cmd
+```
+
+راه‌انداز CMD مسیر استاندارد Windows PowerShell را مستقیماً بررسی می‌کند و به ثبت بودن `powershell.exe` در PATH وابسته نیست. آرگومان‌ها نیز منتقل می‌شوند؛ بنابراین برای staging می‌توان از `scripts\final_preflight.cmd -Production` استفاده کرد.
 
 فرمان `seed_operational_workflows` گردش‌کار نسخه‌دار پایه را برای تمام انواع ServiceRequest و فرآیندهای claim_objection، contract_approval، contract_termination، person_change و دارایی ایجاد می‌کند؛ تعریف‌های فعال موجود را بازنویسی نمی‌کند. سپس `audit_workflows` یک gate واقعی است و پوشش وضعیت‌ها، نقش‌ها، گیرنده‌ها و مسیرهای نهایی را کنترل می‌کند. اجرای seed به وجود انتصاب فعال رئیس اداره یا مدیر سامانه نیاز دارد. تصمیم نهایی اعتراض و قرارداد باید فقط در اختیار رئیس اداره/مدیر سامانه باشد. این شکست را با حذف gate یا خاموش‌کردن بررسی دور نزنید؛ ابتدا پیکربندی گردش‌کار و انتصاب گیرنده‌ها را تکمیل کنید.
 
@@ -139,6 +149,12 @@ docker compose -f docker-compose.local.yml down
 
 ```powershell
 .\scripts\final_preflight.ps1 -Production
+```
+
+یا از CMD:
+
+```cmd
+scripts\final_preflight.cmd -Production
 ```
 
 حالت `-Production` تست‌ها را نیز اجرا می‌کند؛ هرگز آن را با `DATABASE_URL` پایگاه دادهٔ زندهٔ Production اجرا نکنید. این اسکریپت schema را migrate نمی‌کند؛ فقط وضعیت migration را بررسی می‌کند و static files را جمع‌آوری می‌کند.
