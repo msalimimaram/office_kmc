@@ -22,11 +22,25 @@ def delegation_inbox(request):
         and not WorkDelegation.objects.filter(delegate_to=request.user).exists()
     ):
         raise PermissionDenied("صندوق تفویض فقط برای گیرنده تفویض یا مدیران مجاز است.")
-    synchronize_delegations()
+    try:
+        synchronize_delegations()
+    except ValidationError as exc:
+        # A legacy overlapping rule must not turn the recipient's whole
+        # dashboard into a 500. The conflicted case stays untouched until
+        # a manager resolves the ambiguity.
+        messages.error(
+            request,
+            f"همگام‌سازی کامل انجام نشد؛ یک تعارض در قوانین تفویض باید توسط مدیر رفع شود: {exc}",
+        )
     cases = WorkflowCase.objects.filter(
         current_assignee=request.user,
         delegation__isnull=False,
+        delegation__status=WorkDelegation.Status.ACTIVE,
+        delegation__valid_from__lte=timezone.localdate(),
         status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+    ).filter(
+        Q(delegation__valid_until__isnull=True)
+        | Q(delegation__valid_until__gte=timezone.localdate())
     ).select_related(
         "definition", "current_step", "delegation", "delegation__granted_by",
     ).order_by("sla_due_at", "opened_at")
@@ -55,7 +69,15 @@ def delegation_management(request):
         raise PermissionDenied
     # Also reconcile expired rules and receiver assignments before rendering
     # the management screen; this is the same operation used by the inbox.
-    synchronize_delegations()
+    try:
+        synchronize_delegations()
+    except ValidationError as exc:
+        # Keep the management console available so an administrator can
+        # inspect and resolve the conflicting rules that blocked sync.
+        messages.error(
+            request,
+            f"همگام‌سازی کامل نشد؛ قوانین دارای تعارض را بازبینی کنید: {exc}",
+        )
     form = WorkDelegationForm(request.POST or None)
     if request.method == "POST":
         action = request.POST.get("action", "create")
