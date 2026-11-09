@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import Client, TestCase
@@ -12,7 +14,11 @@ from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowTransition
 
 from .models import WorkDelegation
-from .services import apply_delegation_to_open_cases, update_delegation_status
+from .services import (
+    apply_delegation_to_open_cases,
+    synchronize_delegations,
+    update_delegation_status,
+)
 
 
 User = get_user_model()
@@ -492,6 +498,39 @@ class DelegationRoutingTests(TestCase):
         response = client.get(reverse("delegation_management"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "مدیریت تفویض اختیار")
+
+    def test_future_dated_delegation_is_not_suspended_before_its_start(self):
+        start_date = timezone.localdate() + timedelta(days=10)
+        future_specialist = User.objects.create_user(
+            username="delegation.future.health",
+            password="TestPass!23456",
+        )
+        RoleAssignment.objects.create(
+            user=future_specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            is_active=True,
+            valid_from=start_date,
+            reason="انتصاب آتی کارشناس",
+        )
+        rule = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            item_type="iban",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=future_specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="تفویض با تاریخ شروع آینده",
+            valid_from=start_date,
+        )
+
+        report = synchronize_delegations()
+
+        rule.refresh_from_db()
+        self.assertEqual(rule.status, WorkDelegation.Status.ACTIVE)
+        self.assertEqual(report["suspended"], 0)
+        self.assertIsNone(rule.revocation_reason)
 
     def test_ambiguous_delegation_rules_are_blocked(self):
         common = {
