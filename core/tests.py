@@ -1,7 +1,9 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
-from django.test import SimpleTestCase, TestCase
+from unittest.mock import patch
+
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from core.uploads import validate_uploaded_file
 
@@ -37,6 +39,72 @@ class UploadedFileValidationTests(SimpleTestCase):
             archive.writestr("random.txt", "not a workbook")
         upload = SimpleUploadedFile("fake.xlsx", stream.getvalue())
         self.assertIn("مطابقت ندارد", validate_uploaded_file(upload, max_size=1024 * 1024))
+
+
+
+class FakeClamAVSocket:
+    def __init__(self, response):
+        self.response = response
+        self.sent = bytearray()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def sendall(self, data):
+        self.sent.extend(data)
+
+    def recv(self, size):
+        return self.response
+
+
+class ClamAVUploadScanningTests(SimpleTestCase):
+    @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
+    @patch("core.uploads.socket.create_connection")
+    def test_clean_file_is_accepted_only_after_clamav_ok(self, create_connection):
+        scanner = FakeClamAVSocket(b"stream: OK\\0")
+        create_connection.return_value = scanner
+        upload = SimpleUploadedFile("clean.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        self.assertIsNone(validate_uploaded_file(upload, max_size=1024))
+
+        create_connection.assert_called_once_with(("clamd.internal", 3310), timeout=5.0)
+        self.assertIn(b"zINSTREAM\\0", scanner.sent)
+        self.assertEqual(upload.tell(), 0)
+
+    @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
+    @patch("core.uploads.socket.create_connection")
+    def test_infected_file_is_rejected(self, create_connection):
+        create_connection.return_value = FakeClamAVSocket(
+            b"stream: Eicar-Test-Signature FOUND\\0"
+        )
+        upload = SimpleUploadedFile("infected.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        error = validate_uploaded_file(upload, max_size=1024)
+
+        self.assertIn("آلوده", error)
+
+    @override_settings(DEBUG=False, CLAMD_HOST="")
+    def test_production_rejects_upload_when_scanner_is_not_configured(self):
+        upload = SimpleUploadedFile("unscanned.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        error = validate_uploaded_file(upload, max_size=1024)
+
+        self.assertIn("پیکربندی نشده", error)
+
+    @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal")
+    @patch("core.uploads.socket.create_connection", side_effect=OSError("scanner unavailable"))
+    def test_scanner_unavailable_fails_closed(self, create_connection):
+        upload = SimpleUploadedFile("offline.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        error = validate_uploaded_file(upload, max_size=1024)
+
+        self.assertIn("برقرار نشد", error)
 
 
 class WorkflowCoverageCommandTests(TestCase):
