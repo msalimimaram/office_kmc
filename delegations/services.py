@@ -58,6 +58,21 @@ def delegation_matches(delegation, *, workflow_code, item_type="", scope=None):
     return _role_assignment_is_active(delegation)
 
 
+def _rules_have_ambiguous_overlap(left, right):
+    """Return True when two rules with equal specificity can match one same case."""
+    dimensions = ("item_type", "company_id", "insurer_id", "line_code")
+    left_specificity = 0
+    right_specificity = 0
+    for field in dimensions:
+        left_value = getattr(left, field)
+        right_value = getattr(right, field)
+        left_specificity += bool(left_value)
+        right_specificity += bool(right_value)
+        if left_value and right_value and left_value != right_value:
+            return False
+    return left_specificity == right_specificity
+
+
 def find_matching_delegation(*, workflow_code, item_type="", company_id=None, insurer_id=None, line_code=None):
     today = timezone.localdate()
     rules = WorkDelegation.objects.select_related("delegate_to").filter(
@@ -213,16 +228,17 @@ def create_work_delegation(*, cleaned_data, actor):
         raise ValidationError("گیرنده در محدوده انتخاب‌شده انتصاب فعال ندارد.")
     conflicts = WorkDelegation.objects.select_for_update().filter(
         workflow_code=delegation.workflow_code,
-        item_type=delegation.item_type,
-        company_id=delegation.company_id,
-        insurer_id=delegation.insurer_id,
-        line_code=delegation.line_code,
         status=WorkDelegation.Status.ACTIVE,
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from))
-    if delegation.valid_until:
-        conflicts = conflicts.filter(valid_from__lte=delegation.valid_until)
-    if conflicts.exists():
-        raise ValidationError("برای همین گردش‌کار، نوع کار و محدوده در بازه زمانی انتخاب‌شده تفویض فعال دیگری وجود دارد.")
+        valid_from__lte=delegation.valid_until or timezone.localdate().replace(year=9999),
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from)
+    ).exclude(pk=delegation.pk)
+    for existing in conflicts:
+        if _rules_have_ambiguous_overlap(existing, delegation):
+            raise ValidationError(
+                "این تفویض با یک قانون فعال هم‌سطح و دارای محدوده هم‌پوشان تداخل دارد؛ "
+                "بازه زمانی یا محدوده شرکت، بیمه‌گر، رشته یا نوع کار را اصلاح کنید."
+            )
     delegation.save()
     DelegationEvent.objects.create(
         delegation=delegation, actor=actor,
