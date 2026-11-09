@@ -297,6 +297,83 @@ class DelegationRoutingTests(TestCase):
         self.assertEqual(assignee, backup)
         self.assertEqual(matched, specific)
 
+    def test_revoking_delegation_after_case_left_initial_stage_does_not_apply_intake_rule(self):
+        backup = User.objects.create_user(
+            username="delegation.later-stage.backup",
+            password="TestPass!23456",
+        )
+        RoleAssignment.objects.create(
+            user=backup,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            is_active=True,
+            valid_from=timezone.localdate(),
+        )
+        later_step = WorkflowStep.objects.create(
+            definition=self.definition,
+            code="specialist_review",
+            title="بررسی تخصصی",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+        )
+        initial_step = self.definition.steps.get(is_initial=True)
+        WorkflowTransition.objects.create(
+            definition=self.definition,
+            source_step=initial_step,
+            target_step=later_step,
+            action_code="send-to-specialist-stage",
+            title="ورود به بررسی تخصصی",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            recipient_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+        )
+        broad = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=backup,
+            granted_by=self.head,
+            line_code="health",
+            reason="تفویض عمومی مرحله آغازین",
+            valid_from=timezone.localdate(),
+        )
+        specific = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="تفویض اختصاصی مرحله آغازین شرکت",
+            valid_from=timezone.localdate(),
+        )
+        case = start_workflow(
+            obj=self.request,
+            code="person_change",
+            actor=self.representative,
+            assignee=self.specialist,
+            delegation=specific,
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="send-to-specialist-stage",
+            recipient=self.specialist,
+            note="پرونده وارد مرحله تخصصی شد.",
+        )
+
+        update_delegation_status(
+            delegation_id=specific.pk,
+            actor=self.head,
+            action="revoke",
+            reason="پایان مسئولیت در این محدوده",
+        )
+
+        case.refresh_from_db()
+        self.assertEqual(case.current_step, later_step)
+        self.assertEqual(case.current_assignee, self.head)
+        self.assertIsNone(case.delegation_id)
+        broad.refresh_from_db()
+        self.assertEqual(broad.status, WorkDelegation.Status.ACTIVE)
+
     def test_revoking_specific_rule_routes_open_cases_to_broader_valid_rule(self):
         backup = User.objects.create_user(
             username="delegation.health.backup", password="TestPass!23456"
