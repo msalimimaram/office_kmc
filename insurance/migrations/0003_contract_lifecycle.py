@@ -101,5 +101,9 @@ class Migration(migrations.Migration):
             name="notice_date",
             field=models.DateField(blank=True, null=True, verbose_name="تاریخ اعلام فسخ"),
         ),
+        migrations.AlterModelOptions(
+            name="contractrevision",
+            options={"ordering": ["-revision_number", "-pk"]},
+        ),
         migrations.RunPython(backfill_contract_lifecycle, migrations.RunPython.noop),
     ]
