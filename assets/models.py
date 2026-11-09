@@ -120,11 +120,17 @@ class AssetValuation(models.Model):
         DECLARED = "declared", "اظهار واحد"
         LEGACY = "legacy_snapshot", "انتقال از اطلاعات قدیمی"
 
+    class Status(models.TextChoices):
+        PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
+        APPROVED = "approved", "تأییدشده"
+        REJECTED = "rejected", "ردشده"
+
     asset = models.ForeignKey(InsuredAsset, on_delete=models.PROTECT, related_name="valuations")
     valuation_date = models.DateField("تاریخ ارزیابی", null=True, blank=True)
     market_value = models.DecimalField("ارزش روز", max_digits=18, decimal_places=2, default=0)
     insured_value = models.DecimalField("ارزش بیمه‌شده", max_digits=18, decimal_places=2, default=0)
     method = models.CharField("روش ارزیابی", max_length=24, choices=Method.choices, default=Method.EXPERT)
+    status = models.CharField("وضعیت تأیید", max_length=24, choices=Status.choices, default=Status.PENDING_APPROVAL)
     source_reference = models.CharField("مرجع ارزیابی", max_length=160, blank=True)
     note = models.TextField("توضیحات", blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="asset_valuations")
@@ -150,9 +156,27 @@ class AssetValuation(models.Model):
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
-            raise ValidationError("سابقه ارزیابی ویرایش نمی‌شود؛ ارزیابی جدید ثبت کنید.")
+            update_fields = set(kwargs.get("update_fields") or ())
+            if not update_fields or not update_fields.issubset({"status", "approved_by"}):
+                raise ValidationError("سابقه ارزیابی ویرایش نمی‌شود؛ فقط وضعیت تأیید از گردش کار قابل تغییر است.")
         self.full_clean()
         return super().save(*args, **kwargs)
+
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        if step_code not in {self.Status.PENDING_APPROVAL, self.Status.APPROVED, self.Status.REJECTED}:
+            return
+        if self.status == step_code and (step_code != self.Status.APPROVED or self.approved_by_id == getattr(actor, "pk", None)):
+            return
+        self.status = step_code
+        update_fields = ["status"]
+        if step_code == self.Status.APPROVED:
+            self.approved_by = actor
+            update_fields.append("approved_by")
+        self.save(update_fields=update_fields)
+        if step_code == self.Status.APPROVED:
+            asset = self.asset
+            asset.insured_value = self.insured_value
+            asset.save(update_fields=["insured_value", "updated_at"])
 
     def delete(self, *args, **kwargs):
         raise ValidationError("سابقه ارزیابی حذف نمی‌شود.")
@@ -164,7 +188,10 @@ class AssetValuation(models.Model):
 class AssetPolicyPeriod(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "پیش‌نویس"
+        PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
+        APPROVED = "approved", "تأییدشده؛ در انتظار شروع پوشش"
         ACTIVE = "active", "فعال"
+        REJECTED = "rejected", "ردشده"
         EXPIRED = "expired", "منقضی"
         TERMINATED = "terminated", "فسخ‌شده"
         SUPERSEDED = "superseded", "جایگزین‌شده"
@@ -211,16 +238,53 @@ class AssetPolicyPeriod(models.Model):
         self.full_clean()
         return super().save(*args, **kwargs)
 
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        if step_code == "approved":
+            from django.utils import timezone
+
+            today = timezone.localdate()
+            if self.policy_end and self.policy_end < today:
+                self.status = self.Status.EXPIRED
+            elif self.policy_start and self.policy_start > today:
+                self.status = self.Status.APPROVED
+            else:
+                self.status = self.Status.ACTIVE
+            self.approved_by = actor
+            self.save(update_fields=["status", "approved_by"])
+            if self.status == self.Status.ACTIVE:
+                asset = self.asset
+                asset.insurer = self.insurer
+                asset.contract = self.contract
+                asset.policy_number = self.policy_number
+                asset.policy_start = self.policy_start
+                asset.policy_end = self.policy_end
+                asset.is_active = True
+                asset.save(update_fields=[
+                    "insurer", "contract", "policy_number", "policy_start",
+                    "policy_end", "is_active", "updated_at",
+                ])
+            return
+        if step_code in {self.Status.PENDING_APPROVAL, self.Status.REJECTED}:
+            if self.status != step_code:
+                self.status = step_code
+                self.save(update_fields=["status"])
+
     def __str__(self):
         return f"{self.policy_number} — {self.asset}"
 
 
 class AssetPolicyEndorsement(models.Model):
+    class Status(models.TextChoices):
+        PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
+        APPROVED = "approved", "تأییدشده"
+        REJECTED = "rejected", "ردشده"
+
     policy_period = models.ForeignKey(AssetPolicyPeriod, on_delete=models.PROTECT, related_name="endorsements")
     endorsement_number = models.CharField("شماره الحاقیه", max_length=100)
     effective_date = models.DateField("تاریخ اثر", null=True, blank=True)
     description = models.TextField("شرح تغییر")
     document = models.FileField("فایل الحاقیه", upload_to="asset_endorsements/")
+    status = models.CharField("وضعیت تأیید", max_length=24, choices=Status.choices, default=Status.PENDING_APPROVAL)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
@@ -234,3 +298,24 @@ class AssetPolicyEndorsement(models.Model):
         ]
         verbose_name = "الحاقیه بیمه‌نامه دارایی"
         verbose_name_plural = "الحاقیه‌های بیمه‌نامه دارایی"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            update_fields = set(kwargs.get("update_fields") or ())
+            if not update_fields or not update_fields.issubset({"status", "approved_by"}):
+                raise ValidationError("الحاقیه پس از ثبت قابل ویرایش نیست؛ فقط وضعیت تأیید از گردش کار قابل تغییر است.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
+        if step_code not in {self.Status.PENDING_APPROVAL, self.Status.APPROVED, self.Status.REJECTED}:
+            return
+        if self.status == step_code and (step_code != self.Status.APPROVED or self.approved_by_id == getattr(actor, "pk", None)):
+            return
+        self.status = step_code
+        update_fields = ["status"]
+        if step_code == self.Status.APPROVED:
+            self.approved_by = actor
+            update_fields.append("approved_by")
+        self.save(update_fields=update_fields)
+
