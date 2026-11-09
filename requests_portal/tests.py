@@ -55,6 +55,42 @@ class ServiceRequestTests(TestCase):
         self.assertNotIn("IB-SECRET-1", visible)
         self.assertNotIn("IB-OTHER-1", visible)
 
+    def test_employee_can_view_request_submitted_by_representative_for_linked_person(self):
+        self.user.national_id = NATIONAL_ID_A
+        self.user.save(update_fields=["national_id"])
+        person = Person.objects.create(
+            company=self.company,
+            user=self.user,
+            national_id=NATIONAL_ID_A,
+            first_name="کارمند",
+            last_name="آزمایشی",
+            birth_date=date(1990, 1, 1),
+        )
+        representative = User.objects.create_user(
+            username="request-on-behalf-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            role="subsidiary_rep",
+            company=self.company,
+        )
+        item = ServiceRequest.objects.create(
+            reference="IB-ON-BEHALF-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=representative,
+            person=person,
+            company=self.company,
+            title="درخواست محرمانه ثبت‌شده توسط نماینده",
+            description="درخواست به نمایندگی از بیمه‌شده ثبت شده است",
+            is_confidential=True,
+        )
+
+        self.assertIn(item, scoped_requests_for(self.user))
+        client = Client()
+        client.force_login(self.user)
+        response = client.get(reverse("request_detail", args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "درخواست محرمانه ثبت‌شده توسط نماینده")
+
     def test_employee_sees_only_requests_they_submitted(self):
         ServiceRequest.objects.create(
             reference="IB-OWN-1", kind=ServiceRequest.Kind.OTHER,
