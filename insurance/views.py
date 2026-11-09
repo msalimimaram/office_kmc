@@ -202,11 +202,14 @@ def contract_detail(request, pk):
     if not internal_view:
         revisions = [
             revision for revision in revisions
-            if revision.status in {
-                ContractRevision.Status.APPROVED,
-                ContractRevision.Status.LEGACY,
-                ContractRevision.Status.TERMINATED,
-            }
+            if revision.status == ContractRevision.Status.LEGACY
+            or (
+                revision.status in {
+                    ContractRevision.Status.APPROVED,
+                    ContractRevision.Status.TERMINATED,
+                }
+                and revision.applied_at
+            )
         ]
     if revisions:
         content_type = ContentType.objects.get_for_model(
@@ -328,14 +331,20 @@ def contract_terminate(request, pk):
 def contract_revision_download(request, pk, revision_pk):
     contract = get_object_or_404(_contract_scope(request.user), pk=pk)
     revision = get_object_or_404(contract.revisions, pk=revision_pk)
-    if not (
-        has_global_access(request.user)
-        or has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line)
-    ) and revision.status not in {
-        ContractRevision.Status.APPROVED,
-        ContractRevision.Status.LEGACY,
-        ContractRevision.Status.TERMINATED,
-    }:
+    internal_view = has_global_access(request.user) or has_role(
+        request.user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+    )
+    externally_visible = (
+        revision.status == ContractRevision.Status.LEGACY
+        or (
+            revision.status in {
+                ContractRevision.Status.APPROVED,
+                ContractRevision.Status.TERMINATED,
+            }
+            and bool(revision.applied_at)
+        )
+    )
+    if not internal_view and not externally_visible:
         raise PermissionDenied
     if not revision.document:
         raise Http404("سند نسخه در دسترس نیست.")
