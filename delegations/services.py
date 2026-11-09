@@ -292,14 +292,15 @@ def _release_cases(delegation, *, actor, event_type, note):
     for case in cases:
         obj = case.content_object
         replacement_rule = None
-        if obj is not None:
+        if obj is not None and case.current_step and case.current_step.is_initial:
             scope = _scope_for_object(obj)
             item_type = str(
                 getattr(obj, "change_type", None)
                 or getattr(obj, "kind", None)
                 or ""
             )
-            # A broader still-active rule may legitimately take over.
+            # Delegation rules only cover the initial workflow step. Never
+            # transfer a later-stage case to a recipient selected for intake.
             try:
                 replacement_rule = find_matching_delegation(
                     workflow_code=case.definition.code,
