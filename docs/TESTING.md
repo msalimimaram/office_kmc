@@ -61,6 +61,8 @@ python manage.py test accounts organizations claims requests_portal imports work
 
 ```powershell
 python manage.py seed_demo
+python manage.py seed_operational_workflows
+python manage.py audit_workflows
 python manage.py runserver
 ```
 
@@ -131,7 +133,7 @@ docker compose -f docker-compose.local.yml down
 .\scripts\final_preflight.ps1
 ```
 
-فرمان `audit_workflows` یک gate واقعی است؛ اگر برای تمام انواع ServiceRequest و فرآیندهای claim_objection، contract_approval، contract_termination و person_change گردش‌کار فعال، مرحله‌های وضعیت‌نگاشت‌شده، مسیر بستن نهایی و گیرنده‌های معتبر تعریف نشده باشد، اسکریپت عمداً متوقف می‌شود. تصمیم نهایی اعتراض و قرارداد باید فقط در اختیار رئیس اداره/مدیر سامانه باشد. این شکست را با حذف gate یا خاموش‌کردن بررسی دور نزنید؛ ابتدا پیکربندی گردش‌کار و انتصاب گیرنده‌ها را تکمیل کنید.
+فرمان `seed_operational_workflows` گردش‌کار نسخه‌دار پایه را برای تمام انواع ServiceRequest و فرآیندهای claim_objection، contract_approval، contract_termination، person_change و دارایی ایجاد می‌کند؛ تعریف‌های فعال موجود را بازنویسی نمی‌کند. سپس `audit_workflows` یک gate واقعی است و پوشش وضعیت‌ها، نقش‌ها، گیرنده‌ها و مسیرهای نهایی را کنترل می‌کند. اجرای seed به وجود انتصاب فعال رئیس اداره یا مدیر سامانه نیاز دارد. تصمیم نهایی اعتراض و قرارداد باید فقط در اختیار رئیس اداره/مدیر سامانه باشد. این شکست را با حذف gate یا خاموش‌کردن بررسی دور نزنید؛ ابتدا پیکربندی گردش‌کار و انتصاب گیرنده‌ها را تکمیل کنید.
 
 برای کنترل تنظیمات Production، فقط روی staging با نسخهٔ پشتیبان/کپی پایگاه داده اجرا کنید:
 
