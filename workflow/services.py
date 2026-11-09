@@ -326,9 +326,12 @@ def _workflow_owner_candidates(obj):
         if getattr(obj, "submitted_by_id", None):
             candidates.append(obj.submitted_by)
         claim = obj.claim
-        person = claim.primary_insured or claim.person
-        if person and person.user_id:
-            candidates.append(person.user)
+        for person in (claim.primary_insured, claim.person):
+            if person and person.user_id:
+                candidates.append(person.user)
+            employee = person.employee if person and person.employee_id else None
+            if employee and employee.user_id:
+                candidates.append(employee.user)
     elif label == "claims.claim":
         for person in (getattr(obj, "primary_insured", None), obj.person):
             if person and person.user_id:
