@@ -152,7 +152,7 @@ class Command(BaseCommand):
 
     def _build_person_change(self, definition):
         company_roles = [RoleAssignment.Role.SUBSIDIARY_REP]
-        insurer_roles = [RoleAssignment.Role.INSURER]
+        insurer_roles = [RoleAssignment.Role.INSURER_REP]
         company_review = WorkflowStep.objects.create(
             definition=definition,
             code="company_review",
