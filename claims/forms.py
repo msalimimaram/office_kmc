@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django import forms
 from django.db.models import Q
+from django.utils import timezone
 
 from accounts.access import has_global_access, has_role, line_codes_for
 from accounts.models import RoleAssignment, User
@@ -169,6 +170,7 @@ class ClaimForm(forms.ModelForm):
         contracts = contracts.prefetch_related("companies").select_related("insurer").distinct()
         self.fields["contract"].queryset = contracts.order_by("code")
         self.fields["contract"].required = True
+        self.fields["registered_date"].initial = timezone.localdate()
 
         company_ids = set(
             contracts.values_list("companies__pk", flat=True).exclude(companies__pk__isnull=True)
@@ -196,6 +198,11 @@ class ClaimForm(forms.ModelForm):
         person = cleaned.get("person")
         contract = cleaned.get("contract")
         service_date = cleaned.get("service_date")
+        registered_date = cleaned.get("registered_date")
+        if registered_date and registered_date > timezone.localdate():
+            self.add_error("registered_date", "تاریخ ثبت نمی‌تواند در آینده باشد.")
+        if service_date and registered_date and service_date > registered_date:
+            self.add_error("service_date", "تاریخ خدمت نمی‌تواند بعد از تاریخ ثبت پرونده باشد.")
         if person and contract and service_date:
             company = company_for_person_on_date(person, service_date)
             if not company:
