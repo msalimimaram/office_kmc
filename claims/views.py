@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -22,6 +23,8 @@ from .forms import (
 )
 from .models import Claim, ClaimObjection, ClaimPayment
 from .services import record_payment, reverse_payment
+from workflow.models import WorkflowCase, WorkflowDefinition
+from workflow.services import resolve_initial_assignee, start_workflow
 
 
 @login_required
@@ -50,6 +53,14 @@ def claim_list(request):
     })
 
 
+
+def _objection_workflow_case(objection):
+    content_type = ContentType.objects.get_for_model(objection, for_concrete_model=False)
+    return WorkflowCase.objects.filter(
+        content_type=content_type,
+        object_id=str(objection.pk),
+    ).first()
+
 def _can_manage_claim_payments(user, claim):
     line_code = claim.contract.line if claim.contract_id else "health"
     return has_global_access(user) or has_role(
@@ -67,9 +78,20 @@ def claim_detail(request, pk):
     )
     can_review_objections = can_decide_claim(user, claim)
     if can_review_objections:
-        objections = claim.objections.select_related("submitted_by").all()
+        objections = list(claim.objections.select_related("submitted_by").all())
     else:
-        objections = claim.objections.filter(submitted_by=user).select_related("submitted_by")
+        objections = list(claim.objections.filter(submitted_by=user).select_related("submitted_by"))
+    if objections:
+        objection_content_type = ContentType.objects.get_for_model(
+            ClaimObjection, for_concrete_model=False
+        )
+        workflow_cases = WorkflowCase.objects.filter(
+            content_type=objection_content_type,
+            object_id__in=[str(item.pk) for item in objections],
+        ).select_related("current_step", "current_assignee")
+        cases_by_object = {case.object_id: case for case in workflow_cases}
+        for item in objections:
+            item.workflow_case = cases_by_object.get(str(item.pk))
 
     if request.method == "POST":
         if not can_submit_objection:
@@ -81,22 +103,50 @@ def claim_detail(request, pk):
             raise PermissionDenied("مهلت ۶۰ روزه ثبت اعتراض به پایان رسیده است.")
         form = ClaimObjectionForm(request.POST)
         if form.is_valid():
-            with transaction.atomic():
-                objection = form.save(commit=False)
-                objection.claim = claim
-                objection.submitted_by = user
-                objection.deadline_at = deadline
-                objection.save()
-                record_event(
-                    actor=user,
-                    action="claim_objection_created",
-                    obj=claim,
-                    summary="اعتراض به خسارت ثبت شد",
-                    after_data={"objection_id": objection.pk, "deadline_at": deadline.isoformat()},
-                    request=request,
-                )
-            messages.success(request, "اعتراض شما ثبت شد.")
-            return redirect("claim_detail", pk=claim.pk)
+            try:
+                with transaction.atomic():
+                    objection = form.save(commit=False)
+                    objection.claim = claim
+                    objection.submitted_by = user
+                    objection.deadline_at = deadline
+                    objection.save()
+                    workflow_case = None
+                    definition = WorkflowDefinition.objects.filter(
+                        code="claim_objection", is_active=True
+                    ).order_by("-version").first()
+                    if definition:
+                        line_code = claim.contract.line if claim.contract_id else "health"
+                        initial_assignee = resolve_initial_assignee(
+                            definition=definition,
+                            company_id=claim.company_snapshot_id or claim.person.company_id,
+                            insurer_id=claim.insurer_id,
+                            line_code=line_code,
+                            owner_user_id=user.pk,
+                        )
+                        workflow_case = start_workflow(
+                            obj=objection,
+                            code="claim_objection",
+                            actor=user,
+                            assignee=initial_assignee,
+                            note="اعتراض به خسارت ثبت و برای رسیدگی ارجاع شد.",
+                        )
+                    record_event(
+                        actor=user,
+                        action="claim_objection_created",
+                        obj=claim,
+                        summary="اعتراض به خسارت ثبت شد",
+                        after_data={
+                            "objection_id": objection.pk,
+                            "deadline_at": deadline.isoformat(),
+                            "workflow_case_id": workflow_case.pk if workflow_case else None,
+                        },
+                        request=request,
+                    )
+            except (ValidationError, PermissionDenied) as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "اعتراض شما ثبت شد.")
+                return redirect("claim_detail", pk=claim.pk)
     else:
         form = ClaimObjectionForm()
     can_manage_payments = _can_manage_claim_payments(user, claim)
@@ -135,6 +185,9 @@ def claim_objection_review(request, pk, objection_pk):
         claim.objections.select_related("submitted_by"),
         pk=objection_pk,
     )
+    workflow_case = _objection_workflow_case(objection)
+    if workflow_case:
+        return redirect("workflow_case_detail", pk=workflow_case.pk)
     form = ClaimObjectionReviewForm(request.POST)
     if not form.is_valid():
         messages.error(request, "اطلاعات رسیدگی به اعتراض معتبر نیست.")
