@@ -120,6 +120,45 @@ class WorkflowCoverageCommandTests(TestCase):
         self.assertIn("identity_change", output.getvalue())
 
 
+    def test_workflow_audit_rejects_request_steps_without_status_mapping(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import RoleAssignment, User
+        from requests_portal.models import ServiceRequest
+        from workflow.models import WorkflowDefinition, WorkflowStep
+
+        admin_user = User.objects.create_superuser(
+            username="workflow-audit-admin",
+            email="workflow-audit@example.invalid",
+            password="StrongPass!123",
+        )
+        for kind, _label in ServiceRequest.Kind.choices:
+            definition = WorkflowDefinition.objects.create(
+                code=kind,
+                title=f"گردش کار {kind}",
+                created_by=admin_user,
+            )
+            WorkflowStep.objects.create(
+                definition=definition,
+                code="unmapped-step" if kind == ServiceRequest.Kind.OTHER else ServiceRequest.Status.SUBMITTED,
+                title="مرحله آغازین",
+                order=1,
+                allowed_roles=[RoleAssignment.Role.SYSTEM_ADMIN],
+                is_initial=True,
+                is_terminal=True,
+                allow_return=False,
+            )
+            definition.approved_by = admin_user
+            definition.is_active = True
+            definition.save()
+
+        output = StringIO()
+        with self.assertRaises(CommandError):
+            call_command("audit_workflows", stdout=output)
+        self.assertIn("unmapped-step", output.getvalue())
+
+
 class StaticAndPrivateMediaUrlTests(SimpleTestCase):
     def test_static_and_private_media_urls_are_root_relative(self):
         from django.conf import settings
