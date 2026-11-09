@@ -1,10 +1,21 @@
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import UserNotification
+from .models import UserNotification, RoleAssignment
+from .access import has_role, is_insurance_staff
+
+
+def _can_access_notifications(user):
+    return (
+        is_insurance_staff(user)
+        or has_role(user, RoleAssignment.Role.INSURED_PERSON)
+        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+        or has_role(user, RoleAssignment.Role.INSURER_REP)
+    )
 
 
 class RequiredPasswordChangeView(auth_views.PasswordChangeView):
@@ -20,6 +31,8 @@ class RequiredPasswordChangeView(auth_views.PasswordChangeView):
 
 @login_required
 def notification_list(request):
+    if not _can_access_notifications(request.user):
+        raise PermissionDenied("شما مجاز به مشاهده اعلان‌ها نیستید.")
     notifications = UserNotification.objects.filter(
         recipient=request.user
     ).order_by("-created_at", "-pk")
@@ -33,6 +46,8 @@ def notification_list(request):
 @login_required
 @require_POST
 def notification_mark_read(request, pk):
+    if not _can_access_notifications(request.user):
+        raise PermissionDenied("شما مجاز به مدیریت اعلان‌ها نیستید.")
     notification = get_object_or_404(
         UserNotification,
         pk=pk,
