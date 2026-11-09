@@ -477,3 +477,53 @@ class ManualClaimWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Claim.objects.filter(claim_number="MANUAL-CLAIM-002").exists())
         self.assertContains(response, "خارج از بازه اعتبار قرارداد")
+
+
+    def test_only_insurer_can_declare_duplicate(self):
+        from accounts.models import RoleAssignment, User
+        from claims.models import Claim
+        from django.utils import timezone
+
+        claim = Claim.objects.create(
+            claim_number="DUPLICATE-DECL-001",
+            source_claim_number="INS-FILE-77",
+            person=self.person,
+            company_snapshot=self.company,
+            insurer=self.insurer,
+            contract=self.contract,
+            contract_number_snapshot=self.contract.code,
+            service_date=timezone.localdate(),
+            registered_date=timezone.localdate(),
+            service_type="هزینه درمان",
+            requested_amount="500000",
+        )
+        insurer_rep = User.objects.create_user(
+            username="claim-duplicate-insurer-rep",
+            password=None,
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=insurer_rep,
+            role=RoleAssignment.Role.INSURER,
+            insurer=self.insurer,
+            line_code=self.contract.line,
+            reason="نماینده بیمه‌گر برای اعلام تکراری بودن",
+        )
+
+        client = Client()
+        client.force_login(self.specialist)
+        forbidden = client.post(reverse("claim_duplicate_declare", args=[claim.pk]), {
+            "source_duplicate_reference": "INS-FILE-1",
+            "source_duplicate_note": "این پرونده در سامانه بیمه‌گر تکراری اعلام شده است.",
+        })
+        self.assertEqual(forbidden.status_code, 403)
+
+        client.force_login(insurer_rep)
+        response = client.post(reverse("claim_duplicate_declare", args=[claim.pk]), {
+            "source_duplicate_reference": "INS-FILE-1",
+            "source_duplicate_note": "بیمه‌گر پس از تطبیق پرونده، آن را تکراری اعلام می‌کند.",
+        })
+        self.assertEqual(response.status_code, 302)
+        claim.refresh_from_db()
+        self.assertEqual(claim.source_duplicate_status, Claim.DuplicateStatus.DECLARED_DUPLICATE)
+        self.assertEqual(claim.source_duplicate_reported_by_id, insurer_rep.pk)
