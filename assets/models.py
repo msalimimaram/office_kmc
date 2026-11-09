@@ -124,6 +124,7 @@ class AssetValuation(models.Model):
         PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
         APPROVED = "approved", "تأییدشده"
         REJECTED = "rejected", "ردشده"
+        LEGACY = "legacy", "سابقه قدیمی؛ فاقد تأیید در گردش جدید"
 
     asset = models.ForeignKey(InsuredAsset, on_delete=models.PROTECT, related_name="valuations")
     valuation_date = models.DateField("تاریخ ارزیابی", null=True, blank=True)
@@ -304,6 +305,7 @@ class AssetPolicyEndorsement(models.Model):
         PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
         APPROVED = "approved", "تأییدشده"
         REJECTED = "rejected", "ردشده"
+        LEGACY = "legacy", "سابقه قدیمی؛ فاقد تأیید در گردش جدید"
 
     policy_period = models.ForeignKey(AssetPolicyPeriod, on_delete=models.PROTECT, related_name="endorsements")
     endorsement_number = models.CharField("شماره الحاقیه", max_length=100)
