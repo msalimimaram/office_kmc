@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}درخواست‌های اصلاح اطلاعات | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">مدیریت اطلاعات بیمه‌شدگان</p>
+    <h1>درخواست‌های اصلاح اطلاعات</h1>
+    <p class="muted">تمام تغییرات هویتی، تماس و بانکی از مسیر ثبت و تأیید قابل پیگیری انجام می‌شوند.</p>
+  </div>
+  {% if can_create %}
+    <a class="btn primary" href="{% url 'person_change_create' %}">ثبت درخواست جدید</a>
+  {% endif %}
+</div>
+<section class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>شخص</th><th>شرکت</th><th>نوع تغییر</th><th>تاریخ ثبت</th><th>وضعیت</th><th>جزئیات</th></tr></thead>
+      <tbody>
+      {% for item in changes %}
+        <tr>
+          <td>{{ item.person }}</td>
+          <td>{{ item.company.name }}</td>
+          <td>{{ item.get_change_type_display }}</td>
+          <td>{{ item.created_at|date:"Y/m/d H:i" }}</td>
+          <td><span class="status">{{ item.get_status_display }}</span></td>
+          <td><a href="{% url 'person_change_detail' item.pk %}">مشاهده</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty">درخواستی برای نمایش وجود ندارد.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% include "includes/pagination.html" %}
+{% endblock %}
