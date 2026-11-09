@@ -77,6 +77,30 @@
 - monitoring و error tracking
 - retention/archive policy
 
-## 5) روند توسعه بعد از go-live
+## 5) زمان‌بندی چرخه عمر قرارداد
+
+پس از اعمال migration قرارداد و تعریف/انتشار گردش‌کارهای contract_approval و contract_termination، فرمان زیر باید روزانه اجرا شود تا نسخه‌های تأییدشده در تاریخ اثر اعمال و قراردادهای منقضی غیرفعال شوند:
+
+```bash
+python manage.py apply_due_contract_revisions
+```
+
+نمونه‌های systemd در مسیرهای زیر قرار دارند:
+
+- `deploy/systemd/office-kmc-contract-lifecycle.service.example`
+- `deploy/systemd/office-kmc-contract-lifecycle.timer.example`
+
+پس از بازبینی مسیرها، کاربر سرویس و EnvironmentFile، فایل‌ها را در `/etc/systemd/system/` نصب و timer را فعال کنید:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now office-kmc-contract-lifecycle.timer
+sudo systemctl start office-kmc-contract-lifecycle.service
+sudo systemctl status office-kmc-contract-lifecycle.timer
+```
+
+این زمان‌بند برای تاریخ‌های اثر آینده و انقضای قرارداد ضروری است؛ بدون اجرای روزانه، نسخه تأییدشده ممکن است در وضعیت انتظار اثر باقی بماند.
+
+## 6) روند توسعه بعد از go-live
 
 همه تغییرات این پروژه بنا بر تصمیم فعلی مستقیماً روی `main` اعمال می‌شوند. برای هر تغییر ابتدا منطق کسب‌وکار و authorization، سپس تست و در پایان UI پیاده‌سازی می‌شود. GitHub Actions جزو فرآیند استقرار نیست.
