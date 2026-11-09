@@ -5,10 +5,11 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.access import has_global_access
-from accounts.models import PositionAssignment
+from accounts.models import PositionAssignment, UserNotification
 from auditlog.models import AuditEvent
 from .forms import InternalTaskForm
 from .models import InternalTask, TaskEvent
@@ -48,6 +49,23 @@ def _visible_tasks(user):
     return qs.filter(Q(assignees=user) | Q(created_by=user)).exclude(related_request__is_confidential=True)
 
 
+def _notify_task_recipient(task, recipient, actor, *, title, body):
+    if (
+        not recipient
+        or not recipient.is_active
+        or recipient.pk == getattr(actor, "pk", None)
+        or not _visible_tasks(recipient).filter(pk=task.pk).exists()
+    ):
+        return
+    UserNotification.objects.create(
+        recipient=recipient,
+        actor=actor,
+        title=title,
+        body=body,
+        target_url=reverse("task_update", args=[task.pk]),
+    )
+
+
 @login_required
 def task_list(request):
     page_obj = Paginator(_visible_tasks(request.user).distinct().order_by("-due_at", "-pk"), 25).get_page(request.GET.get("page"))
@@ -79,6 +97,14 @@ def task_create(request):
                     to_value=",".join(str(pk) for pk in task.assignees.values_list("pk", flat=True)),
                     note="مسئولان اولیه وظیفه تعیین شدند.",
                 )
+                for assignee in task.assignees.select_related():
+                    _notify_task_recipient(
+                        task,
+                        assignee,
+                        request.user,
+                        title="وظیفه جدید به شما واگذار شد",
+                        body=f"وظیفه «{task.title}» برای اقدام به شما تخصیص داده شد.",
+                    )
                 AuditEvent.objects.create(
                     actor=request.user, action="internal_task_created", object_type="InternalTask",
                     object_id=str(task.pk), summary=task.title,
@@ -121,6 +147,13 @@ def task_update(request, pk):
                 AuditEvent.objects.create(
                     actor=request.user, action="internal_task_status_updated", object_type="InternalTask",
                     object_id=str(locked.pk), summary=f"وضعیت از {previous} به {status} تغییر کرد",
+                )
+                _notify_task_recipient(
+                    locked,
+                    locked.created_by,
+                    request.user,
+                    title="وضعیت وظیفه به‌روزرسانی شد",
+                    body=f"وضعیت وظیفه «{locked.title}» به «{locked.get_status_display()}» تغییر کرد.",
                 )
             elif note:
                 TaskEvent.objects.create(
