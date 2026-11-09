@@ -11,6 +11,7 @@ from core.permissions import scoped_claims_for, scoped_requests_for
 from dashboard.services import insured_dashboard_metrics, management_kpis, personnel_performance_metrics
 from django.utils import timezone
 from workflow.models import WorkflowCase
+from workflow.services import is_delegated_assignee
 
 
 def _capabilities_for(user):
@@ -70,7 +71,15 @@ def home(request):
     ).filter(
         Q(delegation__valid_until__isnull=True)
         | Q(delegation__valid_until__gte=timezone.localdate())
-    ).select_related("definition", "current_step", "delegation")
+    ).select_related("definition", "current_step", "delegation").order_by(
+        "sla_due_at", "opened_at"
+    )
+    # Fail closed for cases whose delegation scope is ambiguous or no longer
+    # authorizes this recipient. Such cases require managerial reconciliation.
+    delegated_case_rows = [
+        case for case in delegated_cases
+        if is_delegated_assignee(case, user)
+    ]
 
     context = {
         "claim_count": claims.count(),
@@ -101,8 +110,8 @@ def home(request):
         "is_management": is_management,
         "management_kpis": management_kpis(user) if is_management else {},
         "insured_metrics": insured_dashboard_metrics(user) if is_insured_dashboard else {},
-        "delegated_work_cases": delegated_cases.order_by("sla_due_at", "opened_at")[:5],
-        "delegated_work_count": delegated_cases.count(),
+        "delegated_work_cases": delegated_case_rows[:5],
+        "delegated_work_count": len(delegated_case_rows),
     }
     return render(request, "dashboard/home.html", context)
 
