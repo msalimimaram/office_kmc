@@ -5,7 +5,10 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q, Max
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import get_valid_filename
+from pathlib import Path
 
 from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for
 from accounts.models import RoleAssignment
@@ -205,6 +208,37 @@ def contract_detail(request, pk):
         "revisions": revisions,
         "can_submit_revision": can_submit_revision,
     })
+
+
+@login_required
+def contract_revision_download(request, pk, revision_pk):
+    contract = get_object_or_404(_contract_scope(request.user), pk=pk)
+    revision = get_object_or_404(contract.revisions, pk=revision_pk)
+    if not (
+        has_global_access(request.user)
+        or has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line)
+    ) and revision.status not in {
+        ContractRevision.Status.APPROVED,
+        ContractRevision.Status.LEGACY,
+        ContractRevision.Status.TERMINATED,
+    }:
+        raise PermissionDenied
+    if not revision.document:
+        raise Http404("سند نسخه در دسترس نیست.")
+    try:
+        handle = revision.document.open("rb")
+    except (OSError, ValueError):
+        raise Http404("فایل نسخه در دسترس نیست.")
+    filename = get_valid_filename(Path(revision.document.name).name) or f"contract-revision-{revision.pk}"
+    record_event(
+        actor=request.user,
+        action="contract_revision_downloaded",
+        obj=contract,
+        summary="سند یک نسخه قرارداد دریافت شد.",
+        after_data={"revision_id": revision.pk, "revision_number": revision.revision_number},
+        request=request,
+    )
+    return FileResponse(handle, as_attachment=True, filename=filename)
 
 
 @login_required
