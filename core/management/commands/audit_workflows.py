@@ -78,8 +78,17 @@ class Command(BaseCommand):
                     initial = initial_steps[0]
                     if initial.code != PersonChangeRequest.Status.COMPANY_REVIEW:
                         errors.append("person_change: مرحله آغازین باید company_review باشد.")
-                    if RoleAssignment.Role.SUBSIDIARY_REP not in (initial.allowed_roles or []):
-                        errors.append("person_change: مرحله آغازین باید به نماینده شرکت واگذار شود.")
+                    initial_roles = set(initial.allowed_roles or [])
+                    allowed_initial_roles = {
+                        RoleAssignment.Role.SUBSIDIARY_REP,
+                        RoleAssignment.Role.DEPARTMENT_HEAD,
+                        RoleAssignment.Role.SYSTEM_ADMIN,
+                    }
+                    if (
+                        RoleAssignment.Role.SUBSIDIARY_REP not in initial_roles
+                        or not initial_roles.issubset(allowed_initial_roles)
+                    ):
+                        errors.append("person_change: مرحله آغازین باید به نماینده شرکت/مدیر مجاز واگذار شود.")
                 required_person_steps = {
                     PersonChangeRequest.Status.INSURER_UPDATE,
                     PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
