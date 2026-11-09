@@ -169,6 +169,9 @@ def apply_delegation_to_open_cases(delegation, *, actor=None):
             or getattr(obj, "kind", None)
             or ""
         )
+        # A requester must never receive their own case through a bulk rule.
+        if scope.get("owner_user_id") == delegation.delegate_to_id:
+            continue
         selected = find_matching_delegation(
             workflow_code=case.definition.code,
             item_type=item_type,
