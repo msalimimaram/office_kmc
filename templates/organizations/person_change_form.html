@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}ثبت درخواست اصلاح اطلاعات | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">درخواست رسمی تغییر اطلاعات</p>
+    <h1>ثبت درخواست اصلاح اطلاعات</h1>
+    <p class="muted">اطلاعات پس از بررسی نماینده شرکت، اقدام بیمه‌گر و بازبینی نهایی نماینده شرکت اعمال می‌شود.</p>
+  </div>
+  <a class="btn secondary" href="{% url 'person_change_list' %}">بازگشت</a>
+</div>
+<section class="panel narrow">
+  <div class="notice warning">
+    ثبت درخواست، اطلاعات اصلی شخص را تغییر نمی‌دهد. تغییر فقط پس از تکمیل گردش تأیید اعمال خواهد شد.
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary" type="submit">ثبت و ارجاع به نماینده شرکت</button>
+  </form>
+</section>
+{% endblock %}
