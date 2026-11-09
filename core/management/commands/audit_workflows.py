@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import RoleAssignment
+from claims.models import ClaimObjection
 from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowDefinition
 
@@ -9,7 +10,7 @@ class Command(BaseCommand):
     help = "ممیزی پوشش و سازگاری گردش‌کارهای فعال پیش از انتشار."
 
     def handle(self, *args, **options):
-        required_codes = {value for value, _label in ServiceRequest.Kind.choices}
+        required_codes = {value for value, _label in ServiceRequest.Kind.choices} | {"claim_objection"}
         definitions = {
             item.code: item
             for item in WorkflowDefinition.objects.filter(
@@ -20,14 +21,17 @@ class Command(BaseCommand):
         missing = sorted(required_codes - set(definitions))
         errors = []
 
-        valid_request_statuses = set(dict(ServiceRequest.Status.choices))
         for code, definition in sorted(definitions.items()):
             steps = list(definition.steps.all())
             initial_steps = [step for step in steps if step.is_initial]
+            valid_statuses = set(dict(
+                ClaimObjection.Status.choices if code == "claim_objection"
+                else ServiceRequest.Status.choices
+            ))
             for step in steps:
-                if step.code not in valid_request_statuses:
+                if step.code not in valid_statuses:
                     errors.append(
-                        f"{code}/{step.code}: کد مرحله باید با یکی از وضعیت‌های ServiceRequest یکسان باشد تا وضعیت دامنه همگام بماند."
+                        f"{code}/{step.code}: کد مرحله باید با یکی از وضعیت‌های مدل دامنه یکسان باشد تا وضعیت همگام بماند."
                     )
             if len(initial_steps) != 1:
                 errors.append(f"{code}: باید دقیقاً یک مرحله آغازین داشته باشد.")
