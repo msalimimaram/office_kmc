@@ -15,8 +15,10 @@ from .models import WorkDelegation, DelegationEvent
 User = get_user_model()
 
 
-def _role_assignment_is_active(delegation):
-    assignments = active_assignments(delegation.delegate_to).filter(role=delegation.delegate_role)
+def _role_assignment_is_active(delegation, *, on_date=None):
+    assignments = active_assignments(
+        delegation.delegate_to, on_date=on_date
+    ).filter(role=delegation.delegate_role)
     if delegation.delegate_role == RoleAssignment.Role.INSURANCE_SPECIALIST:
         return bool(
             delegation.line_code
@@ -227,22 +229,16 @@ def create_work_delegation(*, cleaned_data, actor):
         and delegation.delegate_role != RoleAssignment.Role.INSURANCE_SPECIALIST
     ):
         raise ValidationError("نقش انتخاب‌شده اجازه دریافت مسئولیت مرحله آغازین این گردش‌کار را ندارد.")
-    if not _role_assignment_is_active(delegation):
-        raise ValidationError("گیرنده در محدوده انتخاب‌شده انتصاب فعال ندارد.")
+    if not _role_assignment_is_active(delegation, on_date=valid_from):
+        raise ValidationError("گیرنده در تاریخ شروع تفویض، انتصاب معتبر در محدوده انتخاب‌شده ندارد.")
     conflicts = WorkDelegation.objects.select_for_update().filter(
         workflow_code=delegation.workflow_code,
         status=WorkDelegation.Status.ACTIVE,
-        valid_from__lte=(delegation.valid_until or timezone.localdate()),
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from)
     ).exclude(pk=delegation.pk)
-    if delegation.valid_until is None:
-        conflicts = WorkDelegation.objects.select_for_update().filter(
-            workflow_code=delegation.workflow_code,
-            status=WorkDelegation.Status.ACTIVE,
-        ).filter(
-            Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from)
-        ).exclude(pk=delegation.pk)
+    if delegation.valid_until:
+        conflicts = conflicts.filter(valid_from__lte=delegation.valid_until)
     for existing in conflicts:
         if _rules_have_ambiguous_overlap(existing, delegation):
             raise ValidationError(
@@ -439,6 +435,9 @@ def synchronize_delegations():
         status=WorkDelegation.Status.ACTIVE
     ).select_related("delegate_to", "granted_by")
     for delegation in active:
+        # Future-dated delegations must not be suspended before they begin.
+        if delegation.valid_from > today:
+            continue
         if delegation.valid_until and delegation.valid_until < today:
             delegation.status = WorkDelegation.Status.EXPIRED
             event_type = DelegationEvent.EventType.EXPIRED
