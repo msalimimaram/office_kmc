@@ -779,6 +779,18 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertEqual(item.status, PersonChangeRequest.Status.INSURER_UPDATE)
         self.assertEqual(case.status, WorkflowCase.Status.OPEN)
 
+    def test_person_change_status_and_history_cannot_be_mutated_outside_workflow(self):
+        item, _case = self._create_request()
+        item.status = PersonChangeRequest.Status.APPROVED
+        with self.assertRaises(ValidationError):
+            item.save()
+        with self.assertRaises(ValidationError):
+            PersonChangeRequest.objects.filter(pk=item.pk).update(
+                status=PersonChangeRequest.Status.APPROVED
+            )
+        with self.assertRaises(ValidationError):
+            item.delete()
+
     def test_non_assigned_company_rep_sees_masked_personal_values(self):
         item, _case = self._create_request()
         self.client.force_login(self.other_company_rep)
