@@ -6,6 +6,7 @@ urlpatterns = [
     path("<int:pk>/", views.claim_detail, name="claim_detail"),
     path("<int:pk>/assessment/", views.claim_assess, name="claim_assess"),
     path("<int:pk>/result/send/", views.claim_result_send, name="claim_result_send"),
+    path("<int:pk>/duplicate/declare/", views.claim_duplicate_declare, name="claim_duplicate_declare"),
     path("<int:pk>/objections/<int:objection_pk>/review/", views.claim_objection_review, name="claim_objection_review"),
     path("<int:pk>/payments/new/", views.claim_payment_create, name="claim_payment_create"),
     path("<int:pk>/payments/<int:payment_pk>/reverse/", views.claim_payment_reverse, name="claim_payment_reverse"),
