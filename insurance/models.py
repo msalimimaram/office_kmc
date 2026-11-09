@@ -121,8 +121,12 @@ class ContractRevision(models.Model):
         if self.is_termination and not self.termination_reason.strip():
             raise ValidationError({"termination_reason": "ثبت علت فسخ الزامی است."})
         if self.is_termination and self.effective_date and self.contract_id:
+            if self.effective_date < self.contract.start_date:
+                raise ValidationError({"effective_date": "تاریخ اثر فسخ نمی‌تواند قبل از شروع قرارداد باشد."})
             if self.effective_date > self.contract.end_date:
                 raise ValidationError({"effective_date": "تاریخ اثر فسخ نمی‌تواند بعد از پایان قرارداد باشد."})
+            if self.notice_date and self.notice_date > self.effective_date:
+                raise ValidationError({"notice_date": "تاریخ اعلام فسخ نمی‌تواند بعد از تاریخ اثرگذاری باشد."})
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -134,7 +138,6 @@ class ContractRevision(models.Model):
                 self.Status.LEGACY,
             }
             if previous.status in terminal:
-                allowed = {"applied_at"}
                 changed = [
                     field.name for field in self._meta.concrete_fields
                     if field.name not in {"id", "applied_at"}
@@ -156,8 +159,13 @@ class ContractRevision(models.Model):
             update_fields.extend(["approved_by", "approved_at"])
         self.save(update_fields=update_fields)
         if step_code in {self.Status.APPROVED, self.Status.TERMINATED}:
-            if self.effective_date and self.effective_date <= timezone.localdate():
+            today = timezone.localdate()
+            if self.effective_date and self.effective_date <= today:
                 self.apply_to_contract()
+            elif self.revision_number == 1 and not self.is_termination:
+                self.contract.status = Contract.Status.APPROVED
+                self.contract.is_active = False
+                self.contract.save(update_fields=["status", "is_active"])
 
     def apply_to_contract(self):
         snapshot = self.snapshot or {}
