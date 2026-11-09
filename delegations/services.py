@@ -347,18 +347,26 @@ def _release_cases(delegation, *, actor, event_type, note):
         )
         if replacement is None:
             today = timezone.localdate()
-            replacement = User.objects.filter(
-                is_active=True,
-                role_assignments__role__in=[
-                    RoleAssignment.Role.SYSTEM_ADMIN,
-                    RoleAssignment.Role.DEPARTMENT_HEAD,
-                ],
-                role_assignments__is_active=True,
-                role_assignments__valid_from__lte=today,
-            ).filter(
-                Q(role_assignments__valid_until__isnull=True)
-                | Q(role_assignments__valid_until__gte=today)
-            ).distinct().order_by("pk").first()
+            manager_roles = [
+                RoleAssignment.Role.SYSTEM_ADMIN,
+                RoleAssignment.Role.DEPARTMENT_HEAD,
+            ]
+            candidates = User.objects.filter(is_active=True).filter(
+                Q(is_superuser=True)
+                | Q(role__in=["system_admin", "department_head"])
+                | Q(
+                    role_assignments__role__in=manager_roles,
+                    role_assignments__is_active=True,
+                    role_assignments__valid_from__lte=today,
+                ) & (
+                    Q(role_assignments__valid_until__isnull=True)
+                    | Q(role_assignments__valid_until__gte=today)
+                )
+            ).distinct().order_by("pk")
+            replacement = next(
+                (candidate for candidate in candidates if has_global_access(candidate)),
+                None,
+            )
 
         delegation_id = case.delegation_id
         case.current_assignee = replacement
