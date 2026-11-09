@@ -277,6 +277,8 @@ class ContractWorkflowLifecycleTests(TestCase):
             ContractRevision.objects.filter(pk=revision.pk).update(description="ویرایش گروهی")
         with self.assertRaises(ValidationError):
             revision.delete()
+        with self.assertRaises(ValidationError):
+            ContractRevision.objects.bulk_create([revision])
 
     def test_future_effective_contract_waits_then_daily_command_activates_it(self):
         effective_date = self.today + timedelta(days=2)
@@ -294,6 +296,16 @@ class ContractWorkflowLifecycleTests(TestCase):
         self.assertEqual(contract.status, Contract.Status.APPROVED)
         self.assertFalse(contract.is_active)
         self.assertIsNone(revision.applied_at)
+        with self.assertRaises(ValidationError):
+            ContractRevision.objects.create(
+                contract=contract,
+                revision_number=2,
+                description="نسخه هم‌پوشان غیرمجاز",
+                created_by=self.creator,
+                status=ContractRevision.Status.PENDING_APPROVAL,
+                snapshot=self._snapshot(contract),
+                effective_date=effective_date,
+            )
 
         from django.core.management import call_command
         from unittest.mock import patch
