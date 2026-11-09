@@ -52,7 +52,7 @@ def people_list(request):
             )
             has_people_scope = True
 
-        if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+        if has_role(user, RoleAssignment.Role.EMPLOYEE):
             visible_people |= Q(user_id=user.pk) | Q(employee__user_id=user.pk)
             if user.national_id:
                 visible_people |= Q(national_id=user.national_id) | Q(employee__national_id=user.national_id)
@@ -185,9 +185,9 @@ def _person_change_scope(user):
     can_access = (
         has_role(
             user,
-            RoleAssignment.Role.INSURED_PERSON,
+            RoleAssignment.Role.EMPLOYEE,
             RoleAssignment.Role.SUBSIDIARY_REP,
-            RoleAssignment.Role.INSURER_REP,
+            RoleAssignment.Role.INSURER,
             RoleAssignment.Role.INSURANCE_SPECIALIST,
         )
     )
@@ -206,13 +206,13 @@ def person_change_list(request):
     return render(request, "organizations/person_change_list.html", {
         "changes": page_obj.object_list,
         "page_obj": page_obj,
-        "can_create": has_role(request.user, RoleAssignment.Role.INSURED_PERSON),
+        "can_create": has_role(request.user, RoleAssignment.Role.EMPLOYEE),
     })
 
 
 @login_required
 def person_change_create(request):
-    if not has_role(request.user, RoleAssignment.Role.INSURED_PERSON):
+    if not has_role(request.user, RoleAssignment.Role.EMPLOYEE):
         raise PermissionDenied("ثبت درخواست اصلاح اطلاعات فقط برای بیمه‌شده اصلی مجاز است.")
     form = PersonChangeRequestForm(
         request.POST or None,
