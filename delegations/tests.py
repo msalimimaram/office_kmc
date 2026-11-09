@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RoleAssignment, UserNotification
-from organizations.models import Company
+from organizations.models import Company, Person
 from workflow.models import WorkflowDefinition, WorkflowStep
 from workflow.services import is_delegated_assignee, resolve_initial_assignee, start_workflow, transition_case
 from requests_portal.models import ServiceRequest
@@ -78,6 +78,93 @@ class DelegationRoutingTests(TestCase):
         )
         self.assertEqual(assignee, self.representative)
         self.assertIsNone(matched)
+
+    def test_request_owner_receives_start_and_progress_notifications(self):
+        beneficiary = User.objects.create_user(
+            username="delegation.beneficiary",
+            password="TestPass!23456",
+            role="employee",
+            company=self.company,
+            must_change_password=False,
+        )
+        person = Person.objects.create(
+            company=self.company,
+            user=beneficiary,
+            national_id=f"9{beneficiary.pk:09d}",
+            first_name="بیمه‌شده",
+            last_name="آزمایشی",
+            birth_date=timezone.localdate() - timedelta(days=10000),
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="درخواست درمان",
+            version=83,
+            created_by=self.head,
+            approved_by=self.head,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="company_review",
+            title="بررسی اولیه",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        review = WorkflowStep.objects.create(
+            definition=definition,
+            code="head_review",
+            title="بررسی رئیس اداره",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=review,
+            action_code="refer_to_head",
+            title="ارجاع برای تصمیم",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        definition.is_active = True
+        definition.save()
+        item = ServiceRequest.objects.create(
+            reference="DELEGATION-OWNER-NOTICE",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.representative,
+            person=person,
+            company=self.company,
+            title="درخواست درمان ثبت‌شده توسط نماینده",
+            description="متن محرمانه درخواست",
+            is_confidential=True,
+        )
+
+        case = start_workflow(
+            obj=item,
+            code=item.kind,
+            actor=self.representative,
+            assignee=self.representative,
+            note="درخواست از طرف بیمه‌شده ثبت شد.",
+        )
+
+        start_notice = UserNotification.objects.get(
+            recipient=beneficiary,
+            target_url=reverse("request_detail", args=[item.pk]),
+        )
+        self.assertEqual(start_notice.title, "درخواست شما در سامانه ثبت شد")
+
+        transition_case(
+            case_id=case.pk,
+            actor=self.representative,
+            action_code="refer_to_head",
+            recipient=self.head,
+            note="برای تصمیم نهایی ارسال شد.",
+        )
+        self.assertTrue(UserNotification.objects.filter(
+            recipient=beneficiary,
+            title="وضعیت درخواست شما به‌روزرسانی شد",
+            target_url=reverse("request_detail", args=[item.pk]),
+        ).exists())
 
     def test_delegate_can_receive_and_act_on_scoped_initial_work(self):
         definition = WorkflowDefinition.objects.create(
