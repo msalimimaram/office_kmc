@@ -3,6 +3,20 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 
+class ImmutableAssetApprovalQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("سوابق دارایی فقط از مسیر گردش تأیید تغییر می‌کنند.")
+
+    def delete(self):
+        raise ValidationError("سوابق بیمه‌ای دارایی حذف نمی‌شوند.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی سوابق بیمه‌ای دارایی مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی سوابق تأیید دارایی مجاز نیست.")
+
+
 class InsuredAsset(models.Model):
     class Type(models.TextChoices):
         VEHICLE = "vehicle", "خودرو"
@@ -114,6 +128,7 @@ class Vehicle(models.Model):
 
 
 class AssetValuation(models.Model):
+    objects = ImmutableAssetApprovalQuerySet.as_manager()
     class Method(models.TextChoices):
         FORMAL = "formal", "ارزیابی رسمی"
         EXPERT = "expert", "نظر کارشناس"
@@ -158,7 +173,7 @@ class AssetValuation(models.Model):
     def save(self, *args, **kwargs):
         if not self._state.adding:
             update_fields = set(kwargs.get("update_fields") or ())
-            if not update_fields or not update_fields.issubset({"status", "approved_by"}):
+            if not getattr(self, "_workflow_sync", False) or not update_fields or not update_fields.issubset({"status", "approved_by"}):
                 raise ValidationError("سابقه ارزیابی ویرایش نمی‌شود؛ فقط وضعیت تأیید از گردش کار قابل تغییر است.")
         self.full_clean()
         return super().save(*args, **kwargs)
@@ -173,7 +188,11 @@ class AssetValuation(models.Model):
         if step_code == self.Status.APPROVED:
             self.approved_by = actor
             update_fields.append("approved_by")
-        self.save(update_fields=update_fields)
+        self._workflow_sync = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            self._workflow_sync = False
         if step_code == self.Status.APPROVED:
             asset = self.asset
             asset.insured_value = self.insured_value
@@ -187,6 +206,7 @@ class AssetValuation(models.Model):
 
 
 class AssetPolicyPeriod(models.Model):
+    objects = ImmutableAssetApprovalQuerySet.as_manager()
     class Status(models.TextChoices):
         DRAFT = "draft", "پیش‌نویس"
         PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
@@ -236,6 +256,10 @@ class AssetPolicyPeriod(models.Model):
             raise ValidationError({"contract": "قرارداد برای شرکت محل اشتغال مالک شخصی تعریف نشده است."})
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            update_fields = set(kwargs.get("update_fields") or ())
+            if not getattr(self, "_workflow_sync", False) or not update_fields or not update_fields.issubset({"status", "approved_by"}):
+                raise ValidationError("دوره بیمه‌نامه پس از ثبت فقط از مسیر گردش تأیید تغییر می‌کند.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -251,14 +275,22 @@ class AssetPolicyPeriod(models.Model):
             else:
                 self.status = self.Status.ACTIVE
             self.approved_by = actor
-            self.save(update_fields=["status", "approved_by"])
+            self._workflow_sync = True
+            try:
+                self.save(update_fields=["status", "approved_by"])
+            finally:
+                self._workflow_sync = False
             if self.status == self.Status.ACTIVE:
                 self._apply_to_asset_snapshot()
             return
         if step_code in {self.Status.PENDING_APPROVAL, self.Status.REJECTED}:
             if self.status != step_code:
                 self.status = step_code
-                self.save(update_fields=["status"])
+                self._workflow_sync = True
+                try:
+                    self.save(update_fields=["status"])
+                finally:
+                    self._workflow_sync = False
 
     def _apply_to_asset_snapshot(self):
         # The legacy InsuredAsset snapshot stores one current policy only.
@@ -289,18 +321,30 @@ class AssetPolicyPeriod(models.Model):
             return False
         if self.policy_end and self.policy_end < today:
             self.status = self.Status.EXPIRED
-            self.save(update_fields=["status"])
+            self._workflow_sync = True
+            try:
+                self.save(update_fields=["status"])
+            finally:
+                self._workflow_sync = False
             return True
         self.status = self.Status.ACTIVE
-        self.save(update_fields=["status"])
+        self._workflow_sync = True
+        try:
+            self.save(update_fields=["status"])
+        finally:
+            self._workflow_sync = False
         self._apply_to_asset_snapshot()
         return True
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("دوره‌های بیمه‌نامه به‌صورت سابقه‌ای حفظ می‌شوند و حذف نمی‌شوند.")
 
     def __str__(self):
         return f"{self.policy_number} — {self.asset}"
 
 
 class AssetPolicyEndorsement(models.Model):
+    objects = ImmutableAssetApprovalQuerySet.as_manager()
     class Status(models.TextChoices):
         PENDING_APPROVAL = "pending_approval", "در انتظار تأیید"
         APPROVED = "approved", "تأییدشده"
@@ -330,7 +374,7 @@ class AssetPolicyEndorsement(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             update_fields = set(kwargs.get("update_fields") or ())
-            if not update_fields or not update_fields.issubset({"status", "approved_by"}):
+            if not getattr(self, "_workflow_sync", False) or not update_fields or not update_fields.issubset({"status", "approved_by"}):
                 raise ValidationError("الحاقیه پس از ثبت قابل ویرایش نیست؛ فقط وضعیت تأیید از گردش کار قابل تغییر است.")
         self.full_clean()
         return super().save(*args, **kwargs)
@@ -345,5 +389,9 @@ class AssetPolicyEndorsement(models.Model):
         if step_code == self.Status.APPROVED:
             self.approved_by = actor
             update_fields.append("approved_by")
-        self.save(update_fields=update_fields)
+        self._workflow_sync = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            self._workflow_sync = False
 
