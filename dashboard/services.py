@@ -116,50 +116,108 @@ def insured_dashboard_metrics(user) -> dict:
 
 
 def personnel_performance_metrics(user, *, start_date=None, end_date=None) -> list[dict]:
-    """Explainable workload and workflow-activity metrics for insurance staff."""
+    """Explainable staff workload and per-assignment response metrics."""
     if not has_global_access(user):
         return []
+    from collections import defaultdict
     from datetime import timedelta
     from django.db.models import Q
     from django.utils import timezone
 
     today = timezone.localdate()
-    end_date = end_date or today
-    start_date = start_date or (end_date - timedelta(days=30))
+    end_date = min(end_date or today, today)
+    start_date = min(start_date or (end_date - timedelta(days=30)), today)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
     staff_ids = RoleAssignment.objects.filter(
         role=RoleAssignment.Role.INSURANCE_SPECIALIST,
         is_active=True,
         valid_from__lte=end_date,
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=start_date)).values_list("user_id", flat=True).distinct()
-    people = User.objects.filter(pk__in=staff_ids, is_active=True).order_by("last_name", "first_name", "username")
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=start_date)
+    ).values_list("user_id", flat=True).distinct()
+    people = User.objects.filter(pk__in=staff_ids).order_by(
+        "last_name", "first_name", "username"
+    )
+
+    assignment_types = {
+        WorkflowEvent.EventType.STARTED,
+        WorkflowEvent.EventType.REFERRED,
+        WorkflowEvent.EventType.RETURNED,
+    }
+    first_action_types = {
+        WorkflowEvent.EventType.ACTION,
+        WorkflowEvent.EventType.REFERRED,
+        WorkflowEvent.EventType.RETURNED,
+    }
     rows = []
     for person in people:
         active_cases = WorkflowCase.objects.filter(
             current_assignee=person,
             status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
         )
-        start_events = WorkflowEvent.objects.filter(
-            event_type=WorkflowEvent.EventType.STARTED,
-            to_assignee=person,
-            sent_at__date__gte=start_date,
-            sent_at__date__lte=end_date,
+        received_events = list(
+            WorkflowEvent.objects.filter(
+                to_assignee=person,
+                event_type__in=assignment_types,
+                sent_at__date__gte=start_date,
+                sent_at__date__lte=end_date,
+            ).order_by("sent_at", "pk")
         )
-        case_ids = start_events.values_list("workflow_case_id", flat=True)
-        cohort = WorkflowCase.objects.filter(pk__in=case_ids)
-        latencies = []
-        for case in cohort.only("opened_at", "first_viewed_at", "first_action_at"):
-            view_minutes = (
-                (case.first_viewed_at - case.opened_at).total_seconds() / 60
-                if case.first_viewed_at else None
+        case_ids = {event.workflow_case_id for event in received_events}
+        events_by_case = defaultdict(list)
+        if case_ids:
+            all_case_events = WorkflowEvent.objects.filter(
+                workflow_case_id__in=case_ids
+            ).order_by("workflow_case_id", "sent_at", "pk")
+            for event in all_case_events:
+                events_by_case[event.workflow_case_id].append(event)
+
+        view_latencies = []
+        action_latencies = []
+        for received in received_events:
+            timeline = events_by_case[received.workflow_case_id]
+            received_index = next(
+                (index for index, event in enumerate(timeline) if event.pk == received.pk),
+                None,
             )
-            action_minutes = (
-                (case.first_action_at - case.opened_at).total_seconds() / 60
-                if case.first_action_at else None
+            if received_index is None:
+                continue
+            segment_end = next(
+                (
+                    index for index in range(received_index + 1, len(timeline))
+                    if timeline[index].event_type in assignment_types
+                    and timeline[index].to_assignee_id is not None
+                ),
+                len(timeline),
             )
-            if view_minutes is not None or action_minutes is not None:
-                latencies.append((view_minutes, action_minutes))
-        view_values = [v for v, _ in latencies if v is not None]
-        action_values = [a for _, a in latencies if a is not None]
+            segment = timeline[received_index + 1:segment_end + 1]
+            first_view = next(
+                (
+                    event for event in segment
+                    if event.event_type == WorkflowEvent.EventType.OPENED
+                    and event.actor_id == person.pk
+                ),
+                None,
+            )
+            first_action = next(
+                (
+                    event for event in segment
+                    if event.event_type in first_action_types
+                    and event.actor_id == person.pk
+                ),
+                None,
+            )
+            if first_view:
+                view_latencies.append(
+                    max(0, (first_view.sent_at - received.sent_at).total_seconds() / 60)
+                )
+            if first_action:
+                action_latencies.append(
+                    max(0, (first_action.sent_at - received.sent_at).total_seconds() / 60)
+                )
+
         events = WorkflowEvent.objects.filter(
             actor=person,
             sent_at__date__gte=start_date,
@@ -168,14 +226,23 @@ def personnel_performance_metrics(user, *, start_date=None, end_date=None) -> li
         rows.append({
             "user": person,
             "active_cases": active_cases.count(),
-            "initial_cases": cohort.count(),
+            # Counts assignment episodes (initial receipt, referral, or return),
+            # not just cases first created for this specialist.
+            "initial_cases": len(received_events),
+            "unique_received_cases": len(case_ids),
             "actions": events.filter(event_type=WorkflowEvent.EventType.ACTION).count(),
             "referrals": events.filter(event_type=WorkflowEvent.EventType.REFERRED).count(),
             "returns": events.filter(event_type=WorkflowEvent.EventType.RETURNED).count(),
-            "first_views": len(view_values),
-            "avg_first_view_minutes": round(sum(view_values) / len(view_values), 1) if view_values else None,
-            "first_actions": len(action_values),
-            "avg_first_action_minutes": round(sum(action_values) / len(action_values), 1) if action_values else None,
+            "first_views": len(view_latencies),
+            "avg_first_view_minutes": (
+                round(sum(view_latencies) / len(view_latencies), 1)
+                if view_latencies else None
+            ),
+            "first_actions": len(action_latencies),
+            "avg_first_action_minutes": (
+                round(sum(action_latencies) / len(action_latencies), 1)
+                if action_latencies else None
+            ),
             "overdue": active_cases.filter(sla_due_at__lt=timezone.now()).count(),
         })
     return rows
