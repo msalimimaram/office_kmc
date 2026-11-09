@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}اعلان‌های من | اداره بیمه{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">پیام‌های سیستمی</p>
+    <h1>اعلان‌های من</h1>
+    <p class="muted">نتیجه نهایی درخواست‌ها و رویدادهای مهم سامانه در این بخش ثبت می‌شوند.</p>
+  </div>
+</div>
+<section class="panel">
+  {% for notification in notifications %}
+    <article class="timeline-item">
+      <div class="section-heading">
+        <strong>{{ notification.title }}</strong>
+        <small>{{ notification.created_at|date:"Y/m/d H:i" }}</small>
+      </div>
+      <p class="long-text">{{ notification.body|linebreaksbr }}</p>
+      {% if not notification.is_read %}
+        <form method="post" action="{% url 'notification_mark_read' notification.pk %}">
+          {% csrf_token %}
+          <button class="btn secondary" type="submit">
+            {% if notification.target_url %}مشاهده و علامت‌گذاری به‌عنوان خوانده‌شده{% else %}علامت‌گذاری به‌عنوان خوانده‌شده{% endif %}
+          </button>
+        </form>
+      {% elif notification.target_url %}
+        <a href="{{ notification.target_url }}">مشاهده مورد مرتبط</a>
+      {% endif %}
+    </article>
+  {% empty %}
+    <p class="empty">اعلانی برای نمایش وجود ندارد.</p>
+  {% endfor %}
+</section>
+{% include "includes/pagination.html" %}
+{% endblock %}
