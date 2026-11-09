@@ -47,8 +47,14 @@ class ContractForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True).order_by("name")
-        self.fields["companies"].queryset = Company.objects.filter(is_active=True).order_by("name")
+        insurer_qs = Insurer.objects.filter(is_active=True)
+        company_qs = Company.objects.filter(is_active=True)
+        if self.instance.pk:
+            insurer_qs = (insurer_qs | Insurer.objects.filter(pk=self.instance.insurer_id)).distinct()
+            existing_company_ids = self.instance.companies.values_list("pk", flat=True)
+            company_qs = (company_qs | Company.objects.filter(pk__in=existing_company_ids)).distinct()
+        self.fields["insurer"].queryset = insurer_qs.order_by("name")
+        self.fields["companies"].queryset = company_qs.order_by("name")
 
         if not has_global_access(user):
             if not has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
