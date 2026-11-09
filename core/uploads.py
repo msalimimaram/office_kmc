@@ -18,15 +18,17 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xlsm", ".png", ".jpg", ".jpeg"
 
 def scan_uploaded_file(upload):
     """Scan a validated upload with ClamAV INSTREAM; fail closed outside DEBUG."""
-    host = getattr(settings, "CLAMD_HOST", "").strip()
+    host = str(getattr(settings, "CLAMD_HOST", "") or "").strip()
     if not host:
         if settings.DEBUG:
             return None
         return "اسکنر بدافزار در محیط عملیاتی پیکربندی نشده است؛ بارگذاری فایل متوقف شد."
 
-    port = int(getattr(settings, "CLAMD_PORT", 3310))
-    timeout = float(getattr(settings, "CLAMD_TIMEOUT", 10))
     try:
+        port = int(getattr(settings, "CLAMD_PORT", 3310))
+        timeout = float(getattr(settings, "CLAMD_TIMEOUT", 10))
+        if not 1 <= port <= 65535 or timeout <= 0:
+            raise ValueError("Invalid ClamAV connection settings")
         upload.seek(0)
         with socket.create_connection((host, port), timeout=timeout) as client:
             client.settimeout(timeout)
