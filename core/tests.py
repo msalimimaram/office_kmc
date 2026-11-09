@@ -8,6 +8,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from core.uploads import validate_uploaded_file
 
 
+@override_settings(DEBUG=True, CLAMD_HOST="")
 class UploadedFileValidationTests(SimpleTestCase):
     def test_accepts_pdf_signature(self):
         upload = SimpleUploadedFile("sample.pdf", b"%PDF-1.7\ncontent")
