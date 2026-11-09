@@ -104,12 +104,12 @@ class UserNotificationTests(TestCase):
     def setUp(self):
         self.recipient = User.objects.create_user(
             username="notification-recipient",
-            password="StrongPass!2026",
+            password="StrongPass!2026", role="employee",
             must_change_password=False,
         )
         self.other = User.objects.create_user(
             username="notification-other",
-            password="StrongPass!2026",
+            password="StrongPass!2026", role="employee",
             must_change_password=False,
         )
         self.notification = UserNotification.objects.create(
@@ -132,6 +132,19 @@ class UserNotificationTests(TestCase):
         other_response = client.get(reverse("notification_list"))
         self.assertEqual(other_response.status_code, 200)
         self.assertNotContains(other_response, self.notification.title)
+
+
+    def test_user_without_operational_role_cannot_access_notification_inbox_or_see_menu_link(self):
+        unauthorized = User.objects.create_user(
+            username="notification-no-role", password="StrongPass!2026",
+            must_change_password=False,
+        )
+        client = Client()
+        client.force_login(unauthorized)
+        response = client.get(reverse("notification_list"))
+        self.assertEqual(response.status_code, 403)
+        dashboard = client.get(reverse("dashboard"))
+        self.assertNotContains(dashboard, reverse("notification_list"))
 
     def test_recipient_can_mark_notification_read_and_is_redirected_to_internal_target(self):
         client = Client()
