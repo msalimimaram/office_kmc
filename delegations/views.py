@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.shortcuts import redirect, render
+from django.db.models import Q
+from django.utils import timezone
 
 from accounts.access import has_global_access
 from workflow.models import WorkflowCase
@@ -28,10 +30,21 @@ def delegation_inbox(request):
     ).select_related(
         "definition", "current_step", "delegation", "delegation__granted_by",
     ).order_by("sla_due_at", "opened_at")
+    today = timezone.localdate()
+    active_rules = WorkDelegation.objects.filter(
+        delegate_to=request.user,
+        status=WorkDelegation.Status.ACTIVE,
+        valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    case_count = cases.count()
+    overdue_count = cases.filter(sla_due_at__lt=timezone.now()).count()
     page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
     return render(request, "delegations/delegation_inbox.html", {
         "cases": page_obj.object_list,
         "page_obj": page_obj,
+        "case_count": case_count,
+        "overdue_count": overdue_count,
+        "active_rule_count": active_rules.count(),
     })
 
 
