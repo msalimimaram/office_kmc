@@ -34,7 +34,11 @@ def _contract_scope(user):
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
         allowed |= Q(insurer_id__in=insurer_ids)
-    return qs.filter(allowed).distinct()
+    scoped = qs.filter(allowed).distinct()
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        return scoped
+    # External company/insurer users see approved active contracts only.
+    return scoped.filter(status=Contract.Status.ACTIVE, is_active=True)
 
 
 def _can_submit_contract(user, line=None):
@@ -79,8 +83,8 @@ def _start_contract_revision(*, contract, form, actor, revision_number, code):
     )
     assignee = resolve_initial_assignee(
         definition=definition,
-        insurer_id=contract.insurer_id,
-        line_code=contract.line,
+        insurer_id=form.cleaned_data["insurer"].pk,
+        line_code=form.cleaned_data["line"],
     )
     case = start_workflow(
         obj=revision,
