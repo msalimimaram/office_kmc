@@ -139,7 +139,8 @@ class UserNotificationTests(TestCase):
         response = client.post(
             reverse("notification_mark_read", args=[self.notification.pk])
         )
-        self.assertRedirects(response, self.notification.target_url)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], self.notification.target_url)
         self.notification.refresh_from_db()
         self.assertIsNotNone(self.notification.read_at)
 
