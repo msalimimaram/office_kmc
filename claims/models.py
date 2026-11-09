@@ -10,7 +10,8 @@ class Claim(models.Model):
     class Status(models.TextChoices):
         REGISTERED = "registered", "ثبت‌شده"
         UNDER_REVIEW = "under_review", "در حال ارزیابی"
-        NEEDS_INFO = "needs_info", "نیازمند اصلاح"
+        NEEDS_INFO = "needs_info", "نیازمند تکمیل اطلاعات"
+        PENDING_DECISION = "pending_decision", "در انتظار تصمیم نهایی"
         APPROVED = "approved", "تأییدشده"
         REJECTED = "rejected", "ردشده"
         PARTIALLY_PAID = "partially_paid", "پرداخت بخشی"
