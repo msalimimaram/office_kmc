@@ -190,6 +190,46 @@ class TaskFirstViewActionFlowTests(TestCase):
         )
         self.assertIn("در حال انجام", notice.body)
 
+    def test_each_assignee_gets_their_own_first_view_and_first_action_events(self):
+        co_assignee = User.objects.create_user(
+            username="task-event-co-assignee",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=co_assignee,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="مسئول دوم وظیفه",
+        )
+        self.task.assignees.add(co_assignee)
+        client = Client()
+        client.force_login(co_assignee)
+        url = reverse("task_update", args=[self.task.pk])
+
+        self.assertEqual(client.get(url).status_code, 200)
+        self.assertEqual(client.post(url, {
+            "status": InternalTask.Status.IN_PROGRESS,
+            "note": "اقدام مسئول دوم",
+        }).status_code, 302)
+
+        self.assertTrue(self.task.events.filter(
+            event_type=TaskEvent.EventType.FIRST_VIEWED,
+            actor=co_assignee,
+        ).exists())
+        self.assertTrue(self.task.events.filter(
+            event_type=TaskEvent.EventType.FIRST_ACTION,
+            actor=co_assignee,
+        ).exists())
+        self.assertEqual(
+            self.task.events.filter(event_type=TaskEvent.EventType.FIRST_VIEWED).count(),
+            1,
+        )
+        self.assertEqual(
+            self.task.events.filter(event_type=TaskEvent.EventType.FIRST_ACTION).count(),
+            1,
+        )
+
     def test_invalid_transition_does_not_record_first_action(self):
         client = Client()
         client.force_login(self.assignee)
