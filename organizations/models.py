@@ -447,7 +447,20 @@ class PersonChangeRequest(models.Model):
             except ValueError:
                 errors["requested_value"] = "تاریخ تولد باید با قالب YYYY-MM-DD ثبت شود."
         if field_name and self.person_id:
-            current = getattr(self.person, field_name)
+            if self.change_type == self.ChangeType.PERSONNEL_CODE:
+                today = timezone.localdate()
+                employment = PersonEmployment.objects.filter(
+                    person_id=self.person_id,
+                    company_id=self.company_id,
+                    status=PersonEmployment.Status.ACTIVE,
+                ).filter(
+                    models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+                ).filter(
+                    models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+                ).order_by("-valid_from", "-pk").first()
+                current = employment.personnel_code if employment else self.person.personnel_code
+            else:
+                current = getattr(self.person, field_name)
             current_text = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
             if self._state.adding and self.current_value != current_text:
                 errors["current_value"] = "مقدار فعلی شخص هنگام ثبت درخواست تغییر کرده است؛ فرم را تازه‌سازی کنید."
@@ -563,7 +576,19 @@ class PersonChangeRequest(models.Model):
         field_name = self.FIELD_MAP[self.change_type]
         with transaction.atomic():
             person = Person.objects.select_for_update().select_related("user").get(pk=self.person_id)
-            current = getattr(person, field_name)
+            if self.change_type == self.ChangeType.PERSONNEL_CODE:
+                employment = PersonEmployment.objects.select_for_update().filter(
+                    person_id=person.pk,
+                    company_id=self.company_id,
+                    status=PersonEmployment.Status.ACTIVE,
+                ).filter(
+                    models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=timezone.localdate())
+                ).filter(
+                    models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=timezone.localdate())
+                ).order_by("-valid_from", "-pk").first()
+                current = employment.personnel_code if employment else person.personnel_code
+            else:
+                current = getattr(person, field_name)
             current_text = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
             if current_text != self.current_value:
                 raise ValidationError(
