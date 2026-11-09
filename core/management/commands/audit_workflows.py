@@ -327,8 +327,15 @@ class Command(BaseCommand):
                         source_code == PersonChangeRequest.Status.INSURER_UPDATE
                         and target_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
                     ):
-                        if RoleAssignment.Role.INSURER_REP not in allowed_roles:
-                            errors.append("person_change: بازگشت از بیمه‌گر باید توسط نقش بیمه‌گر انجام شود.")
+                        if (
+                            RoleAssignment.Role.INSURER_REP not in allowed_roles
+                            or not allowed_roles.issubset({
+                                RoleAssignment.Role.INSURER_REP,
+                                RoleAssignment.Role.DEPARTMENT_HEAD,
+                                RoleAssignment.Role.SYSTEM_ADMIN,
+                            })
+                        ):
+                            errors.append("person_change: بازگشت از بیمه‌گر فقط توسط نقش بیمه‌گر/مدیر مجاز است.")
                         if RoleAssignment.Role.SUBSIDIARY_REP not in recipient_roles:
                             errors.append("person_change: بازبینی نهایی باید به نماینده شرکت بازگردد.")
                         if not recipient_roles.issubset({
