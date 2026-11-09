@@ -120,6 +120,8 @@ class ContractRevision(models.Model):
             raise ValidationError({"snapshot": "تصویر نسخه باید ساختار JSON شیء داشته باشد."})
         if self.is_termination and not self.termination_reason.strip():
             raise ValidationError({"termination_reason": "ثبت علت فسخ الزامی است."})
+        if self.is_termination and not self.effective_date:
+            raise ValidationError({"effective_date": "تاریخ اثر فسخ الزامی است."})
         if self.is_termination and self.effective_date and self.contract_id:
             if self.effective_date < self.contract.start_date:
                 raise ValidationError({"effective_date": "تاریخ اثر فسخ نمی‌تواند قبل از شروع قرارداد باشد."})
