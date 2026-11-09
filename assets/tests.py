@@ -266,6 +266,10 @@ class AssetOperationalWorkflowTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             valuation.save()
+        with self.assertRaises(ValidationError):
+            valuation.save(update_fields=["status"])
+        with self.assertRaises(ValidationError):
+            AssetValuation.objects.filter(pk=valuation.pk).update(status=AssetValuation.Status.REJECTED)
 
     def test_specialist_can_create_draft_policy_period_and_endorsement_with_secure_download(self):
         from auditlog.models import AuditEvent
@@ -288,6 +292,9 @@ class AssetOperationalWorkflowTests(TestCase):
         period = AssetPolicyPeriod.objects.get(asset=self.asset, policy_number="OPS-POLICY-2")
         self.assertEqual(period.status, AssetPolicyPeriod.Status.PENDING_APPROVAL)
         self.assertIsNone(period.approved_by_id)
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            AssetPolicyPeriod.objects.filter(pk=period.pk).update(status=AssetPolicyPeriod.Status.ACTIVE)
         from django.contrib.contenttypes.models import ContentType
         from workflow.models import WorkflowCase
         from workflow.services import transition_case
@@ -327,6 +334,12 @@ class AssetOperationalWorkflowTests(TestCase):
         self.assertEqual(endorsement.created_by_id, self.specialist.pk)
         self.assertEqual(endorsement.status, AssetPolicyEndorsement.Status.PENDING_APPROVAL)
         self.assertIsNone(endorsement.approved_by_id)
+        with self.assertRaises(ValidationError):
+            endorsement.save(update_fields=["status"])
+        with self.assertRaises(ValidationError):
+            AssetPolicyEndorsement.objects.filter(pk=endorsement.pk).update(
+                status=AssetPolicyEndorsement.Status.APPROVED
+            )
         endorsement_case = WorkflowCase.objects.get(
             content_type=ContentType.objects.get_for_model(endorsement, for_concrete_model=False),
             object_id=str(endorsement.pk),
