@@ -252,22 +252,48 @@ class AssetPolicyPeriod(models.Model):
             self.approved_by = actor
             self.save(update_fields=["status", "approved_by"])
             if self.status == self.Status.ACTIVE:
-                asset = self.asset
-                asset.insurer = self.insurer
-                asset.contract = self.contract
-                asset.policy_number = self.policy_number
-                asset.policy_start = self.policy_start
-                asset.policy_end = self.policy_end
-                asset.is_active = True
-                asset.save(update_fields=[
-                    "insurer", "contract", "policy_number", "policy_start",
-                    "policy_end", "is_active", "updated_at",
-                ])
+                self._apply_to_asset_snapshot()
             return
         if step_code in {self.Status.PENDING_APPROVAL, self.Status.REJECTED}:
             if self.status != step_code:
                 self.status = step_code
                 self.save(update_fields=["status"])
+
+    def _apply_to_asset_snapshot(self):
+        # The legacy InsuredAsset snapshot stores one current policy only.
+        # Do not overwrite a different still-active contract/insurance line.
+        if not self.contract_id:
+            return
+        asset = self.asset
+        if asset.contract_id and asset.contract_id != self.contract_id and asset.is_active:
+            return
+        asset.insurer = self.insurer
+        asset.contract = self.contract
+        asset.policy_number = self.policy_number
+        asset.policy_start = self.policy_start
+        asset.policy_end = self.policy_end
+        asset.is_active = True
+        asset.save(update_fields=[
+            "insurer", "contract", "policy_number", "policy_start",
+            "policy_end", "is_active", "updated_at",
+        ])
+
+    def activate_if_due(self, *, on_date=None):
+        from django.utils import timezone
+
+        today = on_date or timezone.localdate()
+        if self.status != self.Status.APPROVED:
+            return False
+        if self.policy_start and self.policy_start > today:
+            return False
+        if self.policy_end and self.policy_end < today:
+            self.status = self.Status.EXPIRED
+            self.save(update_fields=["status"])
+            return True
+        self.status = self.Status.ACTIVE
+        self.save(update_fields=["status"])
+        self._apply_to_asset_snapshot()
+        return True
 
     def __str__(self):
         return f"{self.policy_number} — {self.asset}"
