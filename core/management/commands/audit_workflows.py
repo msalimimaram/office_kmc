@@ -90,6 +90,34 @@ class Command(BaseCommand):
                         "person_change: مراحل ضروری تعریف نشده‌اند: "
                         + ", ".join(sorted(missing_person_steps))
                     )
+                required_person_edges = {
+                    (
+                        PersonChangeRequest.Status.COMPANY_REVIEW,
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                    ),
+                    (
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                    ),
+                    (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.APPROVED,
+                    ),
+                    (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.REJECTED,
+                    ),
+                }
+                for source_code, target_code in required_person_edges:
+                    if not any(
+                        transition.source_step.code == source_code
+                        and transition.target_step
+                        and transition.target_step.code == target_code
+                        for transition in transitions
+                    ):
+                        errors.append(
+                            f"person_change: مسیر {source_code} به {target_code} تعریف نشده است."
+                        )
             else:
                 valid_statuses = set(dict(ServiceRequest.Status.choices))
                 decision_steps = set()
@@ -179,7 +207,10 @@ class Command(BaseCommand):
                         source_code == PersonChangeRequest.Status.COMPANY_REVIEW
                         and target_code == PersonChangeRequest.Status.INSURER_UPDATE
                     ):
-                        if not allowed_roles.issubset(company_approvers):
+                        if (
+                            not allowed_roles.issubset(company_approvers)
+                            or RoleAssignment.Role.SUBSIDIARY_REP not in allowed_roles
+                        ):
                             errors.append("person_change: ارجاع به بیمه‌گر فقط از نماینده شرکت/مدیر مجاز است.")
                         if RoleAssignment.Role.INSURER_REP not in recipient_roles:
                             errors.append("person_change: مرحله اقدام بیمه‌گر باید به نماینده/کارشناس بیمه‌گر ارجاع شود.")
@@ -198,7 +229,11 @@ class Command(BaseCommand):
                             PersonChangeRequest.Status.REJECTED,
                         }
                     ):
-                        if not allowed_roles.issubset(company_approvers):
+                        if (
+                            not allowed_roles.issubset(company_approvers)
+                            or RoleAssignment.Role.SUBSIDIARY_REP not in allowed_roles
+                            or RoleAssignment.Role.SUBSIDIARY_REP not in recipient_roles
+                        ):
                             errors.append("person_change: تصمیم نهایی درخواست متقاضی فقط برای نماینده شرکت/مدیر مجاز است.")
                     if transition.closes_case:
                         if source_code not in {
