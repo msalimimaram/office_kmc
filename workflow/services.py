@@ -272,13 +272,24 @@ def is_delegated_assignee(case, user):
     delegation = getattr(case, "delegation", None)
     if not delegation or delegation.delegate_to_id != user.pk:
         return False
-    from delegations.services import delegation_matches
+    from delegations.services import delegation_matches, find_matching_delegation
     scope = _scope_for_object(case.content_object)
     item_type = str(
         getattr(case.content_object, "change_type", None)
         or getattr(case.content_object, "kind", None)
         or ""
     )
+    try:
+        # An ambiguous rule set must fail closed until a manager resolves it.
+        find_matching_delegation(
+            workflow_code=case.definition.code,
+            item_type=item_type,
+            company_id=scope.get("company_id"),
+            insurer_id=scope.get("insurer_id"),
+            line_code=scope.get("line_code"),
+        )
+    except ValidationError:
+        return False
     return delegation_matches(
         delegation,
         workflow_code=case.definition.code,
