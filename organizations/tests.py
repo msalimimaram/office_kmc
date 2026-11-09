@@ -323,7 +323,7 @@ class PersonChangeWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insured,
-            role=RoleAssignment.Role.INSURED_PERSON,
+            role=RoleAssignment.Role.EMPLOYEE,
             line_code="health",
             reason="بیمه‌شده برای آزمون اصلاح اطلاعات",
         )
@@ -336,7 +336,7 @@ class PersonChangeWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insurer_rep,
-            role=RoleAssignment.Role.INSURER_REP,
+            role=RoleAssignment.Role.INSURER,
             insurer=self.insurer,
             line_code="health",
             reason="نماینده بیمه‌گر برای آزمون اصلاح اطلاعات",
@@ -535,7 +535,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=self.insured,
-            role=RoleAssignment.Role.INSURED_PERSON,
+            role=RoleAssignment.Role.EMPLOYEE,
             valid_from=self.today,
             reason="بیمه‌شده اصلی",
         )
@@ -550,7 +550,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
             )
         RoleAssignment.objects.create(
             user=self.insurer_rep,
-            role=RoleAssignment.Role.INSURER_REP,
+            role=RoleAssignment.Role.INSURER,
             insurer=self.insurer,
             valid_from=self.today,
             reason="نماینده بیمه‌گر برای اصلاح اطلاعات",
@@ -566,7 +566,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         )
         roles = {
             "company": [RoleAssignment.Role.SUBSIDIARY_REP],
-            "insurer": [RoleAssignment.Role.INSURER_REP],
+            "insurer": [RoleAssignment.Role.INSURER],
         }
         steps = {}
         for order, (code, title, allowed_roles) in enumerate([
