@@ -25,6 +25,7 @@
   {% if contract.coverage_summary %}<h2>خلاصه پوشش</h2><p class="long-text">{{ contract.coverage_summary|linebreaksbr }}</p>{% endif %}
   {% if contract.terms %}<h2>شرایط و استثناها</h2><p class="long-text">{{ contract.terms|linebreaksbr }}</p>{% endif %}
 </section>
+{% if pending_revision %}<p class="notice">نسخه {{ pending_revision.revision_number }} در انتظار تصمیم مرجع تأیید است؛ تا تعیین تکلیف آن ثبت نسخه یا درخواست فسخ جدید امکان‌پذیر نیست.</p>{% endif %}
 <section class="panel">
   <h2>نسخه‌ها و سوابق تأیید</h2>
   {% for revision in revisions %}
