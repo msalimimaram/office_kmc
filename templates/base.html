@@ -22,7 +22,7 @@
       {% if access.correspondence %}<a href="{% url 'correspondence_list' %}">مکاتبات</a>{% endif %}
       <a href="{% url 'document_list' %}">اسناد و بخشنامه‌ها</a>
       {% if access.requests %}<a href="{% url 'request_list' %}">درخواست‌ها</a>{% endif %}
-      {% if access.people %}<a href="{% url 'people_list' %}">بیمه‌شدگان</a>{% endif %}
+      {% if access.people %}<a href="{% url 'people_list' %}">بیمه‌شدگان</a><a href="{% url 'person_change_list' %}">اصلاح اطلاعات</a>{% endif %}
       {% if access.leadership_titles %}<a href="{% url 'company_leadership_titles' %}">سمت‌های مدیریتی</a>{% endif %}
       {% if access.tasks %}<a href="{% url 'task_list' %}">وظایف</a>{% endif %}
       {% if access.imports %}<a href="{% url 'claim_import' %}">ورود اکسل</a>{% endif %}
