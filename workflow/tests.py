@@ -2,11 +2,13 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from accounts.models import RoleAssignment
-from organizations.models import Company
+from claims.models import Claim
+from insurance.models import Insurer
+from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
@@ -77,6 +79,72 @@ class WorkflowEngineTests(TestCase):
         self.definition.approved_by = self.admin
         self.definition.is_active = True
         self.definition.save()
+
+    def test_insurer_representative_cannot_close_a_claim_workflow(self):
+        insurer = Insurer.objects.create(name="بیمه‌گر آزمون بستن پرونده")
+        insured = Person.objects.create(
+            national_id="0012345678",
+            first_name="آزمون",
+            last_name="بیمه‌شده",
+            birth_date="1990-01-01",
+        )
+        claim = Claim.objects.create(
+            claim_number="WF-INSURER-CLOSE-001",
+            person=insured,
+            insurer=insurer,
+            service_type="آزمایش گردش کار",
+        )
+        insurer_user = User.objects.create_user(
+            username="workflow-insurer-rep", password="StrongPass!123"
+        )
+        RoleAssignment.objects.create(
+            user=insurer_user,
+            role=RoleAssignment.Role.INSURER_REP,
+            insurer=insurer,
+            reason="نماینده بیمه‌گر آزمون",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="insurer-close-test",
+            title="گردش کار آزمون منع بستن توسط بیمه‌گر",
+            created_by=self.admin,
+        )
+        step = WorkflowStep.objects.create(
+            definition=definition,
+            code="insurer-review",
+            title="بررسی بیمه‌گر",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURER_REP],
+            is_initial=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=step,
+            action_code="close-claim",
+            title="بستن پرونده",
+            allowed_roles=[RoleAssignment.Role.INSURER_REP],
+            closes_case=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+        case = start_workflow(
+            obj=claim,
+            code="insurer-close-test",
+            actor=self.admin,
+            assignee=insurer_user,
+        )
+
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=insurer_user,
+                action_code="close-claim",
+                note="بستن غیرمجاز توسط بیمه‌گر",
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(case.status, case.Status.OPEN)
+        self.assertEqual(case.current_assignee_id, insurer_user.pk)
 
     def test_workflow_start_and_routing_record_every_transition(self):
         case = start_workflow(
