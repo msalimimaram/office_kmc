@@ -17,7 +17,7 @@ from workflow.models import WorkflowCase, WorkflowDefinition
 from workflow.services import resolve_initial_assignee, start_workflow
 from claims.models import Claim
 
-from .forms import ContractForm, ContractTerminationForm
+from .forms import ContractForm, ContractTerminationForm, ContractTerminationForm
 from .models import Contract, ContractRevision, InsuranceLine
 
 
@@ -228,6 +228,7 @@ def contract_detail(request, pk):
         "contract": contract,
         "revisions": revisions,
         "can_submit_revision": can_submit_revision,
+        "can_terminate_contract": can_submit_revision and contract.status in {Contract.Status.ACTIVE, Contract.Status.APPROVED},
         "can_request_termination": can_request_termination,
     })
 
@@ -401,5 +402,97 @@ def contract_revision_create(request, pk):
         "form": form,
         "page_title": f"ثبت نسخه جدید قرارداد {contract.code}",
         "submit_label": "ارسال نسخه برای تأیید",
+        "contract": contract,
+    })
+
+
+
+@login_required
+def contract_termination_create(request, pk):
+    contract = get_object_or_404(_contract_scope(request.user), pk=pk)
+    if not _can_submit_contract(request.user, contract.line):
+        raise PermissionDenied
+    if contract.status not in {Contract.Status.ACTIVE, Contract.Status.APPROVED}:
+        raise PermissionDenied("برای قرارداد در وضعیت فعلی امکان ثبت درخواست فسخ وجود ندارد.")
+
+    form = ContractTerminationForm(
+        request.POST or None,
+        request.FILES or None,
+        contract=contract,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                definition = WorkflowDefinition.objects.filter(
+                    code="contract_termination",
+                    is_active=True,
+                ).order_by("-version").first()
+                if not definition:
+                    raise ValidationError(
+                        "گردش‌کار فعال contract_termination برای بررسی درخواست فسخ پیکربندی نشده است."
+                    )
+                revision_number = (
+                    contract.revisions.aggregate(value=Max("revision_number"))["value"] or 0
+                ) + 1
+                revision = ContractRevision.objects.create(
+                    contract=contract,
+                    revision_number=revision_number,
+                    description=form.cleaned_data["termination_reason"],
+                    document=form.cleaned_data.get("revision_document"),
+                    created_by=request.user,
+                    status=ContractRevision.Status.PENDING_APPROVAL,
+                    snapshot={
+                        "code": contract.code,
+                        "title": contract.title,
+                        "insurer_id": contract.insurer_id,
+                        "line": contract.line,
+                        "start_date": contract.start_date.isoformat(),
+                        "end_date": contract.end_date.isoformat(),
+                        "coverage_summary": contract.coverage_summary,
+                        "terms": contract.terms,
+                        "company_ids": sorted(contract.companies.values_list("pk", flat=True)),
+                    },
+                    effective_date=form.cleaned_data["effective_date"],
+                    is_termination=True,
+                    termination_reason=form.cleaned_data["termination_reason"],
+                    notice_date=form.cleaned_data["notice_date"],
+                )
+                assignee = resolve_initial_assignee(
+                    definition=definition,
+                    insurer_id=contract.insurer_id,
+                    line_code=contract.line,
+                )
+                case = start_workflow(
+                    obj=revision,
+                    code="contract_termination",
+                    actor=request.user,
+                    assignee=assignee,
+                    note=form.cleaned_data["termination_reason"],
+                )
+                record_event(
+                    actor=request.user,
+                    action="contract_termination_submitted",
+                    obj=contract,
+                    summary="درخواست فسخ قرارداد برای بررسی و تأیید ثبت شد.",
+                    after_data={
+                        "revision_id": revision.pk,
+                        "revision_number": revision.revision_number,
+                        "workflow_case_id": case.pk,
+                        "notice_date": revision.notice_date.isoformat(),
+                        "effective_date": revision.effective_date.isoformat(),
+                    },
+                    request=request,
+                )
+        except (ValidationError, PermissionDenied) as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(
+                request,
+                "درخواست فسخ ثبت و برای بررسی ارجاع شد؛ قرارداد تا تأیید نهایی بدون تغییر باقی می‌ماند.",
+            )
+            return redirect("contract_detail", pk=contract.pk)
+
+    return render(request, "insurance/contract_termination_form.html", {
+        "form": form,
         "contract": contract,
     })
