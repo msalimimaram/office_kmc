@@ -357,6 +357,34 @@ class WorkflowEngineTests(TestCase):
             representative, [RoleAssignment.Role.SUBSIDIARY_REP], **_scope_for_object(object_b)
         ))
 
+    def test_nested_workflow_object_inherits_parent_scope_without_overriding_its_owner(self):
+        parent = type("ClaimScope", (), {
+            "company_snapshot_id": 741,
+            "insurer_id": 852,
+            "line_code": "health",
+            "contract": None,
+            "person": None,
+            "submitted_by_id": 963,
+            "user_id": None,
+        })()
+        child = type("ClaimObjectionScope", (), {
+            "claim": parent,
+            "company_id": None,
+            "insurer_id": None,
+            "line_code": None,
+            "submitted_by_id": 159,
+            "user_id": None,
+            "person": None,
+            "contract": None,
+        })()
+
+        scope = _scope_for_object(child)
+
+        self.assertEqual(scope["company_id"], 741)
+        self.assertEqual(scope["insurer_id"], 852)
+        self.assertEqual(scope["line_code"], "health")
+        self.assertEqual(scope["owner_user_id"], 159)
+
     def test_company_representative_is_denied_when_workflow_object_has_no_company_scope(self):
         representative = User.objects.create_user(
             username="workflow-unscoped-rep", password="StrongPass!123"
