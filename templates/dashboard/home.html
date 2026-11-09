@@ -7,6 +7,10 @@
 </section>
 
 {% if is_management %}
+<section class="quick-grid">
+  <a class="quick-card" href="{% url 'staff_performance_report' %}"><span class="quick-icon">▥</span><strong>گزارش عملکرد کارشناسان</strong><p>حجم کار، اقدام‌ها، ارجاع‌ها و زمان اولین پاسخ</p><span class="arrow">←</span></a>
+  <a class="quick-card" href="{% url 'delegation_management' %}"><span class="quick-icon">⇄</span><strong>مدیریت تفویض اختیار</strong><p>واگذاری مسئولیت‌های دسته‌ای و مشاهده تاریخچه</p><span class="arrow">←</span></a>
+</section>
 <section class="management-kpi-grid" aria-label="شاخص‌های کلیدی مدیریتی">
   <article class="management-kpi"><span>بیمه‌شدگان فعال</span><strong>{{ management_kpis.insured_count }}</strong><small>{{ management_kpis.company_count }} شرکت فعال</small></article>
   <article class="management-kpi"><span>خسارت‌ها</span><strong>{{ management_kpis.claim_count }}</strong><small>{{ management_kpis.paid_claim_count }} مورد پرداخت‌شده</small></article>
@@ -50,6 +54,24 @@
   <article class="insured-card insured-primary"><div class="insured-ring" style="--value:{{ insured_metrics.claim_paid_ratio }}"><span>{{ insured_metrics.claim_paid_ratio }}٪</span></div><div><p class="eyebrow">خلاصه خسارت</p><h2>{{ insured_metrics.claim_total }} خسارت ثبت‌شده</h2><p>{{ insured_metrics.claim_paid }} مورد پرداخت‌شده و {{ insured_metrics.claim_pending }} مورد در حال پیگیری.</p></div></article>
   <article class="insured-card"><span class="visual-icon">◷</span><div><small>درخواست‌های باز</small><strong>{{ insured_metrics.request_open }}</strong><p>مواردی که هنوز نیازمند پیگیری هستند.</p></div></article>
   <article class="insured-card"><span class="visual-icon">✓</span><div><small>پرداخت‌شده</small><strong>{{ insured_metrics.claim_paid }}</strong><p>خسارت‌هایی که وضعیت پرداخت آن‌ها ثبت شده است.</p></div></article>
+</section>
+{% endif %}
+
+{% if delegated_work_count %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">مسئولیت‌های جدید</p><h2>کارهای تفویض‌شده به شما</h2></div>
+    <a href="{% url 'delegation_inbox' %}">مشاهده همه ({{ delegated_work_count }}) ←</a>
+  </div>
+  <div class="activity-list">
+    {% for case in delegated_work_cases %}
+      <a class="activity" href="{% url 'workflow_case_detail' case.pk %}">
+        <span class="activity-dot"></span>
+        <span><strong>{{ case.definition.title }}</strong><small>{{ case.current_step.title|default:"مرحله جاری" }} · مهلت {{ case.sla_due_at|date:"Y/m/d H:i"|default:"تعریف‌نشده" }}</small></span>
+        <span class="arrow">←</span>
+      </a>
+    {% endfor %}
+  </div>
 </section>
 {% endif %}
 

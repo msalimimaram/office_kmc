@@ -32,7 +32,7 @@
           {% if item.status == "active" or item.status == "suspended" %}
           <form method="post" class="inline-form">{% csrf_token %}
             <input type="hidden" name="delegation_id" value="{{ item.pk }}">
-            <input type="text" name="reason" placeholder="دلیل تغییر وضعیت" aria-label="دلیل تغییر وضعیت">
+            <input type="text" name="reason" placeholder="دلیل تعلیق یا لغو (اجباری)" aria-label="دلیل تغییر وضعیت" required>
             {% if item.status == "active" %}
               <button class="button button-secondary" name="action" value="suspend">تعلیق</button>
             {% else %}

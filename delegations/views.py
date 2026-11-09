@@ -9,12 +9,12 @@ from workflow.models import WorkflowCase
 
 from .forms import WorkDelegationForm
 from .models import WorkDelegation
-from .services import create_work_delegation, expire_due_delegations, update_delegation_status
+from .services import create_work_delegation, synchronize_delegations, update_delegation_status
 
 
 @login_required
 def delegation_inbox(request):
-    expire_due_delegations()
+    synchronize_delegations()
     cases = WorkflowCase.objects.filter(
         current_assignee=request.user,
         delegation__isnull=False,
@@ -57,7 +57,7 @@ def delegation_management(request):
                 )
                 messages.success(request, "وضعیت تفویض اختیار به‌روزرسانی شد.")
                 return redirect("delegation_management")
-        except (ValidationError, PermissionDenied) as exc:
+        except (ValidationError, PermissionDenied, ValueError, WorkDelegation.DoesNotExist) as exc:
             messages.error(request, str(exc))
     rules = WorkDelegation.objects.select_related(
         "delegate_to", "granted_by", "company", "insurer",

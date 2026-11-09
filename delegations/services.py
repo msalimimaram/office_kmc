@@ -23,14 +23,19 @@ def _role_assignment_is_active(delegation):
             and assignments.filter(line_code__in=[delegation.line_code, "*"]).exists()
         )
     if delegation.delegate_role == RoleAssignment.Role.SUBSIDIARY_REP:
-        return bool(
-            delegation.company_id
-            and assignments.filter(company_id=delegation.company_id).exists()
-        )
+        if not delegation.company_id:
+            return False
+        scoped = assignments.filter(company_id=delegation.company_id)
+        if delegation.line_code:
+            scoped = scoped.filter(Q(line_code="") | Q(line_code="*") | Q(line_code=delegation.line_code))
+        return scoped.exists()
     if delegation.delegate_role == RoleAssignment.Role.INSURER_REP:
-        return bool(
-            delegation.insurer_id and assignments.filter(insurer_id=delegation.insurer_id).exists()
-        )
+        if not delegation.insurer_id:
+            return False
+        scoped = assignments.filter(insurer_id=delegation.insurer_id)
+        if delegation.line_code:
+            scoped = scoped.filter(Q(line_code="") | Q(line_code="*") | Q(line_code=delegation.line_code))
+        return scoped.exists()
     return False
 
 
@@ -124,7 +129,7 @@ def apply_delegation_to_open_cases(delegation, *, actor=None):
     from workflow.services import _scope_for_object
 
     actor = actor or delegation.granted_by
-    cases = WorkflowCase.objects.select_related(
+    cases = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "delegation", "content_type"
     ).filter(
         definition__code=delegation.workflow_code,
@@ -165,6 +170,8 @@ def create_work_delegation(*, cleaned_data, actor):
     delegate = cleaned_data["delegate_to"]
     if delegate.pk == actor.pk or not delegate.is_active:
         raise ValidationError("گیرنده تفویض باید کاربر فعال دیگری باشد.")
+    valid_from = cleaned_data.get("valid_from") or timezone.localdate()
+    valid_until = cleaned_data.get("valid_until")
     delegation = WorkDelegation(
         workflow_code=cleaned_data["workflow_code"],
         item_type=cleaned_data.get("item_type") or "",
@@ -174,12 +181,37 @@ def create_work_delegation(*, cleaned_data, actor):
         company=cleaned_data.get("company"),
         insurer=cleaned_data.get("insurer"),
         line_code=cleaned_data.get("line_code") or "",
-        valid_from=cleaned_data["valid_from"],
-        valid_until=cleaned_data.get("valid_until"),
+        valid_from=valid_from,
+        valid_until=valid_until,
         reason=cleaned_data["reason"].strip(),
     )
+    from workflow.models import WorkflowDefinition
+    definition = WorkflowDefinition.objects.filter(
+        code=delegation.workflow_code, is_active=True
+    ).order_by("-version").first()
+    initial = definition.steps.filter(is_initial=True).first() if definition else None
+    if not initial:
+        raise ValidationError("گردش‌کار فعال و مرحله آغازین معتبر برای تفویض انتخاب‌شده وجود ندارد.")
+    if (
+        delegation.delegate_role not in set(initial.allowed_roles or [])
+        and delegation.delegate_role != RoleAssignment.Role.INSURANCE_SPECIALIST
+    ):
+        raise ValidationError("نقش انتخاب‌شده اجازه دریافت مسئولیت مرحله آغازین این گردش‌کار را ندارد.")
     if not _role_assignment_is_active(delegation):
         raise ValidationError("گیرنده در محدوده انتخاب‌شده انتصاب فعال ندارد.")
+    conflicts = WorkDelegation.objects.filter(
+        workflow_code=delegation.workflow_code,
+        item_type=delegation.item_type,
+        delegate_role=delegation.delegate_role,
+        company_id=delegation.company_id,
+        insurer_id=delegation.insurer_id,
+        line_code=delegation.line_code,
+        status=WorkDelegation.Status.ACTIVE,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=delegation.valid_from))
+    if delegation.valid_until:
+        conflicts = conflicts.filter(valid_from__lte=delegation.valid_until)
+    if conflicts.exists():
+        raise ValidationError("برای همین گردش‌کار، نوع کار و محدوده در بازه زمانی انتخاب‌شده تفویض فعال دیگری وجود دارد.")
     delegation.save()
     DelegationEvent.objects.create(
         delegation=delegation, actor=actor,
@@ -218,8 +250,10 @@ def _release_cases(delegation, *, actor, event_type, note):
     for case in cases:
         previous = case.current_assignee
         replacement = delegation.granted_by if delegation.granted_by.is_active else None
+        delegation_id = case.delegation_id
         case.current_assignee = replacement
-        case.save(update_fields=["current_assignee"])
+        case.delegation = None
+        case.save(update_fields=["current_assignee", "delegation"])
         WorkflowEvent.objects.create(
             workflow_case=case, actor=actor,
             event_type=WorkflowEvent.EventType.RETURNED,
@@ -227,7 +261,7 @@ def _release_cases(delegation, *, actor, event_type, note):
             from_step=case.current_step, to_step=case.current_step,
             from_assignee=previous, to_assignee=replacement,
             note=note[:4000], sent_at=timezone.now(),
-            metadata={"delegation_id": delegation.pk, "event": event_type},
+            metadata={"delegation_id": delegation_id, "event": event_type},
         )
         DelegationEvent.objects.create(
             delegation=delegation, actor=actor,
@@ -251,6 +285,8 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
         raise PermissionDenied("مدیریت تفویض اختیار فقط برای رئیس اداره یا مدیر سامانه مجاز است.")
     delegation = WorkDelegation.objects.select_for_update().get(pk=delegation_id)
     if action == "suspend":
+        if not (reason or "").strip():
+            raise ValidationError("برای تعلیق تفویض، ثبت دلیل الزامی است.")
         if delegation.status != WorkDelegation.Status.ACTIVE:
             raise ValidationError("فقط تفویض فعال قابل تعلیق است.")
         delegation.status = WorkDelegation.Status.SUSPENDED
@@ -260,9 +296,13 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
             delegation.valid_until and delegation.valid_until < timezone.localdate()
         ):
             raise ValidationError("این تفویض قابل فعال‌سازی مجدد نیست؛ تاریخ اعتبار را بررسی کنید.")
+        if not _role_assignment_is_active(delegation):
+            raise ValidationError("گیرنده هنوز انتصاب فعال در محدوده تفویض ندارد.")
         delegation.status = WorkDelegation.Status.ACTIVE
         event_type = DelegationEvent.EventType.RESUMED
     elif action == "revoke":
+        if not (reason or "").strip():
+            raise ValidationError("برای لغو تفویض، ثبت دلیل الزامی است.")
         if delegation.status in {WorkDelegation.Status.REVOKED, WorkDelegation.Status.EXPIRED}:
             raise ValidationError("تفویض قبلاً خاتمه یافته است.")
         delegation.status = WorkDelegation.Status.REVOKED
@@ -289,26 +329,44 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
 
 
 @transaction.atomic
-def expire_due_delegations():
+def synchronize_delegations():
+    """Expire invalid rules, return their open cases, and route eligible initial-stage work."""
     today = timezone.localdate()
-    due = WorkDelegation.objects.select_for_update().filter(
-        status=WorkDelegation.Status.ACTIVE, valid_until__lt=today,
-    )
-    count = 0
-    for delegation in due:
-        delegation.status = WorkDelegation.Status.EXPIRED
-        delegation.save(update_fields=["status", "updated_at"])
-        actor = delegation.granted_by
+    report = {"expired": 0, "suspended": 0, "routed": 0}
+    active = WorkDelegation.objects.select_for_update().filter(
+        status=WorkDelegation.Status.ACTIVE
+    ).select_related("delegate_to", "granted_by")
+    for delegation in active:
+        if delegation.valid_until and delegation.valid_until < today:
+            delegation.status = WorkDelegation.Status.EXPIRED
+            event_type = DelegationEvent.EventType.EXPIRED
+            summary = "تفویض اختیار به پایان تاریخ اعتبار منقضی شد."
+            report["expired"] += 1
+        elif not _role_assignment_is_active(delegation):
+            delegation.status = WorkDelegation.Status.SUSPENDED
+            delegation.revocation_reason = "انتصاب معتبر گیرنده در محدوده تفویض دیگر فعال نیست."
+            event_type = DelegationEvent.EventType.SUSPENDED
+            summary = delegation.revocation_reason
+            report["suspended"] += 1
+        else:
+            report["routed"] += apply_delegation_to_open_cases(delegation)
+            continue
+        delegation.save(update_fields=["status", "revocation_reason", "updated_at"])
         DelegationEvent.objects.create(
-            delegation=delegation, actor=actor,
-            event_type=DelegationEvent.EventType.EXPIRED,
-            summary="تفویض اختیار به پایان تاریخ اعتبار منقضی شد.",
-            metadata={"expired_on": today.isoformat()},
+            delegation=delegation,
+            actor=delegation.granted_by,
+            event_type=event_type,
+            summary=summary,
+            metadata={"synchronized_on": today.isoformat()},
         )
         _release_cases(
-            delegation, actor=actor,
-            event_type=DelegationEvent.EventType.EXPIRED,
-            note="پایان اعتبار تفویض؛ پرونده به تفویض‌کننده بازگشت.",
+            delegation,
+            actor=delegation.granted_by,
+            event_type=event_type,
+            note=summary + " پرونده‌های باز به تفویض‌کننده بازگردانده شدند.",
         )
-        count += 1
-    return count
+    return report
+
+
+def expire_due_delegations():
+    return synchronize_delegations()["expired"]

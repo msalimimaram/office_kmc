@@ -205,6 +205,11 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
         line_code=line_code,
     )
     if delegation is not None:
+        if (
+            delegation.delegate_role not in set(roles)
+            and delegation.delegate_role != RoleAssignment.Role.INSURANCE_SPECIALIST
+        ):
+            raise ValidationError("نقش گیرنده تفویض برای مرحله آغازین این گردش‌کار مجاز نیست.")
         if exclude_user_id and delegation.delegate_to_id == exclude_user_id:
             raise ValidationError("گیرنده تفویض‌شده نمی‌تواند درخواست خود را دریافت کند.")
         result = (delegation.delegate_to, delegation)
@@ -346,9 +351,8 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         event_type=WorkflowEvent.EventType.STARTED,
         to_step=initial,
         to_assignee=assignee,
-        note=note,
-        sent_at=timezone.now(),
         note=(note + (" | تفویض‌شده: " + delegation.reason if delegation else ""))[:4000],
+        sent_at=timezone.now(),
     )
     _notify_assignee(case, actor, assignee, delegated=delegation is not None)
     return case
@@ -383,6 +387,12 @@ def mark_case_opened(*, case_id, actor):
         return case
     if not has_global_access(actor) and case.current_assignee_id != actor.pk:
         raise PermissionDenied
+    if (
+        not has_global_access(actor)
+        and case.delegation_id
+        and not is_delegated_assignee(case, actor)
+    ):
+        raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     now = timezone.now()
     if not case.first_viewed_at:
         case.first_viewed_at = now
@@ -490,6 +500,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
 
     old_step = case.current_step
     old_assignee = case.current_assignee
+    delegation_id = case.delegation_id
     now = timezone.now()
 
     if transition.closes_case:
@@ -497,6 +508,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             raise ValidationError("برای اقدام نهایی نباید گیرنده تعیین شود.")
         case.current_step = None
         case.current_assignee = None
+        case.delegation = None
         case.status = WorkflowCase.Status.CLOSED
         case.closed_at = now
         event_type = WorkflowEvent.EventType.RETURNED if transition.is_return else WorkflowEvent.EventType.ACTION
@@ -509,6 +521,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         _validate_recipient(target, transition.target_step.allowed_roles, scope=scope)
         case.current_step = transition.target_step
         case.current_assignee = target
+        if case.delegation_id and case.delegation.delegate_to_id != target.pk:
+            case.delegation = None
         case.status = WorkflowCase.Status.WAITING
         case.closed_at = None
         event_type = WorkflowEvent.EventType.RETURNED if transition.is_return else WorkflowEvent.EventType.REFERRED
@@ -520,7 +534,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     if not case.first_action_at:
         case.first_action_at = now
     case.save(update_fields=[
-        "current_step", "current_assignee", "status", "closed_at",
+        "current_step", "current_assignee", "delegation", "status", "closed_at",
         "sla_due_at", "first_action_at",
     ])
     _sync_domain_status(
@@ -543,6 +557,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         note=note,
         acted_at=now,
         sent_at=now,
+        metadata={"delegation_id": delegation_id} if delegation_id else {},
     )
     if case.current_assignee_id and case.current_assignee_id != actor.pk:
         _notify_assignee(case, actor, case.current_assignee, delegated=is_delegated_assignee(case, case.current_assignee))

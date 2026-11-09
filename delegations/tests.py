@@ -6,7 +6,9 @@ from django.utils import timezone
 from accounts.models import RoleAssignment
 from organizations.models import Company
 from workflow.models import WorkflowDefinition, WorkflowStep
-from workflow.services import resolve_initial_assignee
+from workflow.services import is_delegated_assignee, resolve_initial_assignee, start_workflow, transition_case
+from requests_portal.models import ServiceRequest
+from workflow.models import WorkflowTransition
 
 from .models import WorkDelegation
 
@@ -41,6 +43,7 @@ class DelegationRoutingTests(TestCase):
             title="بررسی اولیه", order=1,
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP], is_initial=True,
         )
+        self.definition.approved_by = self.head
         self.definition.is_active = True
         self.definition.save()
 
@@ -67,6 +70,93 @@ class DelegationRoutingTests(TestCase):
         )
         self.assertEqual(assignee, self.representative)
         self.assertIsNone(matched)
+
+    def test_delegate_can_receive_and_act_on_scoped_initial_work(self):
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="درخواست درمان",
+            version=78,
+            created_by=self.head,
+            approved_by=self.head,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="company_review",
+            title="بررسی اولیه",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        review = WorkflowStep.objects.create(
+            definition=definition,
+            code="head_review",
+            title="بررسی رئیس اداره",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=review,
+            action_code="refer_to_head",
+            title="ارجاع برای تصمیم",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        definition.is_active = True
+        definition.save()
+        request = ServiceRequest.objects.create(
+            reference="DELEGATION-REQ-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.representative,
+            company=self.company,
+            title="درخواست آزمایشی",
+            description="آزمون تفویض اختیار",
+            is_confidential=True,
+        )
+        rule = WorkDelegation.objects.create(
+            workflow_code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="رسیدگی تخصصی به درخواست‌های درمانی",
+            valid_from=timezone.localdate(),
+        )
+        assignee, matched = resolve_initial_assignee(
+            definition=definition,
+            obj=request,
+            company_id=self.company.pk,
+            line_code="health",
+            owner_user_id=self.representative.pk,
+            return_delegation=True,
+        )
+        case = start_workflow(
+            obj=request,
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            actor=self.representative,
+            assignee=assignee,
+            delegation=matched,
+        )
+        self.assertEqual(assignee, self.specialist)
+        self.assertEqual(case.delegation, rule)
+        self.assertTrue(is_delegated_assignee(case, self.specialist))
+        transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="refer_to_head",
+            recipient=self.head,
+            note="بررسی اولیه انجام شد.",
+        )
+        case.refresh_from_db()
+        self.assertEqual(case.current_assignee, self.head)
+        self.assertIsNone(case.delegation_id)
+        self.assertFalse(is_delegated_assignee(case, self.specialist))
+        self.assertEqual(
+            case.events.order_by("-pk").first().metadata["delegation_id"],
+            rule.pk,
+        )
 
     def test_ambiguous_delegation_rules_are_blocked(self):
         common = {

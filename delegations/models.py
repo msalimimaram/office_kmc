@@ -13,7 +13,22 @@ DELEGATABLE_ROLES = (
 )
 
 
+class ImmutableWorkDelegationQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("تفویض اختیار فقط از مسیر عملیات کنترل‌شده تغییر می‌کند.")
+
+    def delete(self):
+        raise ValidationError("تفویض اختیار حذف نمی‌شود؛ آن را لغو کنید.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی تفویض اختیار مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ایجاد گروهی تفویض اختیار مجاز نیست.")
+
+
 class WorkDelegation(models.Model):
+    objects = ImmutableWorkDelegationQuerySet.as_manager()
     class Status(models.TextChoices):
         ACTIVE = "active", "فعال"
         SUSPENDED = "suspended", "معلق"
