@@ -415,9 +415,12 @@ class PersonChangeWorkflowTests(TestCase):
         self.assertEqual(self.person.mobile, "09121112222")
         self.assertEqual(self.insured.mobile, "09121112222")
         self.assertEqual(case.status, WorkflowCase.Status.CLOSED)
-        notification = UserNotification.objects.get(recipient=self.insured)
+        notification = UserNotification.objects.get(
+            recipient=self.insured,
+            target_url=reverse("person_change_detail", args=[change.pk]),
+            title="درخواست اصلاح اطلاعات تأیید شد",
+        )
         self.assertIn("تأیید شد", notification.title)
-        self.assertEqual(notification.target_url, reverse("person_change_detail", args=[change.pk]))
 
     def test_person_change_requests_are_scoped_by_company_and_representative_line(self):
         from organizations.models import PersonChangeRequest
