@@ -8,18 +8,32 @@
   var backdrop = document.querySelector("[data-sidebar-backdrop]");
   var sidebar = document.getElementById("app-sidebar");
 
-  function setTheme(theme) {
-    root.dataset.theme = theme;
-    if (themeIcon) themeIcon.textContent = theme === "dark" ? "☀" : "☾";
-    if (themeButton) themeButton.setAttribute("aria-label", theme === "dark" ? "فعال‌کردن حالت روشن" : "فعال‌کردن حالت تاریک");
+  var themePreference = root.dataset.themePreference || "system";
+  var systemTheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function setTheme(preference) {
+    themePreference = preference;
+    var effective = preference === "system" && systemTheme ? (systemTheme.matches ? "dark" : "light") : preference;
+    root.dataset.themePreference = preference;
+    root.dataset.theme = effective;
+    if (themeIcon) themeIcon.textContent = preference === "system" ? "◐" : (effective === "dark" ? "☀" : "☾");
+    if (themeButton) {
+      var label = preference === "system" ? "تغییر حالت نمایش؛ فعلی: سیستم" : (effective === "dark" ? "فعال‌کردن حالت روشن" : "فعال‌کردن حالت تاریک");
+      themeButton.setAttribute("aria-label", label);
+      themeButton.title = preference === "system" ? "حالت نمایش: پیروی از تنظیم دستگاه" : label;
+    }
   }
   if (themeButton) {
-    setTheme(root.dataset.theme || "light");
+    setTheme(themePreference);
     themeButton.addEventListener("click", function () {
-      var next = root.dataset.theme === "dark" ? "light" : "dark";
+      var next = themePreference === "system" ? "dark" : (themePreference === "dark" ? "light" : "system");
       setTheme(next);
       try { localStorage.setItem("office-kmc-theme", next); } catch (_) {}
     });
+    if (systemTheme) {
+      var onSystemThemeChange = function () { if (themePreference === "system") setTheme("system"); };
+      if (systemTheme.addEventListener) systemTheme.addEventListener("change", onSystemThemeChange);
+      else if (systemTheme.addListener) systemTheme.addListener(onSystemThemeChange);
+    }
   }
 
   function setMobileSidebar(open) {
