@@ -446,6 +446,28 @@ class ServiceRequestAttachmentDownloadTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response.url)
 
+    def test_confidential_attachment_requires_global_access(self):
+        item = ServiceRequest.objects.create(
+            reference="IB-PRIVATE-ATTACHMENT",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.owner,
+            company=self.company,
+            title="درخواست محرمانه",
+            description="شرح",
+            attachment=SimpleUploadedFile("restricted.pdf", b"%PDF-1.4 test", content_type="application/pdf"),
+        )
+        self.addCleanup(item.attachment.delete, save=False)
+        client = Client()
+        client.force_login(self.owner)
+        detail = client.get(reverse("request_detail", args=[item.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, reverse("request_attachment_download", args=[item.pk]))
+        self.assertEqual(client.get(reverse("request_attachment_download", args=[item.pk])).status_code, 403)
+
+        head = User.objects.create_user(username="private-attachment-head", password="StrongPass!2026", role="department_head", must_change_password=False)
+        client.force_login(head)
+        self.assertEqual(client.get(reverse("request_attachment_download", args=[item.pk])).status_code, 200)
+
     def test_attachment_download_returns_404_when_request_has_no_file(self):
         item_without_file = ServiceRequest.objects.create(
             reference="IB-ATTACHMENT-2",
