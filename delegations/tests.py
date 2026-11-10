@@ -28,18 +28,18 @@ User = get_user_model()
 class DelegationRoutingTests(TestCase):
     def setUp(self):
         today = timezone.localdate()
-        self.head = User.objects.create_user(username="delegation.head", password="TestPass!23456")
+        self.head = User.objects.create_user(username="delegation.head", password="TestPass!23456", must_change_password=False)
         RoleAssignment.objects.create(
             user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD,
             is_active=True, valid_from=today,
         )
         self.company = Company.objects.create(code="DELEGATION-CO", name="شرکت آزمون تفویض")
-        self.representative = User.objects.create_user(username="delegation.rep", password="TestPass!23456")
+        self.representative = User.objects.create_user(username="delegation.rep", password="TestPass!23456", must_change_password=False)
         RoleAssignment.objects.create(
             user=self.representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
             company=self.company, line_code="health", is_active=True, valid_from=today,
         )
-        self.specialist = User.objects.create_user(username="delegation.health", password="TestPass!23456")
+        self.specialist = User.objects.create_user(username="delegation.health", password="TestPass!23456", must_change_password=False)
         RoleAssignment.objects.create(
             user=self.specialist, role=RoleAssignment.Role.INSURANCE_SPECIALIST,
             line_code="health", is_active=True, valid_from=today,
@@ -728,7 +728,7 @@ class DelegationRoutingTests(TestCase):
         rule.refresh_from_db()
         self.assertEqual(rule.status, WorkDelegation.Status.ACTIVE)
         self.assertEqual(report["suspended"], 0)
-        self.assertIsNone(rule.revocation_reason)
+        self.assertEqual(rule.revocation_reason, "")
 
     def test_ambiguous_delegation_rules_are_blocked(self):
         common = {
