@@ -167,3 +167,51 @@ class StaticAndPrivateMediaUrlTests(SimpleTestCase):
         self.assertTrue(settings.STATIC_URL.startswith("/"))
         self.assertTrue(settings.MEDIA_URL.startswith("/"))
         self.assertTrue(static("css/site.css").startswith("/static/"))
+
+
+
+@override_settings(DEBUG=True)
+class DemoSeedCommandSafetyTests(TestCase):
+    def test_seed_is_idempotent_and_never_resets_existing_user_password(self):
+        from django.core.management import call_command
+        from accounts.models import User
+        from claims.models import Claim, ClaimPayment
+        from organizations.models import Company, Person
+        from requests_portal.models import ServiceRequest
+
+        call_command("seed_demo")
+        employee = User.objects.get(username="employee.a")
+        employee.set_password("LocallyChosen!Password2026")
+        employee.save(update_fields=["password"])
+
+        model_counts = {
+            model: model.objects.count()
+            for model in (Company, Person, User, Claim, ClaimPayment, ServiceRequest)
+        }
+
+        call_command("seed_demo")
+
+        employee.refresh_from_db()
+        self.assertTrue(employee.check_password("LocallyChosen!Password2026"))
+        for model, count in model_counts.items():
+            self.assertEqual(model.objects.count(), count, model._meta.label)
+        self.assertFalse(User.objects.get(username="head.demo").has_usable_password())
+
+    def test_seed_collision_aborts_without_overwriting_or_partial_creation(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from organizations.models import Company
+
+        company = Company.objects.create(
+            code="DEMO-A",
+            name="رکورد موجود نباید تغییر کند",
+            is_parent=False,
+            is_active=True,
+        )
+
+        with self.assertRaises(CommandError):
+            call_command("seed_demo")
+
+        company.refresh_from_db()
+        self.assertEqual(company.name, "رکورد موجود نباید تغییر کند")
+        self.assertFalse(Company.objects.filter(code="DEMO-B").exists())
