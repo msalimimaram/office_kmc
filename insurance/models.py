@@ -182,10 +182,19 @@ class ContractRevision(models.Model):
             allowed = {"applied_at"}
             if getattr(self, "_workflow_status_update", False):
                 allowed.update({"status", "approved_by", "approved_at"})
+            def comparable_value(instance, field):
+                value = getattr(instance, field.attname)
+                # FieldFile instances are wrappers and do not compare by
+                # persisted file identity. Compare their stored names instead,
+                # otherwise every save falsely looks like a document mutation.
+                if isinstance(field, models.FileField):
+                    return value.name if value else ""
+                return value
+
             changed = [
                 field.name for field in self._meta.concrete_fields
                 if field.name not in {"id", *allowed}
-                and getattr(previous, field.attname) != getattr(self, field.attname)
+                and comparable_value(previous, field) != comparable_value(self, field)
             ]
             if changed:
                 raise ValidationError(
