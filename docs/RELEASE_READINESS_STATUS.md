@@ -6,13 +6,21 @@
 
 این تصمیم به معنی شکست تست‌های خودکار نیست؛ تست‌های خودکار پایه موفق شده‌اند، اما پذیرش عملیاتی، امنیتی و زیرساختی هنوز کامل نشده است.
 
-## وضعیت تست‌های خودکار
+## شواهد تأییدشده محلی — 2026-11-10
 
-- در commit مبنای `30ca82d8e3d722d4068b01f4ce644210746faa2c`، مالک پروژه اجرای کامل `python manage.py test --verbosity 2` را گزارش کرد: **215 تست، 215 موفق، صفر خطا**.
-- بررسی سیستمی Django در همان اجرا بدون مشکل بود.
-- پس از آن، فرمان `seed_demo` برای جلوگیری از بازنویسی داده‌های موجود اصلاح شد و دو تست رگرسیون برای idempotency، حفظ رمز حساب موجود و rollback برخورد داده افزوده شد.
-- دو تست seed و یک تست schema verification پس از اجرای 215/215 اضافه شده‌اند؛ این سه تست جدید هنوز باید در محیط محلی اجرا شوند، بنابراین نتیجه 215/215 را نباید به HEAD فعلی تعمیم داد.
-- HEAD فعلی در زمان ثبت این سند: `232abc097e8e69cd303402613abaf87926e1ef71`.
+مالک پروژه روی checkout محلی با این مشخصات گزارش داده است:
+
+- شاخه: `main`
+- commit: `555ba89f1eac68eae7b70f733dd4bc52fc427021` (`Fix assets migration package discovery`)
+- اجرای `python manage.py test --verbosity 2`: **218 تست، 218 موفق، صفر شکست**؛ زمان اجرا 427.877 ثانیه.
+- `python manage.py showmigrations assets`: هر سه migration اعمال‌شده.
+- `python manage.py verify_database_schema`: موفق؛ تمام 55 جدول مدل‌های managed و many-to-many وجود دارند.
+- `python manage.py makemigrations --check --dry-run`: `No changes detected`.
+- `python manage.py check`: بدون مشکل سیستمی.
+- SQLite `PRAGMA integrity_check`: پاسخ `ok`.
+- `git status --short`: فقط فایل پشتیبان محلی `db_before_announcements_correspondence_20261110.sqlite3` به‌صورت untracked گزارش شده؛ این فایل نباید commit شود.
+
+این شواهد جایگزین اجرای preflight کامل، آزمون PostgreSQL، staging، تست امنیت/بار، backup-restore یا پذیرش دستی گردش‌کارها نیستند.
 
 ## اصلاحات تکمیلی اخیر
 
