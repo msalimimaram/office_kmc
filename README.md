@@ -38,6 +38,8 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 
 ## شروع سریع در Windows PowerShell
 
+راهنمای کامل کاربران Command Prompt ویندوز: [راه‌اندازی و آزمون با CMD](docs/WINDOWS_CMD_SETUP.md).
+
 پیش‌نیاز: Python 3.11 یا 3.12 و pip. فایل `.env.local.example` برای اجرای محلی با SQLite آماده شده است؛ `.env.example` فقط نمونه تنظیمات تولید است.
 
 ```powershell
