@@ -74,14 +74,16 @@
         </div>
       </header>
       <main class="page app-page">
+  {% else %}
+      <main class="page">
+  {% endif %}
         {% if messages %}{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}{% endif %}
         {% block content %}{% endblock %}
       </main>
+  {% if request.user.is_authenticated %}
       <footer class="app-footer">اداره بیمه <span>•</span> سامانه داخلی مدیریت اطلاعات و درخواست‌های بیمه‌ای</footer>
     </div>
   </div>
-  {% else %}
-    <main class="page">{% if messages %}{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}{% endif %}{% block content %}{% endblock %}</main>
   {% endif %}
   <script src="{% static 'js/shell.js' %}" defer></script>
 </body>
