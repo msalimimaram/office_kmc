@@ -87,7 +87,7 @@ def claim_detail(request, pk):
     claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
     user = request.user
     can_submit_objection = (
-        has_role(user, RoleAssignment.Role.EMPLOYEE)
+        has_role(user, RoleAssignment.Role.INSURED_PERSON)
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP, company_id=claim.company_snapshot_id or claim.person.company_id)
     )
     can_review_objections = can_decide_claim(user, claim)
@@ -97,7 +97,7 @@ def claim_detail(request, pk):
         and claim.source_duplicate_status == Claim.DuplicateStatus.NOT_DECLARED
         and has_role(
             user,
-            RoleAssignment.Role.INSURER,
+            RoleAssignment.Role.INSURER_REP,
             insurer_id=claim.insurer_id,
             line_code=claim.contract.line,
         )
@@ -524,7 +524,7 @@ def claim_duplicate_declare(request, pk):
         and claim.contract_id
         and has_role(
             request.user,
-            RoleAssignment.Role.INSURER,
+            RoleAssignment.Role.INSURER_REP,
             insurer_id=claim.insurer_id,
             line_code=claim.contract.line,
         )
