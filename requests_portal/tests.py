@@ -466,7 +466,10 @@ class ServiceRequestAttachmentDownloadTests(TestCase):
 
         head = User.objects.create_user(username="private-attachment-head", password="StrongPass!2026", role="department_head", must_change_password=False)
         client.force_login(head)
-        self.assertEqual(client.get(reverse("request_attachment_download", args=[item.pk])).status_code, 200)
+        response = client.get(reverse("request_attachment_download", args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        # Close the streaming file before TestCase cleanup removes it (Windows locks open files).
+        response.close()
 
     def test_attachment_download_returns_404_when_request_has_no_file(self):
         item_without_file = ServiceRequest.objects.create(
