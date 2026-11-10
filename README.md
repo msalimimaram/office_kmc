@@ -62,7 +62,7 @@ python manage.py seed_demo
 python manage.py runserver
 ```
 
-پس از اجرای seed_demo، برای ورود به حساب‌های نمونه از رمز محلی DemoPass!2026 استفاده کنید. حساب‌ها: admin.demo، head.demo، specialist.demo، companya.demo، companyb.demo، employee.a، employee.b و insurer.demo. این حساب‌ها و رمز مشترک فقط برای داده ساختگی در DEBUG=True هستند؛ هرگز در محیط واقعی استفاده نشوند. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با python manage.py createsuperuser بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود؛ در مرحله تست اولیه migration خودکار نسازید.
+پس از اجرای seed_demo، حساب‌های نمونه بدون رمز قابل استفاده ایجاد می‌شوند و فرمان در اجراهای بعدی رمز یا اطلاعات حساب‌های موجود را بازنویسی نمی‌کند. حساب‌ها: admin.demo، head.demo، specialist.demo، companya.demo، companyb.demo، employee.a، employee.b و insurer.demo. برای ورود محلی، برای حساب موردنظر از طریق `python manage.py shell` یک رمز محلی تعیین کنید؛ مقدار `must_change_password` را فعال نگه دارید تا تغییر رمز در نخستین ورود انجام شود. این حساب‌ها فقط برای داده ساختگی در DEBUG=True هستند و نباید در محیط واقعی ساخته یا استفاده شوند. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با python manage.py createsuperuser بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود؛ در مرحله تست اولیه migration خودکار نسازید.
 
 ## تنظیمات محیط
 
