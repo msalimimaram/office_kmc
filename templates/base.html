@@ -1,48 +1,91 @@
 {% load static %}
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{% block title %}اداره بیمه{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("office-kmc-theme");
+        var preference = saved === "dark" || saved === "light" || saved === "system" ? saved : "system";
+        var effective = preference === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : (preference === "system" ? "light" : preference);
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.dataset.theme = effective;
+      } catch (_) {}
+    }());
+  </script>
   <link rel="stylesheet" href="{% static 'css/site.css' %}">
   <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+  <link rel="stylesheet" href="{% static 'css/shell.css' %}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark">ب</span><span>اداره بیمه<small>سامانه یکپارچه مدیریت بیمه</small></span></a>
-    {% if request.user.is_authenticated %}
-    <nav class="topnav" aria-label="منوی اصلی">
-      <span class="nav-group nav-primary">
-      <a class="nav-link" href="{% url 'dashboard' %}"><span class="nav-symbol">⌂</span>داشبورد</a>
-      {% if access.notifications %}<a class="nav-link nav-notifications" href="{% url 'notification_list' %}"><span class="nav-symbol">♧</span>اعلان‌ها{% if unread_notification_count %}<span class="nav-count">{{ unread_notification_count }}</span>{% endif %}</a>{% endif %}
-      {% if access.delegation_inbox %}<a class="nav-link" href="{% url 'delegation_inbox' %}">کارهای تفویض‌شده</a>{% endif %}
-      {% if access.delegation_manage %}<a class="nav-link" href="{% url 'delegation_management' %}">مدیریت تفویض اختیار</a>{% endif %}
-      </span>
-      <span class="nav-group nav-modules">
-      {% if access.claims %}<a href="{% url 'claim_list' %}">خسارت‌ها</a>{% endif %}
-      {% if access.contracts %}<a href="{% url 'contract_list' %}">قراردادها</a>{% endif %}
-      {% if access.assets %}<a href="{% url 'asset_list' %}">دارایی‌ها</a>{% endif %}
-      <a href="{% url 'announcement_list' %}">اطلاعیه‌ها</a>
-      <a href="{% url 'workflow_case_list' %}">ارجاعات من</a>
-      {% if access.correspondence %}<a href="{% url 'correspondence_list' %}">مکاتبات</a>{% endif %}
-      <a href="{% url 'document_list' %}">اسناد و بخشنامه‌ها</a>
-      {% if access.requests %}<a href="{% url 'request_list' %}">درخواست‌ها</a>{% endif %}
-      {% if access.people %}<a href="{% url 'people_list' %}">بیمه‌شدگان</a><a href="{% url 'person_change_list' %}">اصلاح اطلاعات</a>{% endif %}
-      {% if access.leadership_titles %}<a href="{% url 'company_leadership_titles' %}">سمت‌های مدیریتی</a>{% endif %}
-      {% if access.tasks %}<a href="{% url 'task_list' %}">وظایف</a>{% endif %}
-      {% if access.imports %}<a href="{% url 'claim_import' %}">ورود اکسل</a>{% endif %}
-      </span>
-    </nav>
-    <div class="userbox"><span>{{ request.user.get_full_name|default:request.user.username }}</span><a href="{% url 'password_change' %}">تغییر رمز</a>
-      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">خروج</button></form>
+  {% if request.user.is_authenticated %}
+  <div class="app-shell">
+    <div class="sidebar-backdrop" data-sidebar-backdrop hidden></div>
+    <aside class="app-sidebar" id="app-sidebar" aria-label="ناوبری اصلی">
+      <div class="sidebar-brand">
+        <a class="brand" href="{% url 'dashboard' %}">
+          <span class="brand-mark">ب</span>
+          <span class="brand-copy">اداره بیمه<small>سامانه یکپارچه مدیریت بیمه</small></span>
+        </a>
+        <button class="icon-button sidebar-collapse" type="button" data-sidebar-collapse aria-label="جمع کردن منو" title="جمع کردن منو">⇥</button>
+      </div>
+      <div class="sidebar-user">
+        <span class="avatar-mark" aria-hidden="true">{{ request.user.get_full_name|default:request.user.username|slice:":1" }}</span>
+        <span class="sidebar-user-copy"><strong>{{ request.user.get_full_name|default:request.user.username }}</strong><small>{% if access.system_admin %}مدیر سامانه{% elif access.global %}مدیریت اداره بیمه{% elif access.company_rep %}نماینده شرکت{% elif access.insurer_rep %}نماینده بیمه‌گر{% elif access.insured %}بیمه‌شده{% else %}کاربر سامانه{% endif %}</small></span>
+      </div>
+      <nav class="sidebar-nav">
+        <span class="sidebar-section-label">نمای کلی</span>
+        <a class="sidebar-link" href="{% url 'dashboard' %}"><span class="sidebar-icon">⌂</span><span>داشبورد</span></a>
+        {% if access.notifications %}<a class="sidebar-link" href="{% url 'notification_list' %}"><span class="sidebar-icon">♧</span><span>اعلان‌ها</span>{% if unread_notification_count %}<span class="sidebar-count">{{ unread_notification_count }}</span>{% endif %}</a>{% endif %}
+        <span class="sidebar-section-label">کارها و گردش‌کار</span>
+        <a class="sidebar-link" href="{% url 'workflow_case_list' %}"><span class="sidebar-icon">↗</span><span>ارجاعات من</span></a>
+        {% if access.delegation_inbox %}<a class="sidebar-link" href="{% url 'delegation_inbox' %}"><span class="sidebar-icon">⇢</span><span>کارهای تفویض‌شده</span></a>{% endif %}
+        {% if access.delegation_manage %}<a class="sidebar-link" href="{% url 'delegation_management' %}"><span class="sidebar-icon">⚙</span><span>مدیریت تفویض اختیار</span></a>{% endif %}
+        {% if access.tasks %}<a class="sidebar-link" href="{% url 'task_list' %}"><span class="sidebar-icon">☷</span><span>وظایف</span></a>{% endif %}
+        <span class="sidebar-section-label">عملیات بیمه</span>
+        {% if access.people %}<a class="sidebar-link" href="{% url 'people_list' %}"><span class="sidebar-icon">♙</span><span>بیمه‌شدگان</span></a><a class="sidebar-link" href="{% url 'person_change_list' %}"><span class="sidebar-icon">✎</span><span>اصلاح اطلاعات</span></a>{% endif %}
+        {% if access.requests %}<a class="sidebar-link" href="{% url 'request_list' %}"><span class="sidebar-icon">▤</span><span>درخواست‌ها</span></a>{% endif %}
+        {% if access.claims %}<a class="sidebar-link" href="{% url 'claim_list' %}"><span class="sidebar-icon">◈</span><span>خسارت‌ها</span></a>{% endif %}
+        {% if access.contracts %}<a class="sidebar-link" href="{% url 'contract_list' %}"><span class="sidebar-icon">▣</span><span>قراردادها</span></a>{% endif %}
+        {% if access.assets %}<a class="sidebar-link" href="{% url 'asset_list' %}"><span class="sidebar-icon">◇</span><span>دارایی‌ها</span></a>{% endif %}
+        {% if access.imports %}<a class="sidebar-link" href="{% url 'claim_import' %}"><span class="sidebar-icon">⇧</span><span>ورود اکسل</span></a>{% endif %}
+        <span class="sidebar-section-label">اسناد و ارتباطات</span>
+        <a class="sidebar-link" href="{% url 'announcement_list' %}"><span class="sidebar-icon">▧</span><span>اطلاعیه‌ها</span></a>
+        {% if access.correspondence %}<a class="sidebar-link" href="{% url 'correspondence_list' %}"><span class="sidebar-icon">✉</span><span>مکاتبات</span>{% endif %}
+        <a class="sidebar-link" href="{% url 'document_list' %}"><span class="sidebar-icon">▤</span><span>اسناد و بخشنامه‌ها</span></a>
+        {% if access.leadership_titles %}<a class="sidebar-link" href="{% url 'company_leadership_titles' %}"><span class="sidebar-icon">♜</span><span>سمت‌های مدیریتی</span></a>{% endif %}
+      </nav>
+      <div class="sidebar-footer"><span class="sidebar-status-dot"></span><span>سامانه عملیاتی اداره بیمه</span></div>
+    </aside>
+
+    <div class="app-main">
+      <header class="app-topbar">
+        <div class="topbar-leading">
+          <button class="icon-button mobile-menu-button" type="button" data-sidebar-toggle aria-controls="app-sidebar" aria-expanded="false" aria-label="باز کردن منو">☰</button>
+          <div class="topbar-heading"><span class="topbar-kicker">پرتال سازمانی</span><strong>{% block page_heading %}مدیریت عملیات بیمه{% endblock %}</strong></div>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="تغییر حالت نمایش" title="تغییر حالت روشن و تاریک"><span data-theme-icon aria-hidden="true">☾</span><span class="theme-toggle-label">حالت نمایش</span></button>
+          <a class="topbar-account" href="{% url 'password_change' %}" title="تغییر رمز عبور"><span class="account-avatar">{{ request.user.get_full_name|default:request.user.username|slice:":1" }}</span><span class="account-name">{{ request.user.get_full_name|default:request.user.username }}</span></a>
+          <form method="post" action="{% url 'logout' %}" class="logout-form">{% csrf_token %}<button class="icon-button logout-button" type="submit" aria-label="خروج از سامانه" title="خروج">↪</button></form>
+        </div>
+      </header>
+      <main class="page app-page">
+  {% else %}
+      <main class="page">
+  {% endif %}
+        {% if messages %}{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}{% endif %}
+        {% block content %}{% endblock %}
+      </main>
+  {% if request.user.is_authenticated %}
+      <footer class="app-footer">اداره بیمه <span>•</span> سامانه داخلی مدیریت اطلاعات و درخواست‌های بیمه‌ای</footer>
     </div>
-    {% endif %}
-  </header>
-  <main class="page">
-    {% if messages %}{% for message in messages %}<div class="notice {{ message.tags }}">{{ message }}</div>{% endfor %}{% endif %}
-    {% block content %}{% endblock %}
-  </main>
-  <footer>اداره بیمه <span>•</span> سامانه داخلی مدیریت اطلاعات و درخواست‌های بیمه‌ای</footer>
+  </div>
+  {% endif %}
+  <script src="{% static 'js/shell.js' %}" defer></script>
 </body>
 </html>

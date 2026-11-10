@@ -210,6 +210,10 @@ def request_detail(request, pk):
 def request_attachment_download(request, pk):
     """Download a non-medical request attachment after applying the request's normal visibility scope."""
     item = get_object_or_404(scoped_requests_for(request.user), pk=pk)
+    # Medical/confidential request attachments are never exposed through the
+    # generic administrative attachment endpoint, even to the request owner.
+    if item.is_confidential and not has_global_access(request.user):
+        raise PermissionDenied("دسترسی به پیوست درخواست محرمانه فقط برای رئیس اداره و مدیر سامانه مجاز است.")
     if not item.attachment:
         raise Http404("برای این درخواست پیوستی ثبت نشده است.")
 
