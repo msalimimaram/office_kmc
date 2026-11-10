@@ -4,10 +4,10 @@ After=network.target postgresql.service
 
 [Service]
 Type=oneshot
-User=office-kmc
-Group=office-kmc
+User=officekmc
+Group=www-data
 WorkingDirectory=/srv/office_kmc
-EnvironmentFile=/etc/office-kmc.env
+EnvironmentFile=/etc/office-kmc/office-kmc.env
 ExecStart=/srv/office_kmc/.venv/bin/python manage.py apply_due_contract_revisions
 NoNewPrivileges=true
 PrivateTmp=true
