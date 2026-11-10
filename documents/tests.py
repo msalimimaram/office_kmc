@@ -174,7 +174,7 @@ class DocumentManagementFlowTests(TestCase):
                 ),
             },
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.context["version_form"].errors.as_json() if response.context else response.content[:1500])
         self.document.refresh_from_db()
         versions = list(self.document.versions.order_by("version_number"))
         self.assertEqual(len(versions), 2)
