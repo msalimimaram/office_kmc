@@ -46,7 +46,7 @@ python manage.py seed_demo
 
 داده نمونه فقط در `DEBUG=True` ایجاد می‌شود و کاربران نمونه رمز قابل استفاده ندارند.
 
-برای تعیین رمز محلی برای یک کاربر:
+حساب‌های نمونه بدون رمز قابل استفاده ساخته می‌شوند و اجرای دوباره seed_demo رمز یا اطلاعات حساب موجود را تغییر نمی‌دهد. برای تعیین رمز محلی برای یک کاربر:
 
 ```bash
 python manage.py shell
@@ -58,7 +58,8 @@ python manage.py shell
 from accounts.models import User
 u = User.objects.get(username="employee.a")
 u.set_password("یک-رمز-محلی-حداقل-۱۲-کاراکتری")
-u.must_change_password = False
+# Keep the forced first-login password change enabled.
+u.must_change_password = True
 u.save()
 ```
 
