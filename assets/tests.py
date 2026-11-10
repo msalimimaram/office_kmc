@@ -66,6 +66,7 @@ class AssetScopeTests(TestCase):
 
 
 
+@override_settings(DEBUG=True, CLAMD_HOST="")
 class AssetOperationalWorkflowTests(TestCase):
     def setUp(self):
         from datetime import date
