@@ -1,5 +1,6 @@
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import (
     User, UserNotification, OrganizationalUnit, OrganizationalPosition, PositionAssignment,
@@ -176,7 +177,7 @@ class UserNotificationTests(TestCase):
 
     def test_user_without_operational_role_cannot_access_notification_inbox_or_see_menu_link(self):
         unauthorized = User.objects.create_user(
-            username="notification-no-role", password="StrongPass!2026",
+            username="notification-no-role", password="StrongPass!2026", role="",
             must_change_password=False,
         )
         client = Client()
