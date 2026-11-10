@@ -68,21 +68,21 @@ class ClamAVUploadScanningTests(SimpleTestCase):
     @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
     @patch("core.uploads.socket.create_connection")
     def test_clean_file_is_accepted_only_after_clamav_ok(self, create_connection):
-        scanner = FakeClamAVSocket(b"stream: OK\\0")
+        scanner = FakeClamAVSocket(b"stream: OK\0")
         create_connection.return_value = scanner
         upload = SimpleUploadedFile("clean.pdf", b"%PDF-1.7\\nsynthetic content")
 
         self.assertIsNone(validate_uploaded_file(upload, max_size=1024))
 
         create_connection.assert_called_once_with(("clamd.internal", 3310), timeout=5.0)
-        self.assertIn(b"zINSTREAM\\0", scanner.sent)
+        self.assertIn(b"zINSTREAM\0", scanner.sent)
         self.assertEqual(upload.tell(), 0)
 
     @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
     @patch("core.uploads.socket.create_connection")
     def test_infected_file_is_rejected(self, create_connection):
         create_connection.return_value = FakeClamAVSocket(
-            b"stream: Eicar-Test-Signature FOUND\\0"
+            b"stream: Eicar-Test-Signature FOUND\0"
         )
         upload = SimpleUploadedFile("infected.pdf", b"%PDF-1.7\\nsynthetic content")
 
