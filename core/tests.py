@@ -215,3 +215,21 @@ class DemoSeedCommandSafetyTests(TestCase):
         company.refresh_from_db()
         self.assertEqual(company.name, "رکورد موجود نباید تغییر کند")
         self.assertFalse(Company.objects.filter(code="DEMO-B").exists())
+
+
+class DatabaseSchemaVerificationTests(TestCase):
+    def test_schema_verification_covers_all_managed_models(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from django.apps import apps
+
+        output = StringIO()
+        call_command("verify_database_schema", stdout=output)
+
+        expected_tables = {
+            model._meta.db_table
+            for model in apps.get_models(include_auto_created=True)
+            if model._meta.managed and not model._meta.proxy and not model._meta.swapped
+        }
+        self.assertGreater(len(expected_tables), 5)
+        self.assertIn(f"all {len(expected_tables)} managed model", output.getvalue())
