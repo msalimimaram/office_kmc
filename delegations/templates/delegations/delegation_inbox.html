@@ -29,7 +29,7 @@
     {% for case in cases %}
       <tr>
         <td><strong>{{ case.definition.title }}</strong><br><small>{{ case.definition.code }}</small></td>
-        <td>پرونده شماره {{ case.object_id }}<br><small>{{ case.content_type.app_label }}.{{ case.content_type.model }}</small></td>
+        <td>{{ case.inbox_subject }}<br><small>پرونده شماره {{ case.object_id }} · {{ case.content_type.app_label }}.{{ case.content_type.model }}</small></td>
         <td>
           {% if case.delegation.item_type %}<strong>{{ case.delegation.item_type }}</strong>{% endif %}
           {% if case.delegation.company %}<br>{{ case.delegation.company.name }}{% endif %}
