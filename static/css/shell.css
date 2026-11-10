@@ -1,0 +1,90 @@
+/* Office KMC application shell: semantic tokens, RTL sidebar and accessible themes. */
+:root{
+ --shell-bg:#f3f6fa;--shell-surface:#fff;--shell-surface-2:#f7f9fc;--shell-elevated:#fff;
+ --shell-text:#18283b;--shell-muted:#718096;--shell-border:#e3e9f0;--shell-accent:#286ca7;
+ --shell-accent-soft:#e9f2fb;--shell-sidebar:#12283f;--shell-sidebar-text:#dce7f2;
+ --shell-sidebar-muted:#91a7bc;--shell-shadow:0 10px 32px rgba(22,43,67,.07);
+ --shell-focus:#78b8ef;color-scheme:light;
+}
+:root[data-theme="dark"]{
+ --shell-bg:#0d1724;--shell-surface:#142235;--shell-surface-2:#1a2b40;--shell-elevated:#20334a;
+ --shell-text:#e8eff7;--shell-muted:#a3b3c5;--shell-border:#2b4057;--shell-accent:#8fc4f3;
+ --shell-accent-soft:#203c58;--shell-sidebar:#0a1421;--shell-sidebar-text:#e1ebf5;
+ --shell-sidebar-muted:#8ea4ba;--shell-shadow:0 12px 34px rgba(0,0,0,.2);
+ --shell-focus:#8fc4f3;color-scheme:dark;
+}
+html,body{min-height:100%;background:var(--shell-bg);color:var(--shell-text)}
+body{background:var(--shell-bg);color:var(--shell-text)}
+.app-shell{min-height:100vh;display:grid;grid-template-columns:272px minmax(0,1fr);direction:rtl}
+.app-sidebar{position:sticky;top:0;height:100vh;min-height:100vh;display:flex;flex-direction:column;background:var(--shell-sidebar);color:var(--shell-sidebar-text);padding:20px 15px 14px;z-index:30;overflow:hidden;transition:width .22s ease,padding .22s ease}
+.sidebar-brand{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 5px 20px;border-bottom:1px solid #ffffff18}
+.sidebar-brand .brand{color:#fff;gap:10px;font-size:16px}
+.sidebar-brand .brand-mark{width:40px;height:40px;border-radius:13px;background:linear-gradient(145deg,#eaf4ff,#b9d8f2);color:#183a5b}
+.brand-copy{display:block}.brand-copy small{display:block;color:#9fb4c8;font-size:9px;font-weight:400}
+.icon-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:40px;height:40px;border:1px solid var(--shell-border);border-radius:12px;background:var(--shell-surface);color:var(--shell-text);cursor:pointer;transition:background .16s ease,border-color .16s ease,transform .16s ease}
+.icon-button:hover{background:var(--shell-accent-soft);border-color:var(--shell-accent)}
+.icon-button:focus-visible,.sidebar-link:focus-visible{outline:3px solid var(--shell-focus);outline-offset:2px}
+.sidebar-collapse{width:32px;height:32px;border-color:#ffffff24;background:#ffffff0d;color:#dce7f2}
+.sidebar-user{display:flex;align-items:center;gap:11px;margin:17px 3px 12px;padding:12px 10px;border:1px solid #ffffff18;border-radius:14px;background:#ffffff0a;min-width:0}
+.avatar-mark,.account-avatar{display:grid;place-items:center;flex:0 0 auto;width:36px;height:36px;border-radius:12px;background:linear-gradient(145deg,#c7e3fb,#eaf4fc);color:#173a5d;font-weight:800}
+.sidebar-user-copy{display:flex;flex-direction:column;min-width:0;gap:1px}.sidebar-user-copy strong{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f1f6fb}.sidebar-user-copy small{font-size:9px;color:var(--shell-sidebar-muted)}
+.sidebar-nav{flex:1;overflow-y:auto;overflow-x:hidden;padding:2px 1px 12px;scrollbar-width:thin;scrollbar-color:#ffffff30 transparent}
+.sidebar-section-label{display:block;margin:17px 10px 7px;color:var(--shell-sidebar-muted);font-size:9px;font-weight:800;letter-spacing:.04em}
+.sidebar-link{position:relative;display:flex;align-items:center;gap:11px;min-height:42px;margin:3px 0;padding:8px 10px;border:1px solid transparent;border-radius:11px;color:#c8d7e6;font-size:11px;font-weight:500;transition:background .16s ease,color .16s ease}
+.sidebar-link:hover{background:#ffffff12;color:#fff}.sidebar-link[aria-current="page"]{background:linear-gradient(90deg,#ffffff12,#ffffff1e);border-color:#ffffff20;color:#fff}
+.sidebar-icon{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:8px;background:#ffffff10;color:#b9d5ed;font-size:15px}
+.sidebar-count{margin-right:auto;display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:20px;background:#e9ad54;color:#192d41;font-size:10px;font-weight:800}
+.sidebar-footer{display:flex;align-items:center;gap:8px;padding:13px 8px 3px;border-top:1px solid #ffffff18;color:var(--shell-sidebar-muted);font-size:9px}
+.sidebar-status-dot{width:7px;height:7px;border-radius:50%;background:#53c6a2;box-shadow:0 0 0 4px #53c6a21c}
+.app-main{display:flex;flex-direction:column;min-width:0;min-height:100vh}
+.app-topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:78px;padding:12px clamp(18px,3vw,42px);background:color-mix(in srgb,var(--shell-surface) 92%,transparent);border-bottom:1px solid var(--shell-border);backdrop-filter:blur(14px)}
+.topbar-leading,.topbar-actions{display:flex;align-items:center;gap:12px;min-width:0}.topbar-heading{display:flex;flex-direction:column;gap:1px}.topbar-kicker{color:var(--shell-muted);font-size:9px}.topbar-heading strong{font-size:15px;color:var(--shell-text)}
+.topbar-actions{flex-shrink:0}.theme-toggle{width:auto;padding:0 12px;font-size:11px}.theme-toggle [data-theme-icon]{font-size:18px}.theme-toggle-label{white-space:nowrap}
+.topbar-account{display:flex;align-items:center;gap:9px;color:var(--shell-text);font-size:10px}.account-avatar{width:34px;height:34px;border-radius:11px}.account-name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logout-form{margin:0}.logout-button{font-size:18px}
+.app-page{width:100%;max-width:1600px;flex:1;margin:0 auto;padding:30px clamp(18px,3vw,42px) 46px;min-height:0}
+.app-footer{padding:15px 24px;border-top:1px solid var(--shell-border);text-align:center;color:var(--shell-muted);font-size:10px}.app-footer span{padding:0 7px}
+.sidebar-backdrop{display:none}
+html[data-sidebar-collapsed="true"] .app-shell{grid-template-columns:86px minmax(0,1fr)}
+html[data-sidebar-collapsed="true"] .app-sidebar{padding-inline:10px}
+html[data-sidebar-collapsed="true"] .brand-copy,html[data-sidebar-collapsed="true"] .sidebar-user-copy,html[data-sidebar-collapsed="true"] .sidebar-section-label,html[data-sidebar-collapsed="true"] .sidebar-link>span:not(.sidebar-icon),html[data-sidebar-collapsed="true"] .sidebar-footer>span:not(.sidebar-status-dot){display:none}
+html[data-sidebar-collapsed="true"] .sidebar-brand{justify-content:center;padding-inline:0}
+html[data-sidebar-collapsed="true"] .sidebar-brand .brand{display:none}
+html[data-sidebar-collapsed="true"] .sidebar-user{justify-content:center;padding:8px 2px}
+html[data-sidebar-collapsed="true"] .sidebar-link{justify-content:center;padding:8px 4px}
+html[data-sidebar-collapsed="true"] .sidebar-count{position:absolute;top:1px;left:3px;min-width:16px;height:16px;font-size:8px}
+:root[data-theme="dark"] .hero{background:linear-gradient(115deg,#172d45,#1b4260 75%,#245674)}
+:root[data-theme="dark"] .stat,:root[data-theme="dark"] .quick-card,:root[data-theme="dark"] .panel,:root[data-theme="dark"] .management-kpi,:root[data-theme="dark"] .insured-card{background:var(--shell-surface);border-color:var(--shell-border);color:var(--shell-text);box-shadow:var(--shell-shadow)}
+:root[data-theme="dark"] .page-heading h1,:root[data-theme="dark"] .stat strong,:root[data-theme="dark"] .management-kpi strong,:root[data-theme="dark"] .ranking-row strong,:root[data-theme="dark"] .insured-card strong{color:var(--shell-text)}
+:root[data-theme="dark"] th{background:var(--shell-surface-2);color:var(--shell-muted)}
+:root[data-theme="dark"] th,:root[data-theme="dark"] td{border-color:var(--shell-border)}
+:root[data-theme="dark"] tbody tr:hover{background:var(--shell-surface-2)}
+:root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{background:var(--shell-surface-2);color:var(--shell-text);border-color:var(--shell-border)}
+:root[data-theme="dark"] input::placeholder,:root[data-theme="dark"] textarea::placeholder{color:var(--shell-muted)}
+:root[data-theme="dark"] .btn.secondary,:root[data-theme="dark"] .button.secondary{background:var(--shell-surface-2);color:var(--shell-text)}
+:root[data-theme="dark"] .activity,:root[data-theme="dark"] .ranking-row{border-color:var(--shell-border);color:var(--shell-text)}
+:root[data-theme="dark"] .activity small,:root[data-theme="dark"] .ranking-row small{color:var(--shell-muted)}
+:root[data-theme="dark"] .security-note{background:#1c354c;border-color:#31516e;color:#d9e9f7}
+:root[data-theme="dark"] .insured-primary{background:linear-gradient(135deg,#1a3046,#142235)}
+:root[data-theme="dark"] .insured-ring:after{background:var(--shell-surface)}
+:root[data-theme="dark"] .status{background:#263d54;color:#dce9f5}
+:root[data-theme="dark"] .empty{color:var(--shell-muted)}
+:root[data-theme="dark"] .notice{background:var(--shell-surface-2);border-color:var(--shell-border);color:var(--shell-text)}
+:root[data-theme="dark"] .login-wrap,:root[data-theme="dark"] .login-card{background:var(--shell-surface);color:var(--shell-text)}
+:root[data-theme="dark"] .login-card h2{color:var(--shell-text)}
+:root[data-theme="dark"] .login-art{background:linear-gradient(135deg,#172d45,#1b4260)}
+@media(max-width:1050px){.app-shell{grid-template-columns:238px minmax(0,1fr)}.app-page{padding-inline:22px}}
+@media(max-width:760px){
+ .app-shell,html[data-sidebar-collapsed="true"] .app-shell{display:block}
+ .app-sidebar{position:fixed;top:0;right:0;width:min(300px,86vw);height:100dvh;min-height:0;transform:translateX(105%);transition:transform .22s ease;box-shadow:-20px 0 50px #07132135}
+ html[data-sidebar-open="true"] .app-sidebar{transform:translateX(0)}
+ .sidebar-collapse{display:none}
+ .sidebar-backdrop{position:fixed;inset:0;z-index:25;background:#07132185;backdrop-filter:blur(2px)}
+ html[data-sidebar-open="true"] .sidebar-backdrop{display:block}
+ .app-topbar{min-height:66px;padding:10px 14px}.mobile-menu-button{display:inline-flex}
+ .app-page{padding:18px 13px 30px}
+ .topbar-heading strong{font-size:13px}.theme-toggle{width:40px;padding:0}.theme-toggle-label{display:none}
+ .account-name{display:none}.topbar-actions{gap:7px}
+}
+@media(min-width:761px){.mobile-menu-button{display:none}}
+@media(prefers-reduced-motion:reduce){.app-sidebar,.sidebar-link,.icon-button{transition:none!important}}
