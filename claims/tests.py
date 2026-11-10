@@ -504,7 +504,7 @@ class ManualClaimWorkflowTests(TestCase):
         )
         RoleAssignment.objects.create(
             user=insurer_rep,
-            role=RoleAssignment.Role.INSURER,
+            role=RoleAssignment.Role.INSURER_REP,
             insurer=self.insurer,
             line_code=self.contract.line,
             reason="نماینده بیمه‌گر برای اعلام تکراری بودن",
