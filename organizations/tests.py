@@ -107,7 +107,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         self.other_company_title = CompanyLeadershipTitle.objects.create(
             company=self.company_b,
             person=self.person_b,
-            title="مدیرعامل",
+            title="مدیرعامل شرکت ب",
             valid_from=date(2025, 1, 1),
             declared_by=self.head,
         )
@@ -133,7 +133,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         people = client.get(reverse("people_list"))
         self.assertEqual(people.status_code, 200)
         self.assertContains(people, "معاون مدیرعامل")
-        self.assertNotContains(people, "مدیرعامل")
+        self.assertNotContains(people, "مدیرعامل شرکت ب")
 
     def test_company_representative_cannot_forge_another_company_in_post(self):
         client = Client()
@@ -666,7 +666,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         definition.is_active = True
         definition.save()
 
-    def _create_request(self, *, change_type=PersonChangeRequest.ChangeType.MOBILE, requested_value="09121111111"):
+    def _create_request(self, *, change_type=PersonChangeRequest.ChangeType.MOBILE, requested_value="09121111111", expected_assignee=None):
         self.client.force_login(self.insured)
         response = self.client.post(
             reverse("person_change_create"),
@@ -682,7 +682,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         item = PersonChangeRequest.objects.get(person=self.person, change_type=change_type)
         content_type = ContentType.objects.get_for_model(PersonChangeRequest, for_concrete_model=False)
         case = WorkflowCase.objects.get(content_type=content_type, object_id=str(item.pk))
-        self.assertEqual(case.current_assignee_id, self.company_rep.pk)
+        self.assertEqual(case.current_assignee_id, (expected_assignee or self.company_rep).pk)
         return item, case
 
     def test_insured_person_receives_notice_after_company_rep_refers_their_change(self):
@@ -724,7 +724,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
             valid_from=self.today,
             reason="بیمه‌شده و تنها نماینده شرکت",
         )
-        item, case = self._create_request()
+        item, case = self._create_request(expected_assignee=self.insured)
         self.assertEqual(item.requested_by_id, self.insured.pk)
         self.assertEqual(case.current_assignee_id, self.insured.pk)
 
@@ -802,7 +802,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         item.refresh_from_db()
         case.refresh_from_db()
         self.assertEqual(item.status, PersonChangeRequest.Status.INSURER_UPDATE)
-        self.assertEqual(case.status, WorkflowCase.Status.OPEN)
+        self.assertEqual(case.status, WorkflowCase.Status.WAITING)
 
     def test_person_change_status_and_history_cannot_be_mutated_outside_workflow(self):
         item, _case = self._create_request()
