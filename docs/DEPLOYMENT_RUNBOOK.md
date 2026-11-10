@@ -115,4 +115,20 @@ sudo systemctl status office-kmc-contract-lifecycle.timer
 python manage.py apply_due_asset_policy_periods
 ```
 
-این فرمان فقط دوره‌های تأییدشده را پردازش می‌کند و دوره‌های در انتظار تأیید را فعال نمی‌کند. در صورت استفاده از cron، زمان اجرا پس از نیمه‌شب به وقت منطقه زمانی عملیاتی انتخاب شود.
+این فرمان فقط دوره‌های تأییدشده را پردازش می‌کند و دوره‌های در انتظار تأیید را فعال نمی‌کند. نمونه‌های systemd برای اجرای روزانه:
+
+- `deploy/systemd/office-kmc-asset-policy.service.example`
+- `deploy/systemd/office-kmc-asset-policy.timer.example`
+
+سرویس دارایی با همان کاربر `officekmc`، گروه `www-data` و فایل محیطی سرویس اصلی اجرا می‌شود. پس از بررسی مسیرها و مجوزها، واحدها را نصب و فعال کنید:
+
+```bash
+sudo cp deploy/systemd/office-kmc-asset-policy.service.example /etc/systemd/system/office-kmc-asset-policy.service
+sudo cp deploy/systemd/office-kmc-asset-policy.timer.example /etc/systemd/system/office-kmc-asset-policy.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now office-kmc-asset-policy.timer
+sudo systemctl start office-kmc-asset-policy.service
+sudo systemctl status office-kmc-asset-policy.timer
+```
+
+زمان‌بند روزانه ساعت 00:30 به وقت محلی میزبان اجرا می‌شود؛ منطقه زمانی میزبان باید با منطقه زمانی عملیاتی سامانه هماهنگ باشد.
