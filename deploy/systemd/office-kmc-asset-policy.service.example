@@ -1,0 +1,16 @@
+[Unit]
+Description=Apply due approved asset insurance policy periods
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=officekmc
+Group=www-data
+WorkingDirectory=/srv/office_kmc
+EnvironmentFile=/etc/office-kmc/office-kmc.env
+ExecStart=/srv/office_kmc/.venv/bin/python manage.py apply_due_asset_policy_periods
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/office_kmc/private_media
