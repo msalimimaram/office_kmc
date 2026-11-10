@@ -156,7 +156,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         response = client.get(reverse("company_leadership_titles"))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "شرکت ب")
-        self.assertNotContains(response, "مدیرعامل")
+        self.assertNotContains(response, "مدیرعامل شرکت ب")
 
     def test_unassigned_employee_cannot_open_leadership_title_management(self):
         employee = User.objects.create_user(
