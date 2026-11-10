@@ -65,25 +65,25 @@ if (-not $Production) {
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
 
 if ($Production) {
-    if (-not $env:DJANGO_DEBUG -or $env:DJANGO_DEBUG.ToLowerInvariant() -ne "false") {
-        throw "Production preflight requires DJANGO_DEBUG=False."
-    }
-    if (-not $env:DATABASE_URL -or $env:DATABASE_URL -notmatch "^postgres(ql)?://") {
-        throw "Production preflight requires a PostgreSQL DATABASE_URL."
-    }
-    if (-not $env:REDIS_URL) {
-        throw "Production preflight requires REDIS_URL for shared throttling."
-    }
-    if (-not $env:DJANGO_ALLOWED_HOSTS) {
-        throw "Production preflight requires explicit DJANGO_ALLOWED_HOSTS."
-    }
-    if (-not $env:CLAMD_HOST) {
-        throw "Production preflight requires CLAMD_HOST for malware scanning."
-    }
-    if (-not $env:DJANGO_SECRET_KEY -or $env:DJANGO_SECRET_KEY.Length -lt 50) {
-        throw "Production preflight requires a strong DJANGO_SECRET_KEY (at least 50 characters)."
-    }
-
+    # Read the effective Django settings rather than PowerShell's process
+    # environment: python-dotenv and the service EnvironmentFile may supply
+    # values that are not exported into the invoking shell.
+    $productionConfigCheck = @"
+from django.conf import settings
+assert settings.DEBUG is False, "DJANGO_DEBUG must be False"
+assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql", "PostgreSQL DATABASE_URL is required"
+assert settings.CACHES["default"]["BACKEND"] == "django_redis.cache.RedisCache", "Shared Redis cache is required"
+assert len(settings.SECRET_KEY) >= 50, "DJANGO_SECRET_KEY must contain at least 50 characters"
+assert settings.ALLOWED_HOSTS and settings.ALLOWED_HOSTS != ["localhost", "127.0.0.1"], "Explicit production hosts are required"
+assert settings.CSRF_TRUSTED_ORIGINS, "DJANGO_CSRF_TRUSTED_ORIGINS must be configured"
+assert bool(settings.CLAMD_HOST), "CLAMD_HOST is required for malware scanning"
+assert settings.SECURE_SSL_REDIRECT, "HTTPS redirect must be enabled"
+assert settings.SESSION_COOKIE_SECURE and settings.CSRF_COOKIE_SECURE, "Secure session and CSRF cookies are required"
+assert settings.SECURE_HSTS_SECONDS >= 31536000, "One-year HSTS must be configured"
+assert getattr(settings, "SECURE_PROXY_SSL_HEADER", None) == ("HTTP_X_FORWARDED_PROTO", "https"), "Trusted HTTPS proxy header must be configured"
+print("Effective production settings validated.")
+"@
+    Invoke-Check -Name "Production environment configuration" -Command $python -Arguments @("manage.py", "shell", "-c", $productionConfigCheck)
     Invoke-Check -Name "Production security checks" -Command $python -Arguments @("manage.py", "check", "--deploy")
     Invoke-Check -Name "Static asset collection" -Command $python -Arguments @("manage.py", "collectstatic", "--noinput")
 }
