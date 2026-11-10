@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RoleAssignment, UserNotification
-from organizations.models import Company, Person
+from organizations.models import Company, Person, PersonChangeRequest
 from workflow.models import WorkflowDefinition, WorkflowStep
 from workflow.services import is_delegated_assignee, resolve_initial_assignee, start_workflow, transition_case
 from requests_portal.models import ServiceRequest
@@ -346,6 +346,41 @@ class DelegationRoutingTests(TestCase):
         definition.approved_by = self.head
         definition.is_active = True
         definition.save()
+
+        from insurance.models import Contract, Insurer, InsuranceLine
+        today = timezone.localdate()
+        insurer = Insurer.objects.create(name="بیمه‌گر مرحله تخصصی تفویض")
+        contract = Contract.objects.create(
+            code="DELEGATION-LATER-CONTRACT",
+            title="قرارداد آزمون مرحله تخصصی",
+            insurer=insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=365),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        contract.companies.add(self.company)
+        person = Person.objects.create(
+            company=self.company,
+            user=self.representative,
+            national_id="9812345678",
+            first_name="بیمه‌شده",
+            last_name="آزمون تفویض",
+            birth_date=today - timedelta(days=12000),
+            iban="IR120000000000000000000000",
+        )
+        self.request = PersonChangeRequest.objects.create(
+            person=person,
+            company=self.company,
+            contract=contract,
+            requested_by=self.representative,
+            change_type=PersonChangeRequest.ChangeType.IBAN,
+            current_value=person.iban,
+            requested_value="IR340000000000000000000000",
+            reason="آزمون انتقال پرونده پس از خروج از مرحله آغازین",
+        )
+
         broad = WorkDelegation.objects.create(
             workflow_code="person_change",
             delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
