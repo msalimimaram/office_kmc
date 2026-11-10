@@ -58,6 +58,21 @@ def delegation_inbox(request):
         case for case in cases_queryset
         if is_delegated_assignee(case, request.user)
     ]
+    # Show a useful subject in the recipient inbox without disclosing
+    # confidential request titles to delegated users.
+    for case in cases:
+        obj = case.content_object
+        if obj is None:
+            case.inbox_subject = f"پرونده شماره {case.object_id}"
+        elif getattr(obj, "is_confidential", False):
+            case.inbox_subject = "پرونده محرمانه"
+        else:
+            case.inbox_subject = (
+                getattr(obj, "title", None)
+                or getattr(obj, "reference", None)
+                or getattr(obj, "code", None)
+                or f"پرونده شماره {case.object_id}"
+            )
     today = timezone.localdate()
     active_rules = WorkDelegation.objects.filter(
         delegate_to=request.user,
