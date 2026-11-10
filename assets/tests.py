@@ -388,7 +388,7 @@ class AssetOperationalWorkflowTests(TestCase):
             "model_name": "مدل جدید",
             "model_year": "2025",
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.context["form"].errors.as_json() if response.context else response.content[:1500])
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.name, "خودروی عملیاتی ویرایش‌شده")
         self.assertEqual(self.asset.insured_value, 1750000000)
