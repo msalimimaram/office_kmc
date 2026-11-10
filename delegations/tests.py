@@ -309,16 +309,33 @@ class DelegationRoutingTests(TestCase):
             is_active=True,
             valid_from=timezone.localdate(),
         )
+        # Published workflow versions are immutable. Create and publish a
+        # successor version instead of adding a step to the active definition.
+        self.definition.is_active = False
+        self.definition.save(update_fields=["is_active"])
+        definition = WorkflowDefinition.objects.create(
+            code="person_change",
+            title="اصلاح اطلاعات ـ نسخه مرحله تخصصی",
+            version=78,
+            created_by=self.head,
+        )
+        initial_step = WorkflowStep.objects.create(
+            definition=definition,
+            code="company_review",
+            title="بررسی اولیه",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
         later_step = WorkflowStep.objects.create(
-            definition=self.definition,
+            definition=definition,
             code="specialist_review",
             title="بررسی تخصصی",
             order=2,
             allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
         )
-        initial_step = self.definition.steps.get(is_initial=True)
         WorkflowTransition.objects.create(
-            definition=self.definition,
+            definition=definition,
             source_step=initial_step,
             target_step=later_step,
             action_code="send-to-specialist-stage",
@@ -326,6 +343,9 @@ class DelegationRoutingTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             recipient_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
         )
+        definition.approved_by = self.head
+        definition.is_active = True
+        definition.save()
         broad = WorkDelegation.objects.create(
             workflow_code="person_change",
             delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
