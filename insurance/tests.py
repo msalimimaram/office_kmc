@@ -482,7 +482,7 @@ class ContractSubmissionViewTests(TestCase):
         self._create_approval_workflow()
         response = self.client.post(reverse("contract_create"), self._form_data())
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.context["form"].errors.as_json() if response.context else response.content[:1500])
         contract = Contract.objects.get(code="CONTRACT-SUBMISSION-001")
         revision = contract.revisions.get(revision_number=1)
         from django.contrib.contenttypes.models import ContentType
@@ -602,7 +602,7 @@ class ContractSubmissionViewTests(TestCase):
                 "reason": "تغییر شرایط قرارداد و درخواست خاتمه با تأیید اداره",
             },
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.context["form"].errors.as_json() if response.context else response.content[:1500])
         revision = contract.revisions.get(is_termination=True)
         self.assertEqual(revision.status, ContractRevision.Status.PENDING_APPROVAL)
         self.assertEqual(revision.termination_reason, "تغییر شرایط قرارداد و درخواست خاتمه با تأیید اداره")
