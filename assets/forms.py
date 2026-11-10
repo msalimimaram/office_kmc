@@ -32,10 +32,27 @@ class InsuredAssetForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        self.fields["company"].queryset = Company.objects.filter(is_active=True)
-        self.fields["person"].queryset = Person.objects.filter(is_active=True)
-        self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
-        self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
+        company_qs = Company.objects.filter(is_active=True)
+        person_qs = Person.objects.filter(is_active=True)
+        contract_qs = Contract.objects.filter(is_active=True).select_related("insurer")
+        insurer_qs = Insurer.objects.filter(is_active=True)
+        # Editing an existing asset must retain its current foreign-key choices
+        # even when a referenced company/person/contract/insurer was later
+        # deactivated. This does not make inactive records selectable for new
+        # assets; it only prevents valid historical links from invalidating edits.
+        if self.instance.pk:
+            if self.instance.company_id:
+                company_qs = (company_qs | Company.objects.filter(pk=self.instance.company_id)).distinct()
+            if self.instance.person_id:
+                person_qs = (person_qs | Person.objects.filter(pk=self.instance.person_id)).distinct()
+            if self.instance.contract_id:
+                contract_qs = (contract_qs | Contract.objects.filter(pk=self.instance.contract_id)).distinct()
+            if self.instance.insurer_id:
+                insurer_qs = (insurer_qs | Insurer.objects.filter(pk=self.instance.insurer_id)).distinct()
+        self.fields["company"].queryset = company_qs
+        self.fields["person"].queryset = person_qs
+        self.fields["contract"].queryset = contract_qs
+        self.fields["insurer"].queryset = insurer_qs
         self.line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
         if self.instance.pk and self.instance.asset_type == InsuredAsset.Type.VEHICLE:
             try:
