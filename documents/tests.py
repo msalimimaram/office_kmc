@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import RoleAssignment, User
@@ -114,6 +114,7 @@ class DocumentUploadAuthorizationTests(TestCase):
 
 
 
+@override_settings(DEBUG=True, CLAMD_HOST="")
 class DocumentManagementFlowTests(TestCase):
     def setUp(self):
         from accounts.models import RoleAssignment
