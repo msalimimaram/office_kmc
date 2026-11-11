@@ -2,7 +2,7 @@ from datetime import date
 from io import BytesIO
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from openpyxl import Workbook
 
@@ -13,6 +13,7 @@ from imports.models import ImportBatch
 from organizations.models import Company, Person, PersonEmployment
 
 
+@override_settings(DEBUG=True, CLAMD_HOST="")
 class FlexiblePeopleRosterImportTests(TestCase):
     def setUp(self):
         self.company_a = Company.objects.create(code="XLS-A", name="شرکت نمونه Excel الف")
@@ -220,6 +221,7 @@ class FlexiblePeopleRosterImportTests(TestCase):
         ).exists())
 
 
+@override_settings(DEBUG=True, CLAMD_HOST="")
 class SpecialistAssetImportTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(code="AST-XLS-A", name="شرکت نمونه دارایی")
