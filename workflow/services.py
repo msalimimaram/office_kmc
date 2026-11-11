@@ -186,6 +186,16 @@ def add_business_minutes(start_at, minutes, calendar=None):
 
 
 def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None, obj=None, item_type=None, return_delegation=False):
+    # When the caller supplies a domain object, derive any missing authorization
+    # scope from that object and its known parent relations. Explicit arguments
+    # remain authoritative, while object-only calls cannot accidentally become
+    # unscoped for company, insurer, specialist, or insured-person assignments.
+    if obj is not None:
+        object_scope = _scope_for_object(obj)
+        company_id = company_id or object_scope["company_id"]
+        insurer_id = insurer_id or object_scope["insurer_id"]
+        line_code = line_code or object_scope["line_code"]
+        owner_user_id = owner_user_id or object_scope["owner_user_id"]
     insurer_id = insurer_id or _infer_insurer_id(company_id, line_code)
     initial = definition.steps.filter(is_initial=True).first()
     if not initial:
