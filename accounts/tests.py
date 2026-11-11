@@ -137,6 +137,26 @@ class UserNotificationTests(TestCase):
         self.assertNotContains(other_response, self.notification.title)
 
 
+
+    def test_unread_count_counts_multiple_notifications_with_duplicate_content(self):
+        for _ in range(2):
+            UserNotification.objects.create(
+                recipient=self.recipient,
+                actor=self.other,
+                title=self.notification.title,
+                body=self.notification.body,
+                target_url=self.notification.target_url,
+            )
+        self.notification.mark_read(user=self.recipient)
+
+        client = Client()
+        client.force_login(self.recipient)
+        response = client.get(reverse("notification_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["unread_notification_count"], 2)
+        self.assertEqual(len(response.context["notifications"]), 2)
+
     def test_active_position_holder_can_access_notifications_for_assigned_tasks(self):
         user = User.objects.create_user(
             username="notification-position-holder",
