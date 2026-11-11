@@ -240,6 +240,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "terms": "شرایط و استثناهای ساختگی؛ فاقد اثر حقوقی.",
                 "status": Contract.Status.ACTIVE, "is_active": True,
             },
+            verify_fields=("title", "insurer", "line", "start_date", "end_date", "coverage_summary", "terms"),
         )
         expected_ids = {company.pk for company in companies}
         current_ids = set(contract.companies.values_list("pk", flat=True))
@@ -268,6 +269,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "last_name": last, "birth_date": birth_date, "relationship": relationship,
                 "employee": employee, "is_insured": True, "is_active": True,
             },
+            verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
         people.append(person)
 
@@ -292,6 +294,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=("personnel_code", "job_title", "valid_from", "source_reference"),
         )
     # Dependent records use a valid parent and are kept separate from employment history.
+    dependent_b = Person.objects.get(national_id="0012345684")
+    if dependent_b.employee_id != employee_b.pk:
+        raise CommandError("Seed collision: dependent DEMO person 0012345684 has a different primary insured.")
     dependent_c = Person.objects.get(national_id="0012345685")
     parent_c = Person.objects.get(national_id="0012345682")
     if dependent_c.employee_id is None:
@@ -645,6 +650,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "notes": "داده ساختگی برای آزمون دارایی بیمه‌شده.",
                 "created_by": specialist,
             },
+            verify_fields=("name", "asset_type", "company", "person", "identifier", "location", "insurer", "contract", "policy_number", "policy_start", "policy_end", "created_by"),
         )
         assets.append(asset)
         if asset_type == InsuredAsset.Type.VEHICLE:
@@ -900,7 +906,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "created_by": head,
         }
         existing = Correspondence.objects.filter(external_reference=external_reference).first()
-        number = existing.internal_number if existing else next_internal_number(now)
+        number = existing.internal_number if existing else next_internal_number(defaults["occurred_at"])
         item, _ = record(
             Correspondence,
             {"internal_number": number},
@@ -927,9 +933,10 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             {"actor": specialist, "metadata": {"step": "demo"}, "occurred_at": now - timedelta(days=index - 1)},
             verify_fields=("actor", "metadata"),
         )
+    correspondence_solar_days = {item.internal_number[:8] for item in correspondence_rows}
     correspondence_solar_day = correspondence_rows[0].internal_number[:8]
-    if any(item.internal_number[:8] != correspondence_solar_day for item in correspondence_rows):
-        raise CommandError("Demo correspondence records span more than one solar day; rerun the seed.")
+    if CorrespondenceSequence.objects.filter(solar_date__in=correspondence_solar_days).count() != len(correspondence_solar_days):
+        raise CommandError("A demo correspondence serial has no matching central sequence row.")
     claim_content_type = ContentType.objects.get_for_model(Claim, for_concrete_model=False)
     for index, item in enumerate(correspondence_rows[:3], start=1):
         ensure(
