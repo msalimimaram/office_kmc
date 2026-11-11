@@ -668,10 +668,7 @@ def profile_sample(request, profile):
     spec = get_profile(profile)
     if not spec or not _profile_allowed(request.user, profile):
         raise PermissionDenied
-    sample_rows = [
-        dict(zip([field[0] for field in spec["fields"]], row))
-        for row in spec["sample"]
-    ]
+    sample_rows = spec["sample"]
     return render(request, "imports/profile_sample.html", {
         "profile_code": profile,
         "profile": spec,
