@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 import secrets
+import os
 
 import jdatetime
 from django.apps import apps
@@ -146,7 +147,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "national_id": national_id,
             "insurer": insurer_obj,
             "is_active": True,
-            "must_change_password": True,
+            "must_change_password": False,
         }
         user = User.objects.filter(username=username).first()
         if user:
@@ -159,9 +160,19 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                     raise CommandError(
                         f"Seed collision in User ({username}): {field} differs; account untouched."
                     )
+            if not user.has_usable_password():
+                demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+                if not demo_password:
+                    raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
+                user.set_password(demo_password)
+                user.must_change_password = False
+                user.save(update_fields=["password", "must_change_password"])
             return user
+        demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+        if not demo_password:
+            raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
         user = User(username=username, **defaults)
-        user.set_unusable_password()
+        user.set_password(demo_password)
         user.save()
         if created_counts is not None:
             created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
@@ -186,23 +197,27 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         verify_fields=(),
     )
 
-    fire_specialist = demo_user(
-        "specialist.fire.demo", User.Role.INSURANCE_SPECIALIST
-    )
+    fire_specialist = users["Delbari"]
     second_insurer_user = demo_user(
-        "insurer.two.demo", User.Role.INSURER, insurer_obj=insurer_b
+        "Saman2", User.Role.INSURER, insurer_obj=insurer_b
     )
     company_c_rep = demo_user(
-        "companyc.demo", User.Role.SUBSIDIARY_REP, company=company_c
+        "Namayande3", User.Role.SUBSIDIARY_REP, company=company_c
     )
     company_d_rep = demo_user(
-        "companyd.demo", User.Role.SUBSIDIARY_REP, company=company_d
+        "Namayande4", User.Role.SUBSIDIARY_REP, company=company_d
     )
-    extra_users = {
+    users.update({
         "specialist.fire.demo": fire_specialist,
         "insurer.two.demo": second_insurer_user,
         "companyc.demo": company_c_rep,
         "companyd.demo": company_d_rep,
+    })
+    extra_users = {
+        "Delbari": fire_specialist,
+        "Saman2": second_insurer_user,
+        "Namayande3": company_c_rep,
+        "Namayande4": company_d_rep,
     }
 
     assignment_specs = (
