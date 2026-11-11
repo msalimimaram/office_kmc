@@ -391,17 +391,25 @@ def _preview_claims(user, mapped_rows):
                 key: _parse_date(raw.get(key), row_number, key)
                 for key in ("registered_date", "source_registered_date", "payment_date")
             }
+            if amounts["assessed_amount"] > amounts["requested_amount"]:
+                raise ValueError(f"ردیف {row_number}: مبلغ ارزیابی‌شده نمی‌تواند از مبلغ درخواستی بیشتر باشد.")
+            if amounts["assessed_amount"] and amounts["payable_amount"] > amounts["assessed_amount"]:
+                raise ValueError(f"ردیف {row_number}: مبلغ قابل پرداخت نمی‌تواند از مبلغ ارزیابی‌شده بیشتر باشد.")
             if amounts["paid_amount"] > amounts["payable_amount"]:
                 raise ValueError(f"ردیف {row_number}: مبلغ پرداخت‌شده از مبلغ قابل پرداخت بیشتر است.")
             if dates["payment_date"] and not amounts["paid_amount"]:
                 raise ValueError(f"ردیف {row_number}: تاریخ پرداخت بدون مبلغ پرداخت‌شده مجاز نیست.")
             duplicate_raw = _text(raw.get("source_duplicate_status")).lower()
             duplicate = duplicate_raw in {"1", "yes", "true", "duplicate", "declared_duplicate", "تکراری"}
+            duplicate_reference = _text(raw.get("source_duplicate_reference"))
             if duplicate and not is_insurer:
                 raise ValueError(f"ردیف {row_number}: اعلام تکراری بودن فقط توسط نماینده بیمه‌گر پذیرفته می‌شود.")
+            if duplicate and not duplicate_reference:
+                raise ValueError(f"ردیف {row_number}: برای اعلام تکراری بودن، شماره پرونده اصلی الزامی است.")
             valid.append({
                 "claim_number": "IMP-" + secrets.token_hex(12).upper(),
                 "source_claim_number": source_number,
+                "national_id": national_id,
                 "person_id": person.pk,
                 "primary_insured_id": primary.pk,
                 "company_snapshot_id": company_id,
@@ -413,7 +421,7 @@ def _preview_claims(user, mapped_rows):
                 "contract_number_snapshot": contract.code,
                 "insurer_id": contract.insurer_id,
                 "source_duplicate_status": Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate else Claim.DuplicateStatus.NOT_DECLARED,
-                "source_duplicate_reference": _text(raw.get("source_duplicate_reference"))[:120],
+                "source_duplicate_reference": duplicate_reference[:120],
                 "source_duplicate_note": _text(raw.get("source_duplicate_note"))[:4000],
                 "source_duplicate_reported_at": timezone.now().isoformat() if duplicate else None,
                 "source_duplicate_reported_by_id": user.pk if duplicate else None,
@@ -931,6 +939,7 @@ def _process_claims_batch(batch, reviewer, request):
 
         item = dict(row)
         item.pop("_row", None)
+        item.pop("national_id", None)
         for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
             if item.get(field):
                 item[field] = date.fromisoformat(item[field])
