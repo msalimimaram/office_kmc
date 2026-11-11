@@ -707,42 +707,42 @@ def profile_import_confirm(request, batch_id):
         raise PermissionDenied
     if batch.uploaded_by_id == request.user.pk:
         raise PermissionDenied("بارگذار فایل اجازه تأیید نهایی همان فایل را ندارد.")
-    with transaction.atomic():
-        batch = get_object_or_404(
-            ImportBatch.objects.select_for_update(),
-            pk=batch_id,
-            status=ImportBatch.Status.VALIDATED,
-        )
-        if not isinstance(batch.preview_data, list) or len(batch.preview_data) != batch.valid_rows or not batch.preview_data:
-            raise PermissionDenied("پیش‌نمایش این فایل معتبر یا قابل ثبت نیست.")
-        try:
+    try:
+        with transaction.atomic():
+            batch = get_object_or_404(
+                ImportBatch.objects.select_for_update(),
+                pk=batch_id,
+                status=ImportBatch.Status.VALIDATED,
+            )
+            if not isinstance(batch.preview_data, list) or len(batch.preview_data) != batch.valid_rows or not batch.preview_data:
+                raise PermissionDenied("پیش‌نمایش این فایل معتبر یا قابل ثبت نیست.")
             if profile == "people_roster":
                 _process_people_batch(batch, request.user)
             elif profile == "claims":
                 _process_claims_batch(batch, request.user, request)
             else:
                 _process_contracts_batch(batch, request.user)
-        except (ValidationError, ValueError, PermissionDenied) as exc:
-            messages.error(request, f"ثبت نهایی انجام نشد؛ هیچ ردیفی ثبت نشد: {exc}")
-            return redirect("profile_import", profile=profile)
-        batch.status = ImportBatch.Status.PROCESSED
-        batch.reviewed_by = request.user
-        batch.reviewed_at = timezone.now()
-        batch.review_note = request.POST.get("review_note", "").strip()[:4000]
-        batch.preview_data = []
-        batch.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "preview_data"])
-        record_event(
-            actor=request.user,
-            action="excel_import_batch_confirmed",
-            obj=batch,
-            summary=f"ورود گروهی {profile} با {batch.valid_rows} ردیف معتبر تأیید شد.",
-            after_data={
-                "source_type": profile,
-                "valid_rows": batch.valid_rows,
-                "invalid_rows": batch.invalid_rows,
-                "uploaded_by_id": batch.uploaded_by_id,
-            },
-            request=request,
-        )
+            batch.status = ImportBatch.Status.PROCESSED
+            batch.reviewed_by = request.user
+            batch.reviewed_at = timezone.now()
+            batch.review_note = request.POST.get("review_note", "").strip()[:4000]
+            batch.preview_data = []
+            batch.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "preview_data"])
+            record_event(
+                actor=request.user,
+                action="excel_import_batch_confirmed",
+                obj=batch,
+                summary=f"ورود گروهی {profile} با {batch.valid_rows} ردیف معتبر تأیید شد.",
+                after_data={
+                    "source_type": profile,
+                    "valid_rows": batch.valid_rows,
+                    "invalid_rows": batch.invalid_rows,
+                    "uploaded_by_id": batch.uploaded_by_id,
+                },
+                request=request,
+            )
+    except (ValidationError, ValueError, PermissionDenied) as exc:
+        messages.error(request, f"ثبت نهایی انجام نشد؛ هیچ ردیفی ثبت نشد: {exc}")
+        return redirect("profile_import", profile=profile)
     messages.success(request, f"ثبت نهایی انجام شد: {batch.valid_rows} ردیف؛ {batch.invalid_rows} ردیف دارای خطا وارد نشد.")
     return redirect("profile_import", profile=profile)
