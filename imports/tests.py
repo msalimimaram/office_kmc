@@ -58,6 +58,8 @@ from claims.models import Claim, ClaimPayment
 from imports.models import ImportBatch
 from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
+from workflow.models import WorkflowCase
+from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
 
 
 class ImportBatchApprovalFlowTests(TestCase):
@@ -101,6 +103,17 @@ class ImportBatchApprovalFlowTests(TestCase):
             line_code=InsuranceLine.HEALTH,
             reason="کارشناس درمان در تست واردسازی",
         )
+        workflow_owner = User.objects.create_user(
+            username="import-workflow-owner",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=workflow_owner,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای انتشار گردش‌کارهای آزمون",
+        )
+        WorkflowSeedCommand().handle()
         self.batch = ImportBatch.objects.create(
             batch_number="IMP-TEST-0001",
             file=SimpleUploadedFile("claims.xlsx", b"test-file"),
@@ -164,6 +177,10 @@ class ImportBatchApprovalFlowTests(TestCase):
         self.assertEqual(payment.recorded_by_id, self.insurer_user.pk)
         self.assertEqual(payment.confirmed_by_id, self.reviewer.pk)
         self.assertTrue(payment.is_legacy_import)
+        self.assertTrue(WorkflowCase.objects.filter(
+            definition__code="claim_review",
+            object_id=str(claim.pk),
+        ).exists())
 
     def test_specialist_payment_import_requires_independent_head_review(self):
         batch = ImportBatch.objects.create(
