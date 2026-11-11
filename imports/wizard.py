@@ -903,6 +903,12 @@ def _process_people_batch(batch, reviewer):
 
 
 def _process_claims_batch(batch, reviewer, request):
+    definition = WorkflowDefinition.objects.filter(
+        code="claim_review", is_active=True
+    ).order_by("-version").first()
+    if not definition:
+        raise ValidationError("گردش‌کار فعال claim_review موجود نیست؛ ابتدا seed_operational_workflows را اجرا کنید.")
+
     for row in batch.preview_data:
         contract = Contract.objects.select_related("insurer").filter(
             pk=row["contract_id"],
@@ -979,6 +985,20 @@ def _process_claims_batch(batch, reviewer, request):
                 note="پرداخت اعلام‌شده در فایل Excel؛ صرفاً ثبت سابقه و بدون انتقال وجه.",
                 request=request,
             )
+
+        assignee, delegation = resolve_initial_assignee(
+            definition=definition,
+            obj=claim,
+            return_delegation=True,
+        )
+        start_workflow(
+            obj=claim,
+            code="claim_review",
+            actor=reviewer,
+            assignee=delegation.delegate_to if delegation else assignee,
+            delegation=delegation,
+            note=f"خسارت از فایل Excel با شماره عملیات {batch.batch_number} وارد و برای بررسی تخصصی ارجاع شد.",
+        )
 
 
 def _process_assets_batch(batch, reviewer, request):
