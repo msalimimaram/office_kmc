@@ -13,7 +13,7 @@ from requests_portal.models import ServiceRequest
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
-from .services import _has_any_role, _scope_for_object, add_business_minutes, start_workflow, transition_case
+from .services import _has_any_role, _scope_for_object, add_business_minutes, resolve_initial_assignee, start_workflow, transition_case
 
 
 User = get_user_model()
@@ -79,6 +79,39 @@ class WorkflowEngineTests(TestCase):
         self.definition.approved_by = self.admin
         self.definition.is_active = True
         self.definition.save()
+
+    def test_initial_assignee_infers_company_and_line_scope_from_object(self):
+        representative = User.objects.create_user(
+            username="workflow-scoped-company-rep",
+            password="StrongPass!123",
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            reason="نماینده شرکت برای آزمون تعیین گیرنده",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="test-object-scope-resolution",
+            title="آزمون استخراج محدوده از موضوع گردش کار",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="company-review",
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+
+        assignee = resolve_initial_assignee(
+            definition=definition,
+            obj=self.request,
+        )
+
+        self.assertEqual(assignee.pk, representative.pk)
 
     def test_insurer_representative_cannot_close_a_claim_workflow(self):
         insurer = Insurer.objects.create(name="بیمه‌گر آزمون بستن پرونده")
