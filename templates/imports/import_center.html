@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}مرکز ورود گروهی اطلاعات{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">ورود کنترل‌شده و قابل ممیزی</p>
+    <h1>مرکز ورود اطلاعات از Excel</h1>
+    <p class="muted">ابتدا نوع اطلاعات و عملیات را انتخاب کنید. هر مسیر قالب، فیلدها، محدوده دسترسی و اعتبارسنجی اختصاصی دارد.</p>
+  </div>
+</div>
+<div class="grid cards-grid">
+  {% for item in profiles %}
+  <section class="panel">
+    <p class="eyebrow">{{ item.audience }}</p>
+    <h2>{{ item.title }}</h2>
+    <p>{{ item.description }}</p>
+    <p><a class="btn secondary" href="{% url 'import_template' item.code %}">مشاهده و دریافت نمونه مورد قبول</a></p>
+    <p><a class="btn primary" href="{% url 'profile_import' item.code %}">شروع ورود و تنظیم ستون‌ها</a></p>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}
