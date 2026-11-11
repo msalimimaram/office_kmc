@@ -6,6 +6,8 @@ from django.test import TestCase
 from django.urls import reverse
 from openpyxl import Workbook
 
+from assets.models import AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle
+from insurance.models import Contract, Insurer, InsuranceLine
 from accounts.models import RoleAssignment, User
 from imports.models import ImportBatch
 from organizations.models import Company, Person, PersonEmployment
@@ -210,8 +212,6 @@ class FlexiblePeopleRosterImportTests(TestCase):
 
 class SpecialistAssetImportTests(TestCase):
     def setUp(self):
-        from insurance.models import Contract, Insurer, InsuranceLine
-
         self.company = Company.objects.create(code="AST-XLS-A", name="شرکت نمونه دارایی")
         self.insurer = Insurer.objects.create(name="بیمه‌گر نمونه دارایی")
         self.contract = Contract.objects.create(
@@ -296,7 +296,6 @@ class SpecialistAssetImportTests(TestCase):
         return data
 
     def test_asset_import_creates_vehicle_and_pending_approval_workflows(self):
-        from assets.models import AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle
         from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
         from workflow.models import WorkflowCase
 
@@ -335,8 +334,6 @@ class SpecialistAssetImportTests(TestCase):
         self.assertEqual(batch.status, ImportBatch.Status.PROCESSED)
 
     def test_asset_specialist_cannot_import_outside_assigned_insurance_line(self):
-        from imports.models import ImportBatch
-
         health_user = User.objects.create_user(
             username="asset-health-only",
             password="StrongPass!2026",
@@ -356,6 +353,4 @@ class SpecialistAssetImportTests(TestCase):
         batch = ImportBatch.objects.get(source_type="assets")
         self.assertEqual(batch.valid_rows, 0)
         self.assertEqual(batch.invalid_rows, 1)
-        self.assertFalse(__import__("assets.models", fromlist=["InsuredAsset"]).InsuredAsset.objects.filter(
-            asset_code="AST-XLS-OUT-001"
-        ).exists())
+        self.assertFalse(InsuredAsset.objects.filter(asset_code="AST-XLS-OUT-001").exists())
