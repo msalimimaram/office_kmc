@@ -750,11 +750,11 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
 
     # Announcements cover audience and publication windows.
     announcement_specs = (
-        ("DEMO-ANN-ALL", Announcement.Audience.ALL, None, True, now - timedelta(days=2), None),
-        ("DEMO-ANN-STAFF", Announcement.Audience.STAFF, None, True, now - timedelta(days=1), None),
-        ("DEMO-ANN-COMPANY", Announcement.Audience.SUBSIDIARY, company_a, True, now - timedelta(hours=3), now + timedelta(days=7)),
-        ("DEMO-ANN-EMP", Announcement.Audience.EMPLOYEES, company_b, False, now + timedelta(days=1), None),
-        ("DEMO-ANN-INS", Announcement.Audience.INSURERS, None, True, now - timedelta(days=4), now - timedelta(days=1)),
+        ("DEMO-ANN-ALL", Announcement.Audience.ALL, None, True, timezone.make_aware(datetime(2026, 11, 9, 8, 0)), None),
+        ("DEMO-ANN-STAFF", Announcement.Audience.STAFF, None, True, timezone.make_aware(datetime(2026, 11, 10, 8, 0)), None),
+        ("DEMO-ANN-COMPANY", Announcement.Audience.SUBSIDIARY, company_a, True, timezone.make_aware(datetime(2026, 11, 11, 8, 0)), timezone.make_aware(datetime(2026, 11, 18, 8, 0))),
+        ("DEMO-ANN-EMP", Announcement.Audience.EMPLOYEES, company_b, False, timezone.make_aware(datetime(2026, 11, 12, 8, 0)), None),
+        ("DEMO-ANN-INS", Announcement.Audience.INSURERS, None, True, timezone.make_aware(datetime(2026, 11, 7, 8, 0)), timezone.make_aware(datetime(2026, 11, 10, 8, 0))),
     )
     for title, audience, company, published, publish_at, expires_at in announcement_specs:
         ensure(
@@ -766,6 +766,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "is_published": published, "publish_at": publish_at,
                 "expires_at": expires_at, "created_by": head,
             },
+            verify_fields=("body", "audience", "company", "created_by"),
         )
 
     # Notifications cover unread/read states and internal target URLs.
