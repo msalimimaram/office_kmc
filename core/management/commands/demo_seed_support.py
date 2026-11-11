@@ -255,16 +255,18 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         company = person.company
         ensure(
             PersonEmployment,
-            {"person": person, "company": company, "status": PersonEmployment.Status.ACTIVE},
+            {"person": person, "company": company},
             {
                 "personnel_code": person.personnel_code,
                 "job_title": "کارمند نمونه",
                 "valid_from": start_date,
                 "valid_until": None,
+                "status": PersonEmployment.Status.ACTIVE,
                 "source_reference": "DEMO-SEED",
                 "created_by": head,
                 "approved_by": head,
             },
+            verify_fields=("personnel_code", "job_title", "valid_from", "source_reference"),
         )
     # Dependent records use a valid parent and are kept separate from employment history.
     dependent_c = Person.objects.get(national_id="0012345685")
@@ -355,6 +357,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "assigned_to": None,
                 "is_confidential": kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             },
+            verify_fields=("kind", "submitted_by", "person", "company", "title", "description", "is_confidential"),
         )
         service_requests.append(item)
         _ensure_workflow(
@@ -373,7 +376,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         current_value = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
         change, _ = record(
             PersonChangeRequest,
-            {"person": person, "change_type": change_type, "status": PersonChangeRequest.Status.SUBMITTED},
+            {"person": person, "change_type": change_type},
             {
                 "company": company,
                 "contract": line_contracts[InsuranceLine.HEALTH],
@@ -381,6 +384,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "current_value": current_value,
                 "requested_value": requested_value,
                 "reason": f"درخواست آزمایشی اصلاح اطلاعات شماره {index}؛ بررسی و تأیید مستقل لازم است.",
+                "status": PersonChangeRequest.Status.SUBMITTED,
             },
             verify_fields=("company", "contract", "requested_by", "current_value", "requested_value", "reason"),
         )
@@ -426,7 +430,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "requested_amount": Decimal("900000"),
                 "assessed_amount": assessed,
                 "payable_amount": payable if status != Claim.Status.REJECTED else Decimal("0"),
-                "paid_amount": paid,
+                "paid_amount": Decimal("200000") if status == Claim.Status.PARTIALLY_PAID else paid,
                 "payment_date": today - timedelta(days=1) if paid else None,
                 "status": status,
                 "source_reference": "DEMO-SEED",
@@ -441,6 +445,12 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "result_sent_at": now - timedelta(days=2) if status in {Claim.Status.APPROVED, Claim.Status.REJECTED, Claim.Status.PAID, Claim.Status.CLOSED} else None,
                 "result_sent_by": specialist if status in {Claim.Status.APPROVED, Claim.Status.REJECTED, Claim.Status.PAID, Claim.Status.CLOSED} else None,
             },
+            verify_fields=(
+                "source_claim_number", "person", "company_snapshot", "contract", "insurer",
+                "service_date", "registered_date", "service_type", "requested_amount",
+                "assessed_amount", "payable_amount", "source_duplicate_status",
+                "source_duplicate_reference", "source_duplicate_note",
+            ),
         )
         seeded_claims.append(claim)
 
@@ -467,11 +477,12 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     for index, claim in enumerate(seeded_claims, start=1):
         if claim.paid_amount <= 0:
             continue
+        payment_amount = Decimal("250000") if index == 7 else claim.paid_amount
         payment, _ = record(
             ClaimPayment,
             {"claim": claim, "entry_type": ClaimPayment.EntryType.PAYMENT, "source_reference": f"DEMO-VOUCHER-{index:03d}"},
             {
-                "amount": claim.paid_amount,
+                "amount": payment_amount,
                 "paid_at": claim.payment_date or today,
                 "source_insurer": claim.insurer,
                 "recorded_by": insurer_rep,
@@ -519,7 +530,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "snapshot": snapshot,
             "effective_date": today + timedelta(days=1),
         },
-        verify_fields=("description", "created_by", "status", "snapshot", "effective_date"),
+        verify_fields=("description", "created_by", "snapshot", "effective_date"),
     )
     _ensure_workflow(revision, "contract_approval", specialist, head, note="ارسال نسخه قرارداد برای تصویب")
 
@@ -594,6 +605,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "created_by": specialist,
                 "approved_by": head if status == AssetValuation.Status.APPROVED else None,
             },
+            verify_fields=("valuation_date", "market_value", "insured_value", "method", "created_by", "source_reference"),
         )
         valuations.append(valuation)
     _ensure_workflow(valuations[0], "asset_valuation_approval", specialist, head, note="درخواست تأیید ارزیابی نمونه")
@@ -615,6 +627,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "created_by": specialist,
                 "approved_by": head if status == AssetPolicyPeriod.Status.ACTIVE else None,
             },
+            verify_fields=("asset", "insurer", "contract", "policy_start", "policy_end", "source_reference", "created_by"),
         )
         policy_periods.append(period)
     _ensure_workflow(policy_periods[0], "asset_policy_approval", specialist, head, note="ارسال دوره بیمه‌نامه برای تأیید")
@@ -630,7 +643,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "created_by": specialist,
             "approved_by": None,
         },
-        verify_fields=("effective_date", "description", "status", "created_by", "approved_by"),
+        verify_fields=("effective_date", "description", "created_by"),
     )
     _ensure_workflow(endorsement, "asset_endorsement_approval", specialist, head, note="ارجاع الحاقیه دارایی برای تأیید")
 
@@ -656,7 +669,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "valid_until": today + timedelta(days=30),
                 "revocation_reason": "تعلیق آزمایشی" if status == WorkDelegation.Status.SUSPENDED else "",
             },
-            verify_fields=("reason", "status", "valid_from", "valid_until", "revocation_reason"),
+            verify_fields=("reason", "valid_from", "valid_until", "delegate_role", "delegate_to", "granted_by"),
         )
         delegations.append(delegation)
         ensure(
@@ -765,6 +778,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "target_url": "/dashboard/",
                 "read_at": now - timedelta(hours=index) if index % 3 == 0 else None,
             },
+            verify_fields=("actor", "body", "target_url"),
         )
 
     # Internal correspondence shares a deterministic, non-production demo serial range.
@@ -772,6 +786,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     ensure(
         CorrespondenceSequence, {"solar_date": solar_day},
         {"last_number": 900},
+        verify_fields=(),
     )
     correspondence_rows = []
     correspondence_specs = (
@@ -800,6 +815,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "is_confidential": confidential,
                 "created_by": head,
             },
+            verify_fields=("subject", "channel", "direction", "company", "insurer", "contract", "external_reference", "summary", "is_confidential", "created_by"),
         )
         correspondence_rows.append(item)
         event_type = (
@@ -860,7 +876,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "reviewed_at": now if status == ImportBatch.Status.PROCESSED else None,
                 "review_note": "تأیید نمونه" if status == ImportBatch.Status.PROCESSED else "",
             },
-            verify_fields=("source_type", "uploaded_by", "status", "total_rows", "valid_rows", "invalid_rows", "result_report", "column_mapping"),
+            verify_fields=("source_type", "uploaded_by", "total_rows", "valid_rows", "invalid_rows", "column_mapping"),
         )
 
     # Task inbox and immutable task timeline, with a wide mix of urgency/status values.
@@ -887,6 +903,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "due_at": now + timedelta(days=index - 6),
                 "related_request": related,
             },
+            verify_fields=("description", "created_by", "related_request"),
         )
         existing_assignees = set(task.assignees.values_list("pk", flat=True))
         if not existing_assignees:
