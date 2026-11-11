@@ -317,6 +317,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("داده‌های نمونه ایجاد/بازیابی شدند؛ هیچ رکورد موجودی بازنویسی نشد."))
         self.stdout.write(f"پوشش مدل‌ها: {extended['model_coverage']} از 45 مدل")
+        self.stdout.write(f"رکوردهای نمونه ایجاد/بازیابی‌شده: {extended['fixture_rows']}")
         self.stdout.write(f"مجموع رکوردهای موجود در مدل‌های تحت پوشش: {extended['total_model_rows']}")
         self.stdout.write(
             "سناریوها: "
