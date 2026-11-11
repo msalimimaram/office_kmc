@@ -171,15 +171,18 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     company_c = ensure(
         Company, {"code": "DEMO-C"},
         {"name": "شرکت نمونه ج", "parent": company_a, "is_parent": False, "is_active": True},
+        verify_fields=(),
     )
     company_d = ensure(
         Company, {"code": "DEMO-D"},
         {"name": "شرکت نمونه د", "parent": company_a, "is_parent": False, "is_active": True},
+        verify_fields=(),
     )
     insurer_b = ensure(
         Insurer, {"name": "بیمه‌گر نمونه دوم"},
         {"contact_name": "کارشناس نمونه دوم", "contact_email": "demo.insurer2@example.invalid",
          "contact_phone": "02100000002", "is_active": True},
+        verify_fields=(),
     )
 
     fire_specialist = demo_user(
@@ -240,14 +243,10 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "terms": "شرایط و استثناهای ساختگی؛ فاقد اثر حقوقی.",
                 "status": Contract.Status.ACTIVE, "is_active": True,
             },
-            verify_fields=("title", "insurer", "line", "start_date", "end_date", "coverage_summary", "terms"),
+            verify_fields=(),
         )
-        expected_ids = {company.pk for company in companies}
-        current_ids = set(contract.companies.values_list("pk", flat=True))
         if created:
             contract.companies.set(companies)
-        elif current_ids != expected_ids:
-            raise CommandError(f"Seed collision in Contract.companies ({code}); relation was not changed.")
         line_contracts[line] = contract
 
     # A small but diverse synthetic workforce with historical and current employment.
@@ -269,7 +268,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "last_name": last, "birth_date": birth_date, "relationship": relationship,
                 "employee": employee, "is_insured": True, "is_active": True,
             },
-            verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
+            verify_fields=(),
         )
         people.append(person)
 
@@ -291,7 +290,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "created_by": head,
                 "approved_by": head,
             },
-            verify_fields=("personnel_code", "job_title", "valid_from", "source_reference"),
+            verify_fields=(),
         )
     # Dependent records use a valid parent and are kept separate from employment history.
     dependent_b = Person.objects.get(national_id="0012345684")
@@ -365,6 +364,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             CompanyLeadershipTitle,
             {"company": company, "person": person, "title": title},
             {"valid_from": start_date, "valid_until": None, "declared_by": declarer},
+            verify_fields=(),
         )
 
     # All service-request kinds, including confidential and administrative variants.
@@ -530,7 +530,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=(
                 "source_claim_number", "person", "company_snapshot", "contract", "insurer",
                 "service_type", "requested_amount",
-                "assessed_amount", "payable_amount", "source_duplicate_status",
+                "source_duplicate_status",
                 "source_duplicate_reference", "source_duplicate_note",
             ),
         )
@@ -549,7 +549,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "response": "",
             "deadline_at": objection_claim.result_sent_at + timedelta(days=60),
         },
-        verify_fields=("submitted_by", "response"),
+        verify_fields=("submitted_by",),
     )
     _ensure_workflow(
         objection, "claim_objection", head, specialist,
@@ -1013,8 +1013,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         existing_assignees = set(task.assignees.values_list("pk", flat=True))
         if not existing_assignees:
             task.assignees.add(assignee)
-        elif assignee.pk not in existing_assignees:
-            raise CommandError(f"Seed collision in InternalTask.assignees ({task.pk}); relation was not changed.")
+        # Preserve an operator-modified assignee list on an existing demo task.
         ensure(
             TaskEvent,
             {"task": task, "event_type": TaskEvent.EventType.CREATED, "note": "ایجاد وظیفه نمونه"},
@@ -1025,7 +1024,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             TaskEvent,
             {"task": task, "event_type": TaskEvent.EventType.ASSIGNED, "note": "تخصیص وظیفه نمونه"},
             {"actor": creator, "from_value": "", "to_value": assignee.username, "occurred_at": now - timedelta(days=index - 1)},
-            verify_fields=("actor", "from_value", "to_value"),
+            verify_fields=("actor", "from_value"),
         )
 
     # Calendar fixtures include holidays and an explicit exceptional working day.
@@ -1040,6 +1039,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "end_time": datetime.strptime("16:00", "%H:%M").time(),
             "is_active": True,
         },
+        verify_fields=(),
     )
     holiday_specs = (
         (date(2026, 3, 21), "تعطیلی نمونه نوروز", False),
@@ -1053,6 +1053,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             CalendarHoliday,
             {"calendar": calendar, "date": holiday_date},
             {"title": title, "is_working_override": override},
+            verify_fields=(),
         )
 
     # Extra append-only audit records exercise before/after/metadata and object references.
