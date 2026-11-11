@@ -11,7 +11,8 @@ import secrets
 import jdatetime
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import CommandError, ValidationError
+from django.core.exceptions import ValidationError
+from django.core.management.base import CommandError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
