@@ -54,10 +54,17 @@ def scan_uploaded_file(upload):
         except (AttributeError, OSError, ValueError):
             pass
 
-    if b"FOUND" in response:
-        return "فایل بارگذاری‌شده توسط اسکنر بدافزار آلوده تشخیص داده شد."
-    if b"OK" in response:
+    response_bytes = bytes(response)
+    # zINSTREAM uses a NUL-terminated reply. A truncated or malformed reply
+    # must never be interpreted as a clean scan.
+    if not response_bytes.endswith(b"\\0") or response_bytes.count(b"\\0") != 1:
+        return "پاسخ اسکنر بدافزار معتبر نیست؛ بارگذاری فایل متوقف شد."
+
+    reply = response_bytes[:-1].strip()
+    if reply == b"stream: OK":
         return None
+    if reply.startswith(b"stream: ") and reply.endswith(b" FOUND"):
+        return "فایل بارگذاری‌شده توسط اسکنر بدافزار آلوده تشخیص داده شد."
     return "پاسخ اسکنر بدافزار معتبر نیست؛ بارگذاری فایل متوقف شد."
 
 
