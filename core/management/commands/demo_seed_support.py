@@ -49,29 +49,23 @@ from workflow.models import (
 from workflow.services import resolve_initial_assignee, start_workflow, transition_case
 
 
-EXPECTED_MODEL_LABELS = (
-    "accounts.user", "accounts.organizationalunit", "accounts.organizationalposition",
-    "accounts.roleassignment", "accounts.positionassignment", "accounts.usernotification",
-    "announcements.announcement",
-    "assets.insuredasset", "assets.vehicle", "assets.assetvaluation",
-    "assets.assetpolicyperiod", "assets.assetpolicyendorsement",
-    "auditlog.auditevent",
-    "claims.claim", "claims.claimpayment", "claims.claimobjection",
-    "correspondence.correspondencesequence", "correspondence.correspondence",
-    "correspondence.correspondencelink", "correspondence.correspondenceevent",
-    "delegations.workdelegation", "delegations.delegationevent",
-    "documents.documentrecord", "documents.documentversion",
-    "documents.documentlink", "documents.documentaccessevent",
-    "imports.importbatch",
-    "insurance.insurer", "insurance.contract", "insurance.contractrevision",
-    "organizations.company", "organizations.person", "organizations.personemployment",
-    "organizations.companyleadershiptitle", "organizations.personchangerequest",
-    "requests_portal.servicerequest",
-    "tasks.internaltask", "tasks.taskevent",
-    "workflow.workflowdefinition", "workflow.workflowstep", "workflow.workflowtransition",
-    "workflow.workflowcase", "workflow.workflowevent", "workflow.businesscalendar",
-    "workflow.calendarholiday",
-)
+# Domain apps covered by the presentation fixture engine. The manifest is
+# discovered from the active Django app registry so a future model cannot be
+# silently omitted when a new module is added.
+DEMO_DOMAIN_APP_LABELS = frozenset({
+    "accounts", "announcements", "assets", "auditlog", "claims",
+    "correspondence", "delegations", "documents", "imports", "insurance",
+    "organizations", "requests_portal", "tasks", "workflow",
+})
+EXPECTED_MODEL_LABELS = tuple(sorted(
+    model._meta.label_lower
+    for model in apps.get_models()
+    if model._meta.app_label in DEMO_DOMAIN_APP_LABELS
+    and not model._meta.abstract
+    and not model._meta.proxy
+    and model._meta.managed
+))
+
 
 
 def _content(name, body):
