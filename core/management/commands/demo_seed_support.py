@@ -104,7 +104,7 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
 
 
 @transaction.atomic
-def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, employee_a, employee_b):
+def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, employee_a, employee_b, created_counts=None, reused_counts=None):
     """Create 150+ interconnected demo records across all 45 domain models."""
     from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
     WorkflowSeedCommand().handle()
@@ -134,6 +134,8 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         }
         user = User.objects.filter(username=username).first()
         if user:
+            if reused_counts is not None:
+                reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
             for field, value in defaults.items():
                 if getattr(user, field) != value:
                     raise CommandError(
@@ -143,6 +145,8 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         user = User(username=username, **defaults)
         user.set_unusable_password()
         user.save()
+        if created_counts is not None:
+            created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
         return user
 
     # Additional company and insurer scopes allow cross-company and cross-insurer tests.
