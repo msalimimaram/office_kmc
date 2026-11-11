@@ -18,7 +18,8 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.company_a = Company.objects.create(code="XLS-A", name="شرکت نمونه Excel الف")
         self.company_b = Company.objects.create(code="XLS-B", name="شرکت نمونه Excel ب")
         self.representative = User.objects.create_user(
-            username="excel-company-rep", password="StrongPass!2026"
+            username="excel-company-rep", password="StrongPass!2026",
+            must_change_password=False
         )
         RoleAssignment.objects.create(
             user=self.representative,
@@ -28,7 +29,8 @@ class FlexiblePeopleRosterImportTests(TestCase):
             reason="نماینده شرکت برای آزمون ورود گروهی",
         )
         self.reviewer = User.objects.create_user(
-            username="excel-reviewer", password="StrongPass!2026"
+            username="excel-reviewer", password="StrongPass!2026",
+            must_change_password=False
         )
         RoleAssignment.objects.create(
             user=self.reviewer,
@@ -237,6 +239,7 @@ class SpecialistAssetImportTests(TestCase):
         self.specialist = User.objects.create_user(
             username="asset-fire-specialist",
             password="StrongPass!2026",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.specialist,
@@ -247,6 +250,7 @@ class SpecialistAssetImportTests(TestCase):
         self.reviewer = User.objects.create_user(
             username="asset-import-reviewer",
             password="StrongPass!2026",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.reviewer,
@@ -345,6 +349,7 @@ class SpecialistAssetImportTests(TestCase):
         health_user = User.objects.create_user(
             username="asset-health-only",
             password="StrongPass!2026",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=health_user,
