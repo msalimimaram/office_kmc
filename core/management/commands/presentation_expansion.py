@@ -1338,6 +1338,20 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             f"the presentation gate requires {MINIMUM_PER_MODEL}. Check active request workflows."
         )
 
+    # Exercise the production final-lock service so LOCKED is a real workflow
+    # state, not just a manually fabricated status value.
+    lockable_case = WorkflowCase.objects.filter(
+        status__in=(WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING),
+        is_locked=False,
+        current_assignee__isnull=False,
+    ).order_by("pk").first()
+    if lockable_case is not None:
+        set_final_lock(
+            case_id=lockable_case.pk,
+            actor=admin,
+            reason="قفل نهایی سناریوی نمایشی پس از ثبت و ممیزی کامل پرونده.",
+        )
+
     # Create a full set of import batches with representative statuses and
     # synthetic XLSX files. The files are not processed automatically.
     while ImportBatch.objects.count() < MINIMUM_PER_MODEL:
@@ -1418,6 +1432,12 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     )
     delegation_statuses = list(WorkDelegation.Status.values)
     delegation_workflows = ("medical_assistance", "claim_review", "claim_review")
+    active_specialist_delegations = set(
+        WorkDelegation.objects.filter(
+            status=WorkDelegation.Status.ACTIVE,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+        ).values_list("workflow_code", "line_code")
+    )
     while WorkDelegation.objects.count() < MINIMUM_PER_MODEL:
         index = WorkDelegation.objects.count() + 1
         role = delegation_roles[(index - 1) % len(delegation_roles)]
@@ -1438,8 +1458,11 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             scope_company, scope_insurer = None, None
             # The base fixture already has one active health delegation. Keep
             # additional specialist grants non-active unless the line is distinct.
-            if line_code == "health" and status == WorkDelegation.Status.ACTIVE:
+            delegation_key = (workflow_code, line_code)
+            if status == WorkDelegation.Status.ACTIVE and delegation_key in active_specialist_delegations:
                 status = WorkDelegation.Status.SUSPENDED
+            if status == WorkDelegation.Status.ACTIVE:
+                active_specialist_delegations.add(delegation_key)
         else:
             delegate = insurer_representatives[insurer_row.pk]
             workflow_code = delegation_workflows[2]
@@ -1631,9 +1654,36 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     from core.management.commands.demo_seed_support import EXPECTED_MODEL_LABELS
 
     coverage = {}
+    choice_coverage = {}
+    missing_choices = {}
     for label in EXPECTED_MODEL_LABELS:
         model = apps.get_model(label)
         coverage[label] = _count(model)
+        for field in model._meta.concrete_fields:
+            if not field.choices:
+                continue
+            expected = {
+                str(value)
+                for value, _display in field.flatchoices
+                if value not in (None, "")
+            }
+            if not expected:
+                continue
+            observed = {
+                str(value)
+                for value in model._base_manager.values_list(field.attname, flat=True).distinct()
+                if value is not None and value != ""
+            }
+            absent = sorted(expected - observed)
+            key = f"{label}.{field.name}"
+            choice_coverage[key] = {
+                "expected_count": len(expected),
+                "covered_count": len(expected & observed),
+                "missing": absent,
+            }
+            if absent:
+                missing_choices[key] = absent
+
     missing = {label: count for label, count in coverage.items() if count < MINIMUM_PER_MODEL}
     if missing:
         detail = ", ".join(f"{label}={count}" for label, count in sorted(missing.items()))
@@ -1641,11 +1691,21 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             f"Presentation data is incomplete. Each of the {len(EXPECTED_MODEL_LABELS)} models requires "
             f"at least {MINIMUM_PER_MODEL} records. Below target: {detail}"
         )
+    if missing_choices:
+        detail = "; ".join(
+            f"{field}: {', '.join(values)}"
+            for field, values in sorted(missing_choices.items())
+        )
+        raise CommandError(
+            "Presentation data does not cover every declared Choice value. Missing examples: " + detail
+        )
 
     return {
         "model_coverage": len(coverage),
         "minimum_per_model": MINIMUM_PER_MODEL,
         "model_counts": coverage,
+        "choice_coverage": choice_coverage,
+        "choice_fields_checked": len(choice_coverage),
         "total_model_rows": sum(coverage.values()),
         "companies": Company.objects.count(),
         "insurers": Insurer.objects.count(),
