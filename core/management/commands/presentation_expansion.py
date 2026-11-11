@@ -1281,7 +1281,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "file": _sample_xlsx(f"demo-presentation-{category}-{index:04d}.xlsx", category, index),
                 "uploaded_by": actor,
                 "status": status,
-                "total_rows": 50 + index,
+                "total_rows": 50,
                 "valid_rows": 45,
                 "invalid_rows": 5,
                 "result_report": "گزارش نمایشی اعتبارسنجی؛ هیچ داده‌ای به صورت خودکار اعمال نشده است.",
@@ -1331,42 +1331,99 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     # Fifty immutable delegation records and their audit events, scoped to
     # actual company representatives. Existing manager/admin permissions are
     # used only as grantors; no fictitious staff identity is introduced.
-    delegation_reps = list(company_representatives.values())
+    delegatable_lines = ("health", "liability", "fire", "third_party", "body")
+    specialist_by_delegation_line = {
+        "health": health_specialist,
+        "liability": fire_specialist,
+        "fire": fire_specialist,
+        "third_party": motor_specialist,
+        "body": motor_specialist,
+    }
+    delegation_roles = (
+        RoleAssignment.Role.SUBSIDIARY_REP,
+        RoleAssignment.Role.INSURANCE_SPECIALIST,
+        RoleAssignment.Role.INSURER_REP,
+    )
+    delegation_statuses = list(WorkDelegation.Status.values)
+    delegation_workflows = ("medical_assistance", "claim_review", "claim_review")
     while WorkDelegation.objects.count() < MINIMUM_PER_MODEL:
         index = WorkDelegation.objects.count() + 1
+        role = delegation_roles[(index - 1) % len(delegation_roles)]
+        status = delegation_statuses[(index - 1) % len(delegation_statuses)]
         company = companies[(index - 1) % len(companies)]
-        delegate = company_representatives[company.pk]
+        insurer_row = insurers[(index - 1) % len(insurers)]
+        if role == RoleAssignment.Role.SUBSIDIARY_REP:
+            delegate = company_representatives[company.pk]
+            workflow_code = delegation_workflows[0]
+            item_type = "medical_assistance"
+            scope_company, scope_insurer = company, None
+            line_code = "health"
+        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST:
+            line_code = delegatable_lines[(index // 3) % len(delegatable_lines)]
+            delegate = specialist_by_delegation_line[line_code]
+            workflow_code = delegation_workflows[1]
+            item_type = ""
+            scope_company, scope_insurer = None, None
+            # The base fixture already has one active health delegation. Keep
+            # additional specialist grants non-active unless the line is distinct.
+            if line_code == "health" and status == WorkDelegation.Status.ACTIVE:
+                status = WorkDelegation.Status.SUSPENDED
+        else:
+            delegate = insurer_representatives[insurer_row.pk]
+            workflow_code = delegation_workflows[2]
+            item_type = ""
+            scope_company, scope_insurer = None, insurer_row
+            # Insurer representatives receive a delegation example, but are
+            # not granted an unsupported initial claim-review role.
+            if status == WorkDelegation.Status.ACTIVE:
+                status = WorkDelegation.Status.REVOKED
+
+        valid_until = today - timedelta(days=1) if status == WorkDelegation.Status.EXPIRED else today + timedelta(days=30)
+        revoked = status == WorkDelegation.Status.REVOKED
+        suspended = status == WorkDelegation.Status.SUSPENDED
         delegation, _ = record(
             WorkDelegation,
             {
-                "workflow_code": "service_request",
-                "item_type": "medical_assistance",
-                "delegate_role": RoleAssignment.Role.SUBSIDIARY_REP,
+                "workflow_code": workflow_code,
+                "item_type": item_type,
+                "delegate_role": role,
                 "delegate_to": delegate,
                 "granted_by": head,
-                "company": company,
-                "insurer": None,
-                "line_code": "health",
+                "company": scope_company,
+                "insurer": scope_insurer,
+                "line_code": line_code if role != RoleAssignment.Role.INSURER_REP else "",
             },
             {
-                "reason": f"تفویض نمایشی شماره {index:04d}، محدود به شرکت، فرآیند و رشته درمان.",
-                "status": WorkDelegation.Status.ACTIVE if index % 4 else WorkDelegation.Status.SUSPENDED,
+                "reason": f"تفویض نمایشی شماره {index:04d}؛ نقش، محدوده و بازه اعتبار قابل ممیزی.",
+                "status": status,
                 "valid_from": today - timedelta(days=5),
-                "valid_until": today + timedelta(days=30),
-                "revocation_reason": "",
+                "valid_until": valid_until,
+                "revoked_at": now if revoked else None,
+                "revoked_by": head if revoked else None,
+                "revocation_reason": (
+                    "لغو رسمی نمونه" if revoked else
+                    "تعلیق موقت نمونه" if suspended else
+                    "پایان مهلت تفویض نمونه" if status == WorkDelegation.Status.EXPIRED else ""
+                ),
             },
-            verify_fields=("reason", "delegate_to", "company", "line_code"),
+            verify_fields=("reason", "delegate_to", "delegate_role", "company", "insurer", "line_code"),
         )
         ensure(
             DelegationEvent,
             {"delegation": delegation, "event_type": DelegationEvent.EventType.CREATED, "summary": f"ایجاد تفویض نمایشی {index:04d}"},
             {"actor": head, "metadata": {"fixture": "DEMO-PRESENTATION", "company_id": company.pk}},
         )
-        if delegation.status == WorkDelegation.Status.SUSPENDED:
+        state_event = {
+            WorkDelegation.Status.ACTIVE: None,
+            WorkDelegation.Status.SUSPENDED: DelegationEvent.EventType.SUSPENDED,
+            WorkDelegation.Status.REVOKED: DelegationEvent.EventType.REVOKED,
+            WorkDelegation.Status.EXPIRED: DelegationEvent.EventType.EXPIRED,
+        }[status]
+        if state_event:
             ensure(
                 DelegationEvent,
-                {"delegation": delegation, "event_type": DelegationEvent.EventType.SUSPENDED, "summary": f"تعلیق تفویض نمایشی {index:04d}"},
-                {"actor": head, "metadata": {"fixture": "DEMO-PRESENTATION"}},
+                {"delegation": delegation, "event_type": state_event, "summary": f"تغییر وضعیت تفویض نمایشی {index:04d}"},
+                {"actor": head, "metadata": {"fixture": "DEMO-PRESENTATION", "status": status}},
             )
 
     # Expand the append-only records and lookup tables that are naturally
