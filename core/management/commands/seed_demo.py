@@ -213,6 +213,7 @@ class Command(BaseCommand):
                     "is_active": True,
                     "reason": "انتصاب داده نمونه",
                 },
+                verify_fields=("reason",),
             )
 
         claim_a, _ = record(
