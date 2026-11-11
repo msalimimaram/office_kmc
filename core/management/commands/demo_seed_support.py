@@ -9,6 +9,7 @@ from io import BytesIO
 import secrets
 
 import jdatetime
+from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import CommandError, ValidationError
 from django.core.files.base import ContentFile
@@ -204,6 +205,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "reason": "انتصاب تکمیلی داده نمونه",
                 "granted_by": admin, "approved_by": head,
             },
+            verify_fields=("reason", "granted_by", "approved_by"),
         )
 
     # Contracts cover every insurance line and are linked to realistic company groups.
@@ -333,6 +335,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "valid_from": start_date, "valid_until": None, "is_active": True,
                 "reason": "سمت سازمانی نمونه", "granted_by": admin, "approved_by": head,
             },
+            verify_fields=("reason", "granted_by", "approved_by"),
         )
 
     for company, person, title, declarer in (
@@ -547,7 +550,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "snapshot": snapshot,
             "effective_date": today + timedelta(days=1),
         },
-        verify_fields=("description", "created_by", "effective_date"),
+        verify_fields=("description", "created_by"),
     )
     _ensure_workflow(revision, "contract_approval", specialist, head, note="ارسال نسخه قرارداد برای تصویب")
 
@@ -717,7 +720,19 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     documents = []
     for index, (title, category, company, person, security, medical) in enumerate(document_specs, start=1):
         document = DocumentRecord.objects.filter(title=title, category=category).first()
-        if not document:
+        if document:
+            expected_document_scope = (
+                document.uploaded_by_id == specialist.pk
+                and document.company_id == getattr(company, "pk", None)
+                and document.person_id == getattr(person, "pk", None)
+                and document.is_medical == medical
+                and document.security_level == security
+            )
+            if not expected_document_scope:
+                raise CommandError(
+                    f"Seed collision in DocumentRecord ({title}); existing document was not modified."
+                )
+        else:
             document = create_document(
                 title=title,
                 category=category,
@@ -1055,8 +1070,16 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     if missing:
         raise CommandError("Demo seed incomplete; missing demo fixtures for: " + ", ".join(missing))
 
+    fixture_rows = (
+        sum(created_counts.values()) + sum(reused_counts.values())
+        if created_counts is not None and reused_counts is not None else 0
+    )
+    if fixture_rows < 100:
+        raise CommandError(f"Demo seed must create or recover at least 100 fixture rows; found {fixture_rows}.")
+
     return {
         "model_coverage": len(EXPECTED_MODEL_LABELS),
+        "fixture_rows": fixture_rows,
         "total_model_rows": sum(apps.get_model(label).objects.count() for label in EXPECTED_MODEL_LABELS),
         "additional_users": tuple(extra_users),
         "additional_users_created": tuple(additional_users_created),
