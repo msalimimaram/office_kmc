@@ -1,5 +1,6 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO
+import struct
 from zipfile import ZIP_DEFLATED, ZipFile
 from unittest.mock import patch
 
@@ -44,8 +45,9 @@ class UploadedFileValidationTests(SimpleTestCase):
 
 
 class FakeClamAVSocket:
-    def __init__(self, response):
-        self.response = response
+    def __init__(self, response, *, chunk_size=None):
+        self.remaining = bytearray(response)
+        self.chunk_size = chunk_size
         self.sent = bytearray()
 
     def __enter__(self):
@@ -61,22 +63,53 @@ class FakeClamAVSocket:
         self.sent.extend(data)
 
     def recv(self, size):
-        return self.response
+        limit = min(size, self.chunk_size or size)
+        chunk = bytes(self.remaining[:limit])
+        del self.remaining[:limit]
+        return chunk
 
 
 class ClamAVUploadScanningTests(SimpleTestCase):
     @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
     @patch("core.uploads.socket.create_connection")
     def test_clean_file_is_accepted_only_after_clamav_ok(self, create_connection):
-        scanner = FakeClamAVSocket(b"stream: OK\0")
+        scanner = FakeClamAVSocket(b"stream: OK\0", chunk_size=3)
         create_connection.return_value = scanner
         upload = SimpleUploadedFile("clean.pdf", b"%PDF-1.7\\nsynthetic content")
 
         self.assertIsNone(validate_uploaded_file(upload, max_size=1024))
 
         create_connection.assert_called_once_with(("clamd.internal", 3310), timeout=5.0)
-        self.assertIn(b"zINSTREAM\0", scanner.sent)
+        payload = upload.read()
+        upload.seek(0)
+        expected_stream = (
+            b"zINSTREAM\0"
+            + struct.pack("!I", len(payload))
+            + payload
+            + struct.pack("!I", 0)
+        )
+        self.assertEqual(bytes(scanner.sent), expected_stream)
         self.assertEqual(upload.tell(), 0)
+
+    @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
+    @patch("core.uploads.socket.create_connection")
+    def test_truncated_clean_reply_without_nul_fails_closed(self, create_connection):
+        create_connection.return_value = FakeClamAVSocket(b"stream: OK")
+        upload = SimpleUploadedFile("truncated.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        error = validate_uploaded_file(upload, max_size=1024)
+
+        self.assertIn("پاسخ اسکنر", error)
+
+    @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
+    @patch("core.uploads.socket.create_connection")
+    def test_reply_with_ok_substring_but_invalid_status_fails_closed(self, create_connection):
+        create_connection.return_value = FakeClamAVSocket(b"stream: NOT OK\0")
+        upload = SimpleUploadedFile("invalid-reply.pdf", b"%PDF-1.7\\nsynthetic content")
+
+        error = validate_uploaded_file(upload, max_size=1024)
+
+        self.assertIn("پاسخ اسکنر", error)
 
     @override_settings(DEBUG=False, CLAMD_HOST="clamd.internal", CLAMD_PORT=3310, CLAMD_TIMEOUT=5)
     @patch("core.uploads.socket.create_connection")
