@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 import secrets
+import os
 
 import jdatetime
 from django.apps import apps
@@ -48,29 +49,23 @@ from workflow.models import (
 from workflow.services import resolve_initial_assignee, start_workflow, transition_case
 
 
-EXPECTED_MODEL_LABELS = (
-    "accounts.user", "accounts.organizationalunit", "accounts.organizationalposition",
-    "accounts.roleassignment", "accounts.positionassignment", "accounts.usernotification",
-    "announcements.announcement",
-    "assets.insuredasset", "assets.vehicle", "assets.assetvaluation",
-    "assets.assetpolicyperiod", "assets.assetpolicyendorsement",
-    "auditlog.auditevent",
-    "claims.claim", "claims.claimpayment", "claims.claimobjection",
-    "correspondence.correspondencesequence", "correspondence.correspondence",
-    "correspondence.correspondencelink", "correspondence.correspondenceevent",
-    "delegations.workdelegation", "delegations.delegationevent",
-    "documents.documentrecord", "documents.documentversion",
-    "documents.documentlink", "documents.documentaccessevent",
-    "imports.importbatch",
-    "insurance.insurer", "insurance.contract", "insurance.contractrevision",
-    "organizations.company", "organizations.person", "organizations.personemployment",
-    "organizations.companyleadershiptitle", "organizations.personchangerequest",
-    "requests_portal.servicerequest",
-    "tasks.internaltask", "tasks.taskevent",
-    "workflow.workflowdefinition", "workflow.workflowstep", "workflow.workflowtransition",
-    "workflow.workflowcase", "workflow.workflowevent", "workflow.businesscalendar",
-    "workflow.calendarholiday",
-)
+# Domain apps covered by the presentation fixture engine. The manifest is
+# discovered from the active Django app registry so a future model cannot be
+# silently omitted when a new module is added.
+DEMO_DOMAIN_APP_LABELS = frozenset({
+    "accounts", "announcements", "assets", "auditlog", "claims",
+    "correspondence", "delegations", "documents", "imports", "insurance",
+    "organizations", "requests_portal", "tasks", "workflow",
+})
+EXPECTED_MODEL_LABELS = tuple(sorted(
+    model._meta.label_lower
+    for model in apps.get_models()
+    if model._meta.app_label in DEMO_DOMAIN_APP_LABELS
+    and not model._meta.abstract
+    and not model._meta.proxy
+    and model._meta.managed
+))
+
 
 
 def _content(name, body):
@@ -146,7 +141,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "national_id": national_id,
             "insurer": insurer_obj,
             "is_active": True,
-            "must_change_password": True,
+            "must_change_password": False,
         }
         user = User.objects.filter(username=username).first()
         if user:
@@ -159,9 +154,19 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                     raise CommandError(
                         f"Seed collision in User ({username}): {field} differs; account untouched."
                     )
+            if not user.has_usable_password():
+                demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+                if not demo_password:
+                    raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
+                user.set_password(demo_password)
+                user.must_change_password = False
+                user.save(update_fields=["password", "must_change_password"])
             return user
+        demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+        if not demo_password:
+            raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
         user = User(username=username, **defaults)
-        user.set_unusable_password()
+        user.set_password(demo_password)
         user.save()
         if created_counts is not None:
             created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
@@ -186,23 +191,27 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         verify_fields=(),
     )
 
-    fire_specialist = demo_user(
-        "specialist.fire.demo", User.Role.INSURANCE_SPECIALIST
-    )
+    fire_specialist = users["Delbari"]
     second_insurer_user = demo_user(
-        "insurer.two.demo", User.Role.INSURER, insurer_obj=insurer_b
+        "Saman2", User.Role.INSURER, insurer_obj=insurer_b
     )
     company_c_rep = demo_user(
-        "companyc.demo", User.Role.SUBSIDIARY_REP, company=company_c
+        "Namayande3", User.Role.SUBSIDIARY_REP, company=company_c
     )
     company_d_rep = demo_user(
-        "companyd.demo", User.Role.SUBSIDIARY_REP, company=company_d
+        "Namayande4", User.Role.SUBSIDIARY_REP, company=company_d
     )
-    extra_users = {
+    users.update({
         "specialist.fire.demo": fire_specialist,
         "insurer.two.demo": second_insurer_user,
         "companyc.demo": company_c_rep,
         "companyd.demo": company_d_rep,
+    })
+    extra_users = {
+        "Delbari": fire_specialist,
+        "Saman2": second_insurer_user,
+        "Namayande3": company_c_rep,
+        "Namayande4": company_d_rep,
     }
 
     assignment_specs = (
@@ -1061,19 +1070,43 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             },
         )
 
+    # Expand the base operational archetypes into the full presentation dataset.
+    # This gate is deliberately last: it validates all concrete models and
+    # refuses to report success while any one of them is below 50 records.
+    from core.management.commands.presentation_expansion import expand_presentation_dataset
+
+    presentation = expand_presentation_dataset(
+        record=record,
+        users=users,
+        created_counts=created_counts,
+        reused_counts=reused_counts,
+        company_a=company_a,
+        company_b=company_b,
+        company_c=company_c,
+        company_d=company_d,
+        insurer=insurer,
+        insurer_b=insurer_b,
+        employee_a=employee_a,
+        employee_b=employee_b,
+        service_requests=service_requests,
+        seeded_claims=seeded_claims,
+        today=today,
+        now=now,
+    )
+
     # Verify that a namespaced demo fixture exists in each of the 45 concrete models.
     solar_day = correspondence_solar_day
     demo_usernames = (
-        "admin.demo", "head.demo", "specialist.demo", "companya.demo",
-        "companyb.demo", "employee.a", "employee.b", "insurer.demo",
-        "specialist.fire.demo", "insurer.two.demo", "companyc.demo", "companyd.demo",
+        "Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod",
+        "Namayande1", "Namayande2", "Namayande3", "Namayande4",
+        "employee.a", "employee.b", "Saman", "Saman2",
     )
     service_workflow_codes = [code for code, _label in ServiceRequest.Kind.choices]
     coverage_checks = {
-        "accounts.user": User.objects.filter(username__in=demo_usernames).count() >= len(demo_usernames),
+        "accounts.user": User.objects.filter(username__startswith="Namayande").count() >= 50 and User.objects.filter(username__in=("Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod", "Saman")).count() == 7,
         "accounts.organizationalunit": OrganizationalUnit.objects.filter(code__startswith="DEMO-").exists(),
         "accounts.organizationalposition": OrganizationalPosition.objects.filter(code__startswith="DEMO-").exists(),
-        "accounts.roleassignment": RoleAssignment.objects.filter(user__username__in=demo_usernames).exists(),
+        "accounts.roleassignment": RoleAssignment.objects.count() >= 50,
         "accounts.positionassignment": PositionAssignment.objects.filter(position__code__startswith="DEMO-").exists(),
         "accounts.usernotification": UserNotification.objects.filter(title__startswith="اعلان نمونه").exists(),
         "announcements.announcement": Announcement.objects.filter(title__startswith="DEMO-ANN").exists(),
@@ -1134,6 +1167,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     return {
         "model_coverage": len(EXPECTED_MODEL_LABELS),
         "fixture_rows": fixture_rows,
+        "minimum_per_model": presentation["minimum_per_model"],
+        "model_counts": presentation["model_counts"],
+        "presentation": presentation,
         "total_model_rows": sum(apps.get_model(label).objects.count() for label in EXPECTED_MODEL_LABELS),
         "additional_users": tuple(extra_users),
         "additional_users_created": tuple(additional_users_created),
