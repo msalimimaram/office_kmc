@@ -325,10 +325,11 @@ class Command(BaseCommand):
             f"{extended['documents']} سند و "
             f"{extended['work_delegations']} تفویض اختیار"
         )
-        if generated_users:
+        new_demo_users = list(generated_users) + list(extended["additional_users_created"])
+        if new_demo_users:
             self.stdout.write(
                 "حساب‌های جدید بدون رمز قابل استفاده ایجاد شدند: "
-                + ", ".join(generated_users)
+                + ", ".join(new_demo_users)
             )
             self.stdout.write(
                 "برای ورود محلی، برای هر حساب با set_password یک رمز قوی تعیین کنید؛ "
