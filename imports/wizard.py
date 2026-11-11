@@ -576,8 +576,17 @@ def profile_import(request, profile):
 
 def _process_people_batch(batch, reviewer):
     today = timezone.localdate()
+    reviewer_allowed = (
+        has_global_access(reviewer)
+        or has_role(reviewer, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code="health")
+    )
+    if not reviewer_allowed:
+        raise PermissionDenied("تأییدکننده به فرآیند فهرست بیمه‌شدگان دسترسی معتبر ندارد.")
+
     for row in batch.preview_data:
-        company = Company.objects.get(pk=row["company_id"], is_active=True)
+        company = Company.objects.filter(pk=row["company_id"], is_active=True).first()
+        if not company or company.code != row["company_code"]:
+            raise ValidationError("شرکت این ردیف پس از پیش‌نمایش غیرفعال یا تغییر کرده است.")
         uploader = batch.uploaded_by
         uploader_still_authorized = (
             has_global_access(uploader)
@@ -586,10 +595,19 @@ def _process_people_batch(batch, reviewer):
         )
         if not uploader_still_authorized:
             raise PermissionDenied("انتصاب بارگذار برای شرکت این ردیف معتبر نیست یا لغو شده است.")
+
         action = row["action"]
         person = Person.objects.filter(national_id=row["national_id"]).first()
         if action == "add_employee":
-            if person is None:
+            if person:
+                if person.relationship != Person.Relationship.EMPLOYEE or person.employee_id:
+                    raise ValidationError("کد ملی کارمند اکنون به فرد تحت تکفل یا شخصی با هویت ناسازگار تعلق دارد.")
+                history = PersonEmployment.objects.filter(person=person)
+                if history.filter(status=PersonEmployment.Status.ACTIVE).exists():
+                    raise ValidationError("برای این کد ملی اشتغال فعال ثبت شده است؛ ورود مجدد مجاز نیست.")
+                if not history.filter(company=company).exists():
+                    raise ValidationError("تغییر شرکت یا انتقال استخدامی باید از مسیر رسمی انجام شود.")
+            else:
                 person = Person.objects.create(
                     company=company,
                     national_id=row["national_id"],
@@ -609,8 +627,26 @@ def _process_people_batch(batch, reviewer):
                 status=PersonEmployment.Status.ACTIVE, source_reference=batch.batch_number,
                 created_by=batch.uploaded_by, approved_by=reviewer,
             )
+
         elif action == "add_dependent":
-            employee = Person.objects.get(national_id=row["employee_national_id"], is_active=True)
+            if person:
+                raise ValidationError("کد ملی فرد تحت تکفل پس از پیش‌نمایش ثبت شده است؛ هیچ رکوردی بازنویسی نمی‌شود.")
+            employee = Person.objects.filter(
+                national_id=row["employee_national_id"],
+                is_active=True,
+                relationship=Person.Relationship.EMPLOYEE,
+                employee__isnull=True,
+            ).first()
+            if not employee:
+                raise ValidationError("بیمه‌شده اصلی این ردیف دیگر فعال یا معتبر نیست.")
+            employee_active = PersonEmployment.objects.filter(
+                person=employee, company=company, status=PersonEmployment.Status.ACTIVE
+            ).exists()
+            if not employee_active and not (
+                employee.company_id == company.pk
+                and not PersonEmployment.objects.filter(person=employee).exists()
+            ):
+                raise ValidationError("بیمه‌شده اصلی دیگر در این شرکت اشتغال معتبر ندارد.")
             Person.objects.create(
                 company=company, national_id=row["national_id"],
                 first_name=row["first_name"], last_name=row["last_name"],
@@ -619,10 +655,15 @@ def _process_people_batch(batch, reviewer):
                 personnel_code=row["personnel_code"], mobile=row["mobile"], iban=row["iban"],
                 is_insured=True, is_active=True,
             )
-        else:
-            employment = PersonEmployment.objects.select_for_update().get(
+
+        elif action == "end_employment":
+            if not person or not person.is_active:
+                raise ValidationError("شخص برای خاتمه همکاری دیگر فعال یا موجود نیست.")
+            employment = PersonEmployment.objects.select_for_update().filter(
                 person=person, company=company, status=PersonEmployment.Status.ACTIVE
-            )
+            ).first()
+            if not employment:
+                raise ValidationError("اشتغال فعال این شخص در شرکت در زمان تأیید پیدا نشد.")
             employment.status = PersonEmployment.Status.TERMINATED
             employment.valid_until = today
             employment.approved_by = reviewer
@@ -636,17 +677,56 @@ def _process_people_batch(batch, reviewer):
 
 def _process_claims_batch(batch, reviewer, request):
     for row in batch.preview_data:
-        contract = Contract.objects.select_related("insurer").get(pk=row["contract_id"])
-        if not has_global_access(batch.uploaded_by) and not has_role(
+        contract = Contract.objects.select_related("insurer").filter(
+            pk=row["contract_id"],
+            is_active=True,
+            status=Contract.Status.ACTIVE,
+        ).first()
+        if not contract:
+            raise ValidationError("قرارداد پس از پیش‌نمایش غیرفعال یا از چرخه فعال خارج شده است.")
+        service_date = date.fromisoformat(row["service_date"])
+        if not (contract.start_date <= service_date <= contract.end_date):
+            raise ValidationError("تاریخ خدمت دیگر در بازه اعتبار قرارداد قرار ندارد.")
+        company_id = row["company_snapshot_id"]
+        if not contract.companies.filter(pk=company_id).exists():
+            raise ValidationError("شرکت این خسارت دیگر در محدوده قرارداد قرار ندارد.")
+        person = Person.objects.filter(pk=row["person_id"], is_active=True).first()
+        if not person:
+            raise ValidationError("شخص این خسارت پس از پیش‌نمایش غیرفعال یا حذف‌پذیر نیست.")
+        primary = person.employee if person.employee_id else person
+        history = PersonEmployment.objects.filter(person=primary)
+        matching = history.filter(
+            models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=service_date)
+        ).filter(
+            models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=service_date)
+        ).order_by("-valid_from", "-pk")
+        if matching.count() > 1:
+            raise ValidationError("سوابق اشتغال در تاریخ خدمت اکنون با هم هم‌پوشانی دارند.")
+        employment = matching.first()
+        current_company_id = employment.company_id if employment else (
+            (primary.company_id or person.company_id) if not history.exists() else None
+        )
+        if current_company_id != company_id:
+            raise ValidationError("شرکت شخص در تاریخ خدمت نسبت به زمان پیش‌نمایش تغییر کرده است.")
+
+        insurer_submitter = has_role(
+            batch.uploaded_by, RoleAssignment.Role.INSURER_REP, insurer_id=contract.insurer_id
+        )
+        specialist_submitter = has_role(
             batch.uploaded_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
-        ) and not (
-            has_role(batch.uploaded_by, RoleAssignment.Role.INSURER_REP, insurer_id=contract.insurer_id)
-        ):
+        )
+        if not (has_global_access(batch.uploaded_by) or insurer_submitter or specialist_submitter):
             raise PermissionDenied("انتصاب بارگذار برای بیمه‌گر یا رشته این پرونده دیگر معتبر نیست.")
-        if not has_global_access(reviewer) and not has_role(
+        reviewer_allowed = has_global_access(reviewer) or has_role(
             reviewer, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
-        ):
-            raise PermissionDenied("کارشناس تأییدکننده به رشته بیمه‌ای این پرونده دسترسی ندارد.")
+        )
+        if not reviewer_allowed:
+            raise PermissionDenied("تأییدکننده به رشته بیمه‌ای این پرونده دسترسی ندارد.")
+
+        source_number = row["source_claim_number"]
+        if Claim.objects.filter(insurer_id=contract.insurer_id, source_claim_number=source_number).exists():
+            raise ValidationError(f"شماره پرونده منبع {source_number} پس از پیش‌نمایش تکراری شده است.")
+
         item = dict(row)
         item.pop("_row", None)
         for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
@@ -676,6 +756,8 @@ def _process_claims_batch(batch, reviewer, request):
 def _process_contracts_batch(batch, reviewer):
     from workflow.models import WorkflowDefinition
 
+    if not has_global_access(reviewer):
+        raise PermissionDenied("تصویب دسته قراردادهای جدید فقط در اختیار رئیس اداره یا مدیر سامانه است.")
     definition = WorkflowDefinition.objects.filter(code="contract_approval", is_active=True).order_by("-version").first()
     if not definition:
         raise ValidationError("گردش‌کار فعال contract_approval موجود نیست؛ ابتدا seed_operational_workflows را اجرا کنید.")
@@ -684,15 +766,27 @@ def _process_contracts_batch(batch, reviewer):
             batch.uploaded_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=row["line"]
         ):
             raise PermissionDenied("انتصاب بارگذار برای رشته این قرارداد دیگر معتبر نیست.")
-        insurer = Insurer.objects.get(pk=row["insurer_id"], is_active=True)
+        if Contract.objects.filter(code=row["code"]).exists():
+            raise ValidationError(f"شماره قرارداد {row['code']} پس از پیش‌نمایش ثبت شده است.")
+        insurer = Insurer.objects.filter(pk=row["insurer_id"], is_active=True).first()
+        if not insurer:
+            raise ValidationError("بیمه‌گر انتخاب‌شده پس از پیش‌نمایش غیرفعال شده است.")
         companies = list(Company.objects.filter(pk__in=row["company_ids"], is_active=True))
+        if len(companies) != len(set(row["company_ids"])):
+            raise ValidationError("یک یا چند شرکت انتخاب‌شده پس از پیش‌نمایش غیرفعال شده‌اند.")
+        start_date = date.fromisoformat(row["start_date"])
+        end_date = date.fromisoformat(row["end_date"])
+        effective_date = date.fromisoformat(row["effective_date"])
+        if end_date < start_date or not start_date <= effective_date <= end_date:
+            raise ValidationError("بازه قرارداد یا تاریخ اثر هنگام تأیید معتبر نیست.")
+
         contract = Contract.objects.create(
             code=row["code"],
             title=row["title"],
             insurer=insurer,
             line=row["line"],
-            start_date=date.fromisoformat(row["start_date"]),
-            end_date=date.fromisoformat(row["end_date"]),
+            start_date=start_date,
+            end_date=end_date,
             coverage_summary=row["coverage_summary"],
             terms=row["terms"],
             status=Contract.Status.DRAFT,
@@ -717,7 +811,7 @@ def _process_contracts_batch(batch, reviewer):
             created_by=batch.uploaded_by,
             status=ContractRevision.Status.PENDING_APPROVAL,
             snapshot=snapshot,
-            effective_date=date.fromisoformat(row["effective_date"]),
+            effective_date=effective_date,
         )
         assignee, delegation = resolve_initial_assignee(
             definition=definition,
@@ -742,6 +836,7 @@ def _process_contracts_batch(batch, reviewer):
             after_data={"revision_id": revision.pk, "workflow_case_id": case.pk, "batch_id": batch.pk},
             request=None,
         )
+
 
 
 @login_required
