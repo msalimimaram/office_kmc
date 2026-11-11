@@ -575,6 +575,10 @@ class WorkflowEngineTests(TestCase):
             WorkflowStep.objects.filter(pk=draft_step.pk).update(
                 definition_id=self.definition.pk
             )
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.filter(pk=draft_step.pk).update(
+                title="تغییر گروهی نامعتبر"
+            )
         draft_step.definition = self.definition
         with self.assertRaises(ValidationError):
             WorkflowStep.objects.filter(pk=draft_step.pk).bulk_update(
@@ -597,6 +601,10 @@ class WorkflowEngineTests(TestCase):
         with self.assertRaises(ValidationError):
             WorkflowTransition.objects.filter(pk=draft_transition.pk).update(
                 definition_id=self.definition.pk
+            )
+        with self.assertRaises(ValidationError):
+            WorkflowTransition.objects.filter(pk=draft_transition.pk).update(
+                title="تغییر گروهی نامعتبر"
             )
         draft_transition.definition = self.definition
         with self.assertRaises(ValidationError):
