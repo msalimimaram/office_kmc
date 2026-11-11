@@ -153,6 +153,14 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.assertEqual(batch.invalid_rows, 1)
         self.assertFalse(Person.objects.filter(national_id="0012345679").exists())
 
+    def test_visible_sample_page_shows_accepted_fields_and_rows(self):
+        self.client.force_login(self.representative)
+        response = self.client.get(reverse("import_sample", args=["people_roster"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "کد ملی شخص")
+        self.assertContains(response, "0012345690")
+        self.assertContains(response, "ستون نمونه")
+
     def test_template_is_available_to_authorized_company_representative(self):
         self.client.force_login(self.representative)
         response = self.client.get(reverse("import_template", args=["people_roster"]))
