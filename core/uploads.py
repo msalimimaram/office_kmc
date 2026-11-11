@@ -57,7 +57,7 @@ def scan_uploaded_file(upload):
     response_bytes = bytes(response)
     # zINSTREAM uses a NUL-terminated reply. A truncated or malformed reply
     # must never be interpreted as a clean scan.
-    if not response_bytes.endswith(b"\\0") or response_bytes.count(b"\\0") != 1:
+    if not response_bytes.endswith(b"\0") or response_bytes.count(b"\0") != 1:
         return "پاسخ اسکنر بدافزار معتبر نیست؛ بارگذاری فایل متوقف شد."
 
     reply = response_bytes[:-1].strip()
