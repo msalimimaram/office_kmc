@@ -160,9 +160,9 @@ class Command(BaseCommand):
         )
 
         import os
-        demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+        demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
         if not demo_password:
-            raise CommandError("Set PRESENTATION_DEMO_PASSWORD in the environment before creating demo accounts.")
+            raise CommandError("Set DEMO_SEED_PASSWORD in the environment before creating demo accounts.")
         user_specs = (
             ("Admin", User.Role.SYSTEM_ADMIN, None, "", None, "مدیر", "سامانه", "", ("",)),
             ("Shahamat", User.Role.DEPARTMENT_HEAD, None, "", None, "رئیس", "اداره بیمه", "", ("",)),
@@ -355,7 +355,7 @@ class Command(BaseCommand):
         new_demo_users = list(generated_users) + list(extended["additional_users_created"])
         self.stdout.write("حساب‌های نمایشی: Admin, Shahamat, Salimi, Amiri, Delbari, Mahbod, "
                          "Namayande1 تا Namayande4، Saman و Saman2")
-        self.stdout.write("رمز مشترک حساب‌های تازه‌ساخته‌شده از PRESENTATION_DEMO_PASSWORD خوانده شد.")
+        self.stdout.write("رمز مشترک حساب‌های تازه‌ساخته‌شده از DEMO_SEED_PASSWORD خوانده شد.")
         self.stdout.write("این حساب‌ها فقط برای نمایش و آزمون هستند؛ پیش از استقرار واقعی غیرفعال/بازتنظیم شوند.")
         self.stdout.write("تعداد ایجادشده: " + str(sum(created_counts.values())))
         self.stdout.write("تعداد بازیابی‌شده بدون تغییر: " + str(sum(reused_counts.values())))

@@ -43,9 +43,9 @@ def _sample_xlsx(filename, category, index):
 def _ensure_user(*, username, role, company=None, insurer=None, national_id="", first_name="", last_name="", mobile=""):
     from accounts.models import User
 
-    password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+    password = os.environ.get("DEMO_SEED_PASSWORD", "")
     if not password:
-        raise CommandError("PRESENTATION_DEMO_PASSWORD is required before presentation accounts can be created.")
+        raise CommandError("DEMO_SEED_PASSWORD is required before presentation accounts can be created.")
 
     defaults = {
         "role": role,

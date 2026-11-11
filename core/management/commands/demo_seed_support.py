@@ -155,16 +155,16 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                         f"Seed collision in User ({username}): {field} differs; account untouched."
                     )
             if not user.has_usable_password():
-                demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+                demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
                 if not demo_password:
-                    raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
+                    raise CommandError("DEMO_SEED_PASSWORD is required for demo accounts.")
                 user.set_password(demo_password)
                 user.must_change_password = False
                 user.save(update_fields=["password", "must_change_password"])
             return user
-        demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+        demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
         if not demo_password:
-            raise CommandError("PRESENTATION_DEMO_PASSWORD is required for demo accounts.")
+            raise CommandError("DEMO_SEED_PASSWORD is required for demo accounts.")
         user = User(username=username, **defaults)
         user.set_password(demo_password)
         user.save()
