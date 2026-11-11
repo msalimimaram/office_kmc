@@ -732,13 +732,25 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
 
     # The base script's initial contract remains valid for its original scope;
     # generated records use the company-specific contracts above.
-    for index, (company, person) in enumerate(
-        [(c, persons_by_company[c.pk]) for c in companies], start=1
-    ):
+    change_types = list(PersonChangeRequest.ChangeType.values)
+    change_statuses = list(PersonChangeRequest.Status.values)
+    for index, company in enumerate(companies, start=1):
+        person = persons_by_company[company.pk]
         contract = health_contracts[company.pk]
-        change_type = PersonChangeRequest.ChangeType.MOBILE
-        requested_mobile = f"091299{index:06d}"
-        current_mobile = str(person.mobile or "")
+        change_type = change_types[(index - 1) % len(change_types)]
+        field_name = PersonChangeRequest.FIELD_MAP[change_type]
+        current = getattr(person, field_name)
+        current_value = current.isoformat() if hasattr(current, "isoformat") else str(current or "")
+        requested_values = {
+            PersonChangeRequest.ChangeType.MOBILE: f"091299{index:06d}",
+            PersonChangeRequest.ChangeType.IBAN: f"IR{index:024d}",
+            PersonChangeRequest.ChangeType.NATIONAL_ID: f"982200{index:04d}",
+            PersonChangeRequest.ChangeType.FIRST_NAME: f"نام جایگزین {index:03d}",
+            PersonChangeRequest.ChangeType.LAST_NAME: f"نام‌خانوادگی جایگزین {index:03d}",
+            PersonChangeRequest.ChangeType.PERSONNEL_CODE: f"PRES-NEW-{index:04d}",
+            PersonChangeRequest.ChangeType.BIRTH_DATE: (date(1990, 1, 1) + timedelta(days=index)).isoformat(),
+        }
+        status = change_statuses[(index - 1) % len(change_statuses)]
         ensure(
             PersonChangeRequest,
             {"person": person, "change_type": change_type},
@@ -746,14 +758,14 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "company": company,
                 "contract": contract,
                 "requested_by": person.user,
-                "current_value": current_mobile,
-                "requested_value": requested_mobile,
-                "reason": f"درخواست نمایشی اصلاح شماره همراه؛ سناریو {index:03d} برای بررسی گردش کار.",
-                "status": list(PersonChangeRequest.Status.values)[(index - 1) % len(PersonChangeRequest.Status.values)],
-                "approved_by": head if index % len(PersonChangeRequest.Status.values) == 4 else None,
-                "approved_at": now if index % len(PersonChangeRequest.Status.values) == 4 else None,
-                "rejected_by": head if index % len(PersonChangeRequest.Status.values) == 5 else None,
-                "rejected_at": now if index % len(PersonChangeRequest.Status.values) == 5 else None,
+                "current_value": current_value,
+                "requested_value": requested_values[change_type],
+                "reason": f"درخواست نمایشی اصلاح {dict(PersonChangeRequest.ChangeType.choices)[change_type]}؛ سناریو {index:03d}.",
+                "status": status,
+                "approved_by": head if status == PersonChangeRequest.Status.APPROVED else None,
+                "approved_at": now if status == PersonChangeRequest.Status.APPROVED else None,
+                "rejected_by": head if status == PersonChangeRequest.Status.REJECTED else None,
+                "rejected_at": now if status == PersonChangeRequest.Status.REJECTED else None,
             },
             verify_fields=("company", "contract", "requested_by", "current_value", "requested_value", "reason"),
         )
