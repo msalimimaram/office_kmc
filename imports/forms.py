@@ -99,6 +99,12 @@ class FlexibleExcelImportForm(forms.Form):
             if not re.fullmatch(r"[A-Z]{1,3}", raw):
                 self.add_error(field_name, "حرف ستون معتبر وارد کنید؛ مانند D یا Y.")
                 continue
+            column_number = 0
+            for character in raw:
+                column_number = column_number * 26 + ord(character) - 64
+            if column_number > 16384:
+                self.add_error(field_name, "ستون انتخاب‌شده خارج از محدوده Excel است؛ آخرین ستون مجاز XFD است.")
+                continue
             if raw in seen:
                 self.add_error(field_name, f"این ستون قبلاً برای «{seen[raw]}» انتخاب شده است.")
                 continue
