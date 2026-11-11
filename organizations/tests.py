@@ -135,6 +135,30 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         self.assertContains(people, "معاون مدیرعامل")
         self.assertNotContains(people, "مدیرعامل شرکت ب")
 
+
+    def test_company_representative_does_not_see_another_company_title_for_a_visible_person(self):
+        PersonEmployment.objects.create(
+            person=self.person_a,
+            company=self.company_b,
+            valid_from=date(2025, 1, 1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        CompanyLeadershipTitle.objects.create(
+            company=self.company_b,
+            person=self.person_a,
+            title="عضو هیئت‌مدیره محرمانه شرکت ب",
+            valid_from=date(2025, 1, 1),
+            declared_by=self.head,
+        )
+
+        client = Client()
+        client.force_login(self.rep)
+        response = client.get(reverse("people_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.person_a.first_name)
+        self.assertNotContains(response, "عضو هیئت‌مدیره محرمانه شرکت ب")
+
     def test_company_representative_cannot_forge_another_company_in_post(self):
         client = Client()
         client.force_login(self.rep)
