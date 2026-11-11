@@ -1084,6 +1084,87 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             verify_fields=("plate_number", "vin", "model_name"),
         )
 
+    # Full asset policy lifecycle and valuation method/status coverage.
+    valuation_methods = list(AssetValuation.Method.values)
+    valuation_statuses = list(AssetValuation.Status.values)
+    policy_statuses = list(AssetPolicyPeriod.Status.values)
+    endorsement_statuses = list(AssetPolicyEndorsement.Status.values)
+    asset_policy_periods = []
+    for index, asset in enumerate(vehicle_assets, start=1):
+        company = asset.company
+        contract = contracts_by_company_line[(company.pk, InsuranceLine.THIRD_PARTY)]
+        valuation_status = valuation_statuses[(index - 1) % len(valuation_statuses)]
+        ensure(
+            AssetValuation,
+            {"asset": asset, "source_reference": f"DEMO-PRES-VALUATION-{index:04d}"},
+            {
+                "valuation_date": today - timedelta(days=index),
+                "market_value": Decimal("950000000") + Decimal(index * 2500000),
+                "insured_value": Decimal("850000000") + Decimal(index * 2000000),
+                "method": valuation_methods[(index - 1) % len(valuation_methods)],
+                "status": valuation_status,
+                "note": f"ارزیابی نمایشی دارایی {asset.asset_code}.",
+                "created_by": motor_specialist,
+                "approved_by": admin if valuation_status == AssetValuation.Status.APPROVED else None,
+            },
+            verify_fields=("method", "status", "market_value", "insured_value"),
+        )
+
+        policy_status = policy_statuses[(index - 1) % len(policy_statuses)]
+        if policy_status in {AssetPolicyPeriod.Status.EXPIRED, AssetPolicyPeriod.Status.TERMINATED, AssetPolicyPeriod.Status.SUPERSEDED}:
+            policy_start = today - timedelta(days=400)
+            policy_end = today - timedelta(days=30)
+        elif policy_status == AssetPolicyPeriod.Status.APPROVED:
+            policy_start = today + timedelta(days=30)
+            policy_end = today + timedelta(days=395)
+        else:
+            policy_start = today - timedelta(days=30)
+            policy_end = today + timedelta(days=335)
+        period = ensure(
+            AssetPolicyPeriod,
+            {"policy_number": f"DEMO-PRES-ASSET-POL-{index:04d}"},
+            {
+                "asset": asset,
+                "insurer": contract.insurer,
+                "contract": contract,
+                "policy_start": policy_start,
+                "policy_end": policy_end,
+                "status": policy_status,
+                "source_reference": f"DEMO-PRES-ASSET-PERIOD-{index:04d}",
+                "note": f"دوره بیمه‌نامه نمایشی با وضعیت {policy_status}.",
+                "created_by": motor_specialist,
+                "approved_by": (
+                    admin if policy_status in {
+                        AssetPolicyPeriod.Status.APPROVED,
+                        AssetPolicyPeriod.Status.ACTIVE,
+                        AssetPolicyPeriod.Status.EXPIRED,
+                        AssetPolicyPeriod.Status.TERMINATED,
+                        AssetPolicyPeriod.Status.SUPERSEDED,
+                    } else None
+                ),
+            },
+            verify_fields=("asset", "contract", "status", "policy_start", "policy_end"),
+        )
+        asset_policy_periods.append(period)
+
+        endorsement_status = endorsement_statuses[(index - 1) % len(endorsement_statuses)]
+        ensure(
+            AssetPolicyEndorsement,
+            {"policy_period": period, "endorsement_number": f"DEMO-PRES-END-{index:04d}"},
+            {
+                "effective_date": today + timedelta(days=15),
+                "description": f"الحاقیه نمایشی {index:04d} برای تغییر مشخصات یا حدود پوشش.",
+                "document": ContentFile(
+                    b"%PDF-1.4\\nSynthetic asset endorsement presentation sample\\n%%EOF",
+                    name=f"demo-asset-endorsement-{index:04d}.pdf",
+                ),
+                "status": endorsement_status,
+                "created_by": motor_specialist,
+                "approved_by": admin if endorsement_status == AssetPolicyEndorsement.Status.APPROVED else None,
+            },
+            verify_fields=("policy_period", "endorsement_number", "status"),
+        )
+
     # A minimum of 50 calendars and 50 serial-date counters make SLA and
     # correspondence numbering demonstrations visible across time windows.
     base_calendar, _ = BusinessCalendar.objects.get_or_create(
