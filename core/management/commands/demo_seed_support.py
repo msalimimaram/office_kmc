@@ -1076,19 +1076,43 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             },
         )
 
+    # Expand the base operational archetypes into the full presentation dataset.
+    # This gate is deliberately last: it validates all concrete models and
+    # refuses to report success while any one of them is below 50 records.
+    from core.management.commands.presentation_expansion import expand_presentation_dataset
+
+    presentation = expand_presentation_dataset(
+        record=record,
+        users=users,
+        created_counts=created_counts,
+        reused_counts=reused_counts,
+        company_a=company_a,
+        company_b=company_b,
+        company_c=company_c,
+        company_d=company_d,
+        insurer=insurer,
+        insurer_b=insurer_b,
+        employee_a=employee_a,
+        employee_b=employee_b,
+        service_requests=service_requests,
+        seeded_claims=seeded_claims,
+        today=today,
+        now=now,
+    )
+
     # Verify that a namespaced demo fixture exists in each of the 45 concrete models.
     solar_day = correspondence_solar_day
     demo_usernames = (
-        "admin.demo", "head.demo", "specialist.demo", "companya.demo",
-        "companyb.demo", "employee.a", "employee.b", "insurer.demo",
-        "specialist.fire.demo", "insurer.two.demo", "companyc.demo", "companyd.demo",
+        "Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod",
+        "Namayande1", "Namayande2", "Namayande3", "Namayande4",
+        "employee.a", "employee.b", "Saman", "Saman2",
     )
     service_workflow_codes = [code for code, _label in ServiceRequest.Kind.choices]
     coverage_checks = {
-        "accounts.user": User.objects.filter(username__in=demo_usernames).count() >= len(demo_usernames),
+        "accounts.user": User.objects.filter(username__startswith="Namayande").count() >= 50 and User.objects.filter(username__in=("Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod", "Saman")).count() == 7,
         "accounts.organizationalunit": OrganizationalUnit.objects.filter(code__startswith="DEMO-").exists(),
         "accounts.organizationalposition": OrganizationalPosition.objects.filter(code__startswith="DEMO-").exists(),
-        "accounts.roleassignment": RoleAssignment.objects.filter(user__username__in=demo_usernames).exists(),
+        "accounts.roleassignment": RoleAssignment.objects.count() >= 50,
         "accounts.positionassignment": PositionAssignment.objects.filter(position__code__startswith="DEMO-").exists(),
         "accounts.usernotification": UserNotification.objects.filter(title__startswith="اعلان نمونه").exists(),
         "announcements.announcement": Announcement.objects.filter(title__startswith="DEMO-ANN").exists(),
@@ -1149,6 +1173,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     return {
         "model_coverage": len(EXPECTED_MODEL_LABELS),
         "fixture_rows": fixture_rows,
+        "minimum_per_model": presentation["minimum_per_model"],
+        "model_counts": presentation["model_counts"],
+        "presentation": presentation,
         "total_model_rows": sum(apps.get_model(label).objects.count() for label in EXPECTED_MODEL_LABELS),
         "additional_users": tuple(extra_users),
         "additional_users_created": tuple(additional_users_created),
