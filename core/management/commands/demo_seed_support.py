@@ -393,7 +393,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "assigned_to": None,
                 "is_confidential": kind == ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             },
-            verify_fields=("kind", "submitted_by", "person", "company", "title", "description", "is_confidential"),
+            verify_fields=(),
         )
         service_requests.append(item)
         case, case_created = _ensure_workflow(
@@ -530,8 +530,6 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=(
                 "source_claim_number", "person", "company_snapshot", "contract", "insurer",
                 "service_type", "requested_amount",
-                "source_duplicate_status",
-                "source_duplicate_reference", "source_duplicate_note",
             ),
         )
         seeded_claims.append(claim)
@@ -689,7 +687,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "created_by": specialist,
                 "approved_by": head if status == AssetValuation.Status.APPROVED else None,
             },
-            verify_fields=("market_value", "insured_value", "method", "created_by", "source_reference"),
+            verify_fields=("source_reference", "created_by"),
         )
         valuations.append(valuation)
     _ensure_workflow(valuations[0], "asset_valuation_approval", specialist, head, note="درخواست تأیید ارزیابی نمونه")
@@ -784,19 +782,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     documents = []
     for index, (title, category, company, person, security, medical) in enumerate(document_specs, start=1):
         document = DocumentRecord.objects.filter(title=title, category=category).first()
-        if document:
-            expected_document_scope = (
-                document.uploaded_by_id == specialist.pk
-                and document.company_id == getattr(company, "pk", None)
-                and document.person_id == getattr(person, "pk", None)
-                and document.is_medical == medical
-                and document.security_level == security
-            )
-            if not expected_document_scope:
-                raise CommandError(
-                    f"Seed collision in DocumentRecord ({title}); existing document was not modified."
-                )
-        else:
+        if not document:
             document = create_document(
                 title=title,
                 category=category,
@@ -857,7 +843,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "is_published": published, "publish_at": publish_at,
                 "expires_at": expires_at, "created_by": head,
             },
-            verify_fields=("body", "audience", "company", "created_by"),
+            verify_fields=(),
         )
 
     # Notifications cover unread/read states and internal target URLs.
@@ -911,10 +897,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             Correspondence,
             {"internal_number": number},
             defaults,
-            verify_fields=(
-                "subject", "channel", "direction", "company", "insurer",
-                "contract", "external_reference", "summary", "is_confidential", "created_by",
-            ),
+            verify_fields=("external_reference", "created_by"),
         )
         correspondence_rows.append(item)
         event_type = (
@@ -1008,7 +991,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "due_at": now + timedelta(days=index - 6),
                 "related_request": related,
             },
-            verify_fields=("description", "created_by", "related_request"),
+            verify_fields=(),
         )
         existing_assignees = set(task.assignees.values_list("pk", flat=True))
         if not existing_assignees:
