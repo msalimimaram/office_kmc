@@ -6,7 +6,7 @@
     <p class="eyebrow">پروفایل ورود: {{ profile_code }}</p>
     <h1>{{ profile.title }}</h1>
     <p class="muted">{{ profile.description }}</p>
-    <p><a href="{% url 'import_center' %}">بازگشت به مرکز ورود</a> · <a href="{% url 'import_template' profile_code %}">دریافت نمونه استاندارد Excel</a></p>
+    <p><a href="{% url 'import_center' %}">بازگشت به مرکز ورود</a> · <a href="{% url 'import_sample' profile_code %}">مشاهده نمونه مورد قبول</a> · <a href="{% url 'import_template' profile_code %}">دانلود فایل نمونه Excel</a></p>
   </div>
 </div>
 
