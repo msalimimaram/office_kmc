@@ -395,6 +395,18 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             approved_by=head,
             reason="انتصاب نماینده شرکت در داده نمایشی؛ محدود به همان شرکت",
         )
+        # A company representative is also an insured employee in the demo,
+        # so the same persona can submit requests for self and dependents.
+        _ensure_role_assignment(
+            record,
+            user=representative,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=company,
+            line_code="*",
+            granted_by=admin,
+            approved_by=head,
+            reason="ثبت نقش هم‌زمان بیمه‌شده برای نماینده شاغل شرکت",
+        )
 
         person = ensure(
             Person,
@@ -453,29 +465,38 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             },
             verify_fields=(),
         )
-        position = ensure(
-            OrganizationalPosition,
-            {"unit": unit, "code": "DEMO-COMPANY-REP"},
-            {
-                "title": "نماینده رسمی شرکت",
-                "level": OrganizationalPosition.Level.RESPONSIBLE,
-                "is_active": True,
-            },
-            verify_fields=(),
-        )
-        ensure(
-            PositionAssignment,
-            {"user": representative, "unit": unit, "position": position, "line_code": "*"},
-            {
-                "valid_from": start_date,
-                "valid_until": None,
-                "is_active": True,
-                "reason": "سمت سازمانی نماینده شرکت در نمونه ارائه",
-                "granted_by": admin,
-                "approved_by": head,
-            },
-            verify_fields=("reason", "granted_by", "approved_by"),
-        )
+        level_titles = {
+            OrganizationalPosition.Level.DEPUTY: "معاون",
+            OrganizationalPosition.Level.DIRECTOR: "مدیر",
+            OrganizationalPosition.Level.HEAD: "رئیس",
+            OrganizationalPosition.Level.SUPERVISOR: "سرپرست",
+            OrganizationalPosition.Level.RESPONSIBLE: "مسئول",
+            OrganizationalPosition.Level.SPECIALIST: "کارشناس",
+        }
+        for level in OrganizationalPosition.Level.values:
+            position = ensure(
+                OrganizationalPosition,
+                {"unit": unit, "code": f"DEMO-COMPANY-LEVEL-{level}"},
+                {
+                    "title": f"{level_titles[level]} واحد {company.name}",
+                    "level": level,
+                    "is_active": True,
+                },
+                verify_fields=(),
+            )
+            ensure(
+                PositionAssignment,
+                {"user": representative, "unit": unit, "position": position, "line_code": "*"},
+                {
+                    "valid_from": start_date,
+                    "valid_until": None,
+                    "is_active": True,
+                    "reason": f"انتصاب نمایشی سمت {level_titles[level]} برای نمایش چندسمتی بودن اشخاص",
+                    "granted_by": admin,
+                    "approved_by": head,
+                },
+                verify_fields=(),
+            )
 
     for index, insurer_row in enumerate(insurers, start=1):
         username = "Saman" if index == 1 else f"Saman{index}"
@@ -499,6 +520,95 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             approved_by=head,
             reason="انتصاب نماینده بیمه‌گر در محدوده همان بیمه‌گر",
         )
+
+    # Dependents: every relationship type is represented, connected to a
+    # valid primary insured person and constrained to the same company.
+    dependent_relationships = [
+        Person.Relationship.SPOUSE,
+        Person.Relationship.CHILD,
+        Person.Relationship.FATHER,
+        Person.Relationship.MOTHER,
+        Person.Relationship.OTHER,
+    ]
+    dependents_by_company = {}
+    for index, company in enumerate(companies, start=1):
+        primary = persons_by_company[company.pk]
+        relationship = dependent_relationships[(index - 1) % len(dependent_relationships)]
+        if relationship == Person.Relationship.CHILD:
+            birth = date(2010 + index % 10, 1 + index % 12, 1 + index % 27)
+        elif relationship in {Person.Relationship.FATHER, Person.Relationship.MOTHER}:
+            birth = date(1950 + index % 20, 1 + index % 12, 1 + index % 27)
+        else:
+            birth = date(1980 + index % 20, 1 + index % 12, 1 + index % 27)
+        dependent = ensure(
+            Person,
+            {"national_id": f"982100{index:04d}"},
+            {
+                "company": company,
+                "user": None,
+                "personnel_code": "",
+                "first_name": "عضو خانواده",
+                "last_name": f"خانواده {index:03d}",
+                "birth_date": birth,
+                "relationship": relationship,
+                "employee": primary,
+                "mobile": f"091288{index:06d}",
+                "iban": "",
+                "is_insured": True,
+                "is_active": True,
+            },
+            verify_fields=("company", "relationship", "employee"),
+        )
+        dependents_by_company[company.pk] = dependent
+
+    # Historical employment examples include transfers, retirement and
+    # termination without changing the current active employment pointer.
+    employment_statuses = [
+        PersonEmployment.Status.TRANSFERRED,
+        PersonEmployment.Status.RETIRED,
+        PersonEmployment.Status.TERMINATED,
+    ]
+    for index, company in enumerate(companies, start=1):
+        person = persons_by_company[company.pk]
+        previous_company = companies[index % len(companies)]
+        if previous_company.pk == company.pk:
+            previous_company = companies[(index + 1) % len(companies)]
+        status = employment_statuses[(index - 1) % len(employment_statuses)]
+        ensure(
+            PersonEmployment,
+            {"person": person, "company": previous_company, "source_reference": f"DEMO-PRES-HISTORY-{index:04d}"},
+            {
+                "personnel_code": f"HIST-{index:04d}",
+                "job_title": "سمت پیشین ثبت‌شده در تاریخچه",
+                "valid_from": start_date - timedelta(days=900),
+                "valid_until": start_date - timedelta(days=100),
+                "status": status,
+                "created_by": head,
+                "approved_by": head,
+            },
+            verify_fields=("status", "valid_from", "valid_until"),
+        )
+
+    # Company-declared leadership and operational titles intentionally allow
+    # several concurrent positions for one person, with a historical title.
+    company_titles = (
+        "مدیرعامل", "عضو هیئت‌مدیره", "رئیس هیئت‌مدیره",
+        "معاون منابع انسانی", "مدیر منابع انسانی", "نماینده سلامت و درمان",
+        "نماینده بیمه خودرو", "مسئول بیمه اموال",
+    )
+    for index, company in enumerate(companies, start=1):
+        person = persons_by_company[company.pk]
+        for title_index, title in enumerate(company_titles, start=1):
+            ensure(
+                CompanyLeadershipTitle,
+                {"company": company, "person": person, "title": title},
+                {
+                    "valid_from": start_date,
+                    "valid_until": start_date - timedelta(days=1) if title_index == 1 and index % 4 == 0 else None,
+                    "declared_by": company_representatives[company.pk],
+                },
+                verify_fields=(),
+            )
 
     # All insurance lines have active contracts for each company. This keeps
     # every generated claim/asset/person-change within a valid contract scope.
