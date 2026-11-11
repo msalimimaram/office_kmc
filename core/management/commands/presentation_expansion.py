@@ -1554,7 +1554,6 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     # document service so checksums and initial version rows are generated.
     from documents.services import create_document, record_document_access
     from documents.models import DocumentRecord, DocumentVersion, DocumentLink
-    from django.contrib.contenttypes.models import ContentType
 
     while DocumentRecord.objects.count() < MINIMUM_PER_MODEL:
         index = DocumentRecord.objects.count() + 1
