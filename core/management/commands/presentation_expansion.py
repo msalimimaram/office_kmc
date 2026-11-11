@@ -109,7 +109,7 @@ def _ensure_role_assignment(record, *, user, role, company=None, insurer=None, l
             "granted_by": granted_by,
             "approved_by": approved_by,
         },
-        verify_fields=("reason", "granted_by", "approved_by"),
+        verify_fields=(),
     )[0]
 
 
@@ -938,9 +938,6 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         "claims.claimobjection",
         "correspondence.correspondenceevent",
         "delegations.delegationevent",
-        "documents.documentrecord",
-        "documents.documentversion",
-        "documents.documentlink",
         "documents.documentaccessevent",
         "tasks.taskevent",
         "workflow.workflowevent",
@@ -1016,7 +1013,6 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     for label in (
         "organizations.personchangerequest",
         "insurance.contractrevision",
-        "correspondence.correspondencelink",
     ):
         model = apps.get_model(label)
         if _count(model) >= MINIMUM_PER_MODEL:
