@@ -16,6 +16,8 @@
     <p>برای افزایش تعداد، از <code>add_employee</code> یا <code>add_dependent</code> استفاده کنید. برای کاهش، <code>end_employment</code> را انتخاب کنید؛ سابقه حذف فیزیکی نمی‌شود. اصلاح مشخصات فردی باید از مسیر درخواست اصلاح اطلاعات انجام شود.</p>
   {% elif profile_code == "claims" %}
     <p>این ورودی برای خسارت و پرداخت اعلامی است. پرداخت ثبت‌شده در این مسیر صرفاً سابقه اطلاعاتی است و انتقال وجه انجام نمی‌دهد. اعلام تکراری بودن فقط از فایل بارگذاری‌شده توسط نماینده بیمه‌گر پذیرفته می‌شود.</p>
+  {% elif profile_code == "assets" %}
+    <p>این ورودی برای کارشناسان رشته‌های مرتبط است. مالک دارایی باید دقیقاً یک شرکت یا یک شخص باشد، قرارداد باید فعال و در محدوده همان مالک باشد و تاریخ بیمه‌نامه داخل بازه قرارداد قرار بگیرد. بعد از تأیید فایل، ارزیابی و دوره بیمه‌نامه جداگانه به گردش تصویب می‌روند و پوشش مستقیماً فعال نمی‌شود.</p>
   {% else %}
     <p>قراردادها در این مرحله فقط به‌صورت پیش‌نویس ساخته و برای تصویب رئیس اداره یا مدیر سامانه ارسال می‌شوند؛ اکسل باعث فعال شدن قرارداد نمی‌شود.</p>
   {% endif %}
@@ -57,6 +59,8 @@
             <tr><th>ردیف فایل</th><th>عملیات</th><th>کد ملی</th><th>نام</th><th>نام خانوادگی</th><th>شرکت</th></tr>
           {% elif profile_code == "claims" %}
             <tr><th>ردیف فایل</th><th>پرونده بیمه‌گر</th><th>کد ملی</th><th>نوع خدمت</th><th>مبلغ درخواستی</th><th>قابل پرداخت</th></tr>
+          {% elif profile_code == "assets" %}
+            <tr><th>ردیف فایل</th><th>کد دارایی</th><th>عنوان</th><th>نوع دارایی</th><th>مالک</th><th>قرارداد</th><th>بیمه‌نامه</th><th>ارزش بیمه‌شده</th><th>ارزش روز</th></tr>
           {% else %}
             <tr><th>ردیف فایل</th><th>شماره قرارداد</th><th>عنوان</th><th>بیمه‌گر</th><th>رشته</th><th>شرکت‌ها</th><th>تاریخ اثر</th></tr>
           {% endif %}
@@ -67,7 +71,11 @@
             {% if profile_code == "people_roster" %}
               <td>{{ row.source_row }}</td><td>{{ row.action }}</td><td>{{ row.national_id }}</td><td>{{ row.first_name }}</td><td>{{ row.last_name }}</td><td>{{ row.company_code }}</td>
             {% elif profile_code == "claims" %}
-              <td>{{ row.source_row }}</td><td>{{ row.source_claim_number }}</td><td>{{ row.person_id }}</td><td>{{ row.service_type }}</td><td>{{ row.requested_amount }}</td><td>{{ row.payable_amount }}</td>
+              <td>{{ row.source_row }}</td><td>{{ row.source_claim_number }}</td><td>{{ row.national_id }}</td><td>{{ row.service_type }}</td><td>{{ row.requested_amount }}</td><td>{{ row.payable_amount }}</td>
+            {% elif profile_code == "assets" %}
+              <td>{{ row.source_row }}</td><td>{{ row.asset_code }}</td><td>{{ row.name }}</td><td>{{ row.asset_type }}</td>
+              <td>{% if row.owner_type == "company" %}{{ row.company_code }}{% else %}{{ row.owner_national_id }}{% endif %}</td>
+              <td>{{ row.contract_number }}</td><td>{{ row.policy_number }}</td><td>{{ row.insured_value }}</td><td>{{ row.market_value }}</td>
             {% else %}
               <td>{{ row.source_row }}</td><td>{{ row.code }}</td><td>{{ row.title }}</td><td>{{ row.insurer_name }}</td><td>{{ row.line }}</td><td>{{ row.company_codes|join:", " }}</td><td>{{ row.effective_date }}</td>
             {% endif %}
