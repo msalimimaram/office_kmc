@@ -603,8 +603,8 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 CompanyLeadershipTitle,
                 {"company": company, "person": person, "title": title},
                 {
-                    "valid_from": start_date,
-                    "valid_until": start_date - timedelta(days=1) if title_index == 1 and index % 4 == 0 else None,
+                    "valid_from": start_date - timedelta(days=900) if title_index == 1 and index % 4 == 0 else start_date,
+                    "valid_until": start_date - timedelta(days=100) if title_index == 1 and index % 4 == 0 else None,
                     "declared_by": company_representatives[company.pk],
                 },
                 verify_fields=(),
@@ -645,6 +645,90 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             contract.companies.add(company)
             contracts_by_company_line[(company.pk, line)] = contract
         health_contracts[company.pk] = contracts_by_company_line[(company.pk, InsuranceLine.HEALTH)]
+
+    # Contract lifecycle: all defined states appear in the presentation,
+    # with dates and is_active kept consistent with each state.
+    contract_status_examples = (
+        Contract.Status.DRAFT,
+        Contract.Status.PENDING_APPROVAL,
+        Contract.Status.APPROVED,
+        Contract.Status.ACTIVE,
+        Contract.Status.EXPIRED,
+        Contract.Status.TERMINATED,
+        Contract.Status.REJECTED,
+        Contract.Status.LEGACY_INACTIVE,
+    )
+    for index, status in enumerate(contract_status_examples, start=1):
+        if status in {Contract.Status.EXPIRED, Contract.Status.TERMINATED, Contract.Status.LEGACY_INACTIVE}:
+            start_at = today - timedelta(days=365)
+            end_at = today - timedelta(days=30)
+        elif status == Contract.Status.APPROVED:
+            start_at = today + timedelta(days=30)
+            end_at = today + timedelta(days=395)
+        else:
+            start_at = today
+            end_at = today + timedelta(days=365)
+        lifecycle_contract = ensure(
+            Contract,
+            {"code": f"DEMO-PRES-LIFECYCLE-{status.upper()}"},
+            {
+                "title": f"نمونه چرخه عمر قرارداد — {status}",
+                "insurer": insurers[(index - 1) % len(insurers)],
+                "line": line_specs[(index - 1) % len(line_specs)][0],
+                "start_date": start_at,
+                "end_date": end_at,
+                "coverage_summary": "نمونه وضعیت چرخه عمر قرارداد برای پرزنتیشن.",
+                "terms": "شرایط ساختگی؛ بدون اثر حقوقی یا مالی.",
+                "status": status,
+                "is_active": status == Contract.Status.ACTIVE,
+            },
+            verify_fields=("status", "start_date", "end_date", "insurer", "line"),
+        )
+        lifecycle_contract.companies.add(companies[(index - 1) % len(companies)])
+
+    # A distinct contract revision for each state; every unapplied revision
+    # belongs to a different contract to respect the one-open-revision rule.
+    revision_statuses = list(ContractRevision.Status.values)
+    revision_contracts = list(
+        Contract.objects.filter(code__startswith="DEMO-PRES-").exclude(code__startswith="DEMO-PRES-LIFECYCLE-").order_by("pk")[:50]
+    )
+    for index, contract in enumerate(revision_contracts, start=1):
+        status = revision_statuses[(index - 1) % len(revision_statuses)]
+        is_termination = status == ContractRevision.Status.TERMINATED
+        snapshot = {
+            "code": contract.code,
+            "title": contract.title,
+            "insurer_id": contract.insurer_id,
+            "line": contract.line,
+            "start_date": contract.start_date.isoformat(),
+            "end_date": contract.end_date.isoformat(),
+            "coverage_summary": contract.coverage_summary,
+            "terms": contract.terms,
+            "company_ids": sorted(contract.companies.values_list("pk", flat=True)),
+        }
+        ensure(
+            ContractRevision,
+            {"contract": contract, "revision_number": 1},
+            {
+                "description": f"نسخه نمایشی شماره {index:03d} با وضعیت {status}",
+                "created_by": health_specialist,
+                "status": status,
+                "snapshot": snapshot,
+                "effective_date": today + timedelta(days=30) if status in {
+                    ContractRevision.Status.APPROVED, ContractRevision.Status.TERMINATED
+                } else None,
+                "approved_by": admin if status in {
+                    ContractRevision.Status.APPROVED, ContractRevision.Status.TERMINATED
+                } else None,
+                "approved_at": now if status in {
+                    ContractRevision.Status.APPROVED, ContractRevision.Status.TERMINATED
+                } else None,
+                "is_termination": is_termination,
+                "termination_reason": "نمونه فسخ با رعایت مهلت اعلام" if is_termination else "",
+                "notice_date": today if is_termination else None,
+            },
+            verify_fields=("status", "snapshot", "is_termination"),
+        )
 
     # The base script's initial contract remains valid for its original scope;
     # generated records use the company-specific contracts above.
