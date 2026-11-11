@@ -669,9 +669,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
 
     # Scoped delegations (active and suspended) plus immutable event history.
     delegation_specs = (
-        ("document_request", "document_request", RoleAssignment.Role.SUBSIDIARY_REP, company_rep_b, company_b, None, "health", WorkDelegation.Status.ACTIVE),
-        ("person_change", "iban", RoleAssignment.Role.INSURER_REP, insurer_rep, None, insurer, "health", WorkDelegation.Status.ACTIVE),
-        ("claim_review", "", RoleAssignment.Role.INSURANCE_SPECIALIST, specialist, None, None, "health", WorkDelegation.Status.SUSPENDED),
+        ("medical_assistance", "", RoleAssignment.Role.SUBSIDIARY_REP, company_rep_a, company_a, None, "health", WorkDelegation.Status.ACTIVE),
+        ("person_change", "iban", RoleAssignment.Role.INSURER_REP, insurer_rep, None, insurer, "health", WorkDelegation.Status.SUSPENDED),
+        ("claim_review", "", RoleAssignment.Role.INSURANCE_SPECIALIST, specialist, None, None, "health", WorkDelegation.Status.ACTIVE),
     )
     delegations = []
     for code, item_type, role, delegate, company, insurer_obj, line, status in delegation_specs:
