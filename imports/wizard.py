@@ -179,7 +179,9 @@ def _preview_people(user, mapped_rows):
     from organizations.models import Person
 
     valid, errors, seen = [], [], set()
-    for row_number, raw in mapped_rows:
+    staged_employees = {}
+    for row_number, raw in list(mapped_rows):
+        birth_date = None
         try:
             action = _text(raw.get("action")).lower()
             action = {
@@ -196,7 +198,6 @@ def _preview_people(user, mapped_rows):
                 raise ValueError(f"ردیف {row_number}: کد ملی باید دقیقاً ۱۰ رقم باشد.")
             if national_id in seen:
                 raise ValueError(f"ردیف {row_number}: کد ملی در همین فایل تکراری است.")
-            seen.add(national_id)
             company = _company_for_row(user, raw.get("company_code"), row_number)
             person = Person.objects.filter(national_id=national_id).first()
             employment_history = PersonEmployment.objects.filter(person=person) if person else PersonEmployment.objects.none()
@@ -210,10 +211,13 @@ def _preview_people(user, mapped_rows):
                     raise ValueError(f"ردیف {row_number}: تاریخ تولد معتبر و غیرآینده الزامی است.")
                 if active_employment:
                     raise ValueError(f"ردیف {row_number}: این شخص در حال حاضر سابقه اشتغال فعال دارد؛ افزودن مجدد مجاز نیست.")
-                if person and not employment_history.exists() and person.company_id == company.pk:
-                    raise ValueError(f"ردیف {row_number}: این شخص قبلاً در همین شرکت ثبت شده است.")
-                if person and active_employment and active_employment.company_id != company.pk:
-                    raise ValueError(f"ردیف {row_number}: انتقال بین شرکت‌ها باید از مسیر رسمی انتقال انجام شود.")
+                if person and not employment_history.exists():
+                    if person.company_id == company.pk:
+                        raise ValueError(f"ردیف {row_number}: این شخص قبلاً در همین شرکت ثبت شده است.")
+                    raise ValueError(f"ردیف {row_number}: تغییر شرکت باید از مسیر رسمی انتقال انجام شود.")
+                if person and not employment_history.filter(company=company).exists():
+                    raise ValueError(f"ردیف {row_number}: انتقال یا استخدام مجدد در شرکت دیگر باید از مسیر رسمی بررسی شود.")
+
             elif action == "add_dependent":
                 relationship = _text(raw.get("relationship")).lower()
                 allowed_relationships = {
@@ -224,17 +228,26 @@ def _preview_people(user, mapped_rows):
                 if relationship not in allowed_relationships:
                     raise ValueError(f"ردیف {row_number}: برای فرد تحت تکفل نسبت معتبر وارد کنید.")
                 employee_national_id = normalize_national_id(raw.get("employee_national_id"))
+                if len(employee_national_id) != 10:
+                    raise ValueError(f"ردیف {row_number}: کد ملی بیمه‌شده اصلی معتبر نیست.")
                 employee = Person.objects.filter(national_id=employee_national_id, is_active=True).first()
-                if not employee:
-                    raise ValueError(f"ردیف {row_number}: بیمه‌شده اصلی با کد ملی واردشده پیدا نشد.")
-                employee_active = PersonEmployment.objects.filter(
-                    person=employee, company=company, status=PersonEmployment.Status.ACTIVE
-                ).exists()
-                if not employee_active and not (
-                    employee.company_id == company.pk
-                    and not PersonEmployment.objects.filter(person=employee).exists()
-                ):
-                    raise ValueError(f"ردیف {row_number}: بیمه‌شده اصلی در این شرکت اشتغال فعال ندارد.")
+                staged_company_id = staged_employees.get(employee_national_id)
+                if not employee and staged_company_id is None:
+                    raise ValueError(f"ردیف {row_number}: بیمه‌شده اصلی پیدا نشد؛ ردیف کارمند اصلی باید پیش از فرد تحت تکفل باشد.")
+                if staged_company_id is not None:
+                    if staged_company_id != company.pk:
+                        raise ValueError(f"ردیف {row_number}: فرد تحت تکفل باید با شرکت کارمند اصلی یکسان باشد.")
+                else:
+                    if employee.relationship != Person.Relationship.EMPLOYEE or employee.employee_id:
+                        raise ValueError(f"ردیف {row_number}: کد ملی والد باید متعلق به بیمه‌شده اصلی باشد.")
+                    employee_active = PersonEmployment.objects.filter(
+                        person=employee, company=company, status=PersonEmployment.Status.ACTIVE
+                    ).exists()
+                    if not employee_active and not (
+                        employee.company_id == company.pk
+                        and not PersonEmployment.objects.filter(person=employee).exists()
+                    ):
+                        raise ValueError(f"ردیف {row_number}: بیمه‌شده اصلی در این شرکت اشتغال فعال ندارد.")
                 if person:
                     raise ValueError(f"ردیف {row_number}: کد ملی فرد تحت تکفل قبلاً ثبت شده است.")
                 if not _text(raw.get("first_name")) or not _text(raw.get("last_name")):
@@ -242,6 +255,7 @@ def _preview_people(user, mapped_rows):
                 birth_date = _parse_date(raw.get("birth_date"), row_number, "birth_date")
                 if not birth_date or birth_date > timezone.localdate():
                     raise ValueError(f"ردیف {row_number}: تاریخ تولد معتبر و غیرآینده الزامی است.")
+
             else:
                 if not person:
                     raise ValueError(f"ردیف {row_number}: شخصی با این کد ملی یافت نشد.")
@@ -250,25 +264,28 @@ def _preview_people(user, mapped_rows):
                 ).exists():
                     raise ValueError(f"ردیف {row_number}: سابقه اشتغال فعال این شخص در شرکت انتخاب‌شده یافت نشد.")
 
-            valid.append({
+            normalized_row = {
                 "action": action,
                 "national_id": national_id,
                 "company_id": company.pk,
                 "company_code": company.code,
                 "first_name": _text(raw.get("first_name"))[:100],
                 "last_name": _text(raw.get("last_name"))[:100],
-                "birth_date": birth_date.isoformat() if action != "end_employment" else None,
+                "birth_date": birth_date.isoformat() if birth_date else None,
                 "personnel_code": _text(raw.get("personnel_code"))[:50],
                 "mobile": _text(raw.get("mobile"))[:20],
                 "iban": _text(raw.get("iban")).replace(" ", "").upper()[:34],
                 "relationship": _text(raw.get("relationship")).lower(),
                 "employee_national_id": normalize_national_id(raw.get("employee_national_id")),
                 "source_row": row_number,
-            })
+            }
+            valid.append(normalized_row)
+            seen.add(national_id)
+            if action == "add_employee":
+                staged_employees[national_id] = company.pk
         except (ValueError, ValidationError, PermissionDenied) as exc:
             errors.append(str(exc))
     return valid, errors
-
 
 def _preview_claims(user, mapped_rows):
     is_insurer = has_role(user, RoleAssignment.Role.INSURER_REP) and not has_global_access(user)
