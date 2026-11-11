@@ -12,7 +12,7 @@ import jdatetime
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -543,7 +543,10 @@ def profile_import(request, profile):
                     source_type=profile,
                     file=upload,
                     uploaded_by=request.user,
-                    status=ImportBatch.Status.VALIDATED,
+                    status=(
+                        ImportBatch.Status.VALIDATED
+                        if valid_rows else ImportBatch.Status.FAILED
+                    ),
                     total_rows=len(valid_rows) + len(errors),
                     valid_rows=len(valid_rows),
                     invalid_rows=len(errors),
@@ -883,7 +886,7 @@ def profile_import_confirm(request, batch_id):
                 },
                 request=request,
             )
-    except (ValidationError, ValueError, PermissionDenied) as exc:
+    except (IntegrityError, ValidationError, ValueError, PermissionDenied) as exc:
         messages.error(request, f"ثبت نهایی انجام نشد؛ هیچ ردیفی ثبت نشد: {exc}")
         return redirect("profile_import", profile=profile)
     messages.success(request, f"ثبت نهایی انجام شد: {batch.valid_rows} ردیف؛ {batch.invalid_rows} ردیف دارای خطا وارد نشد.")
