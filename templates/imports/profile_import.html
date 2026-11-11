@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.title }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">پروفایل ورود: {{ profile_code }}</p>
+    <h1>{{ profile.title }}</h1>
+    <p class="muted">{{ profile.description }}</p>
+    <p><a href="{% url 'import_center' %}">بازگشت به مرکز ورود</a> · <a href="{% url 'import_template' profile_code %}">دریافت نمونه استاندارد Excel</a></p>
+  </div>
+</div>
+
+<section class="panel">
+  <h2>۱. تعیین عملیات و انتخاب فایل</h2>
+  {% if profile_code == "people_roster" %}
+    <p>برای افزایش تعداد، از <code>add_employee</code> یا <code>add_dependent</code> استفاده کنید. برای کاهش، <code>end_employment</code> را انتخاب کنید؛ سابقه حذف فیزیکی نمی‌شود. اصلاح مشخصات فردی باید از مسیر درخواست اصلاح اطلاعات انجام شود.</p>
+  {% elif profile_code == "claims" %}
+    <p>این ورودی برای خسارت و پرداخت اعلامی است. پرداخت ثبت‌شده در این مسیر صرفاً سابقه اطلاعاتی است و انتقال وجه انجام نمی‌دهد. اعلام تکراری بودن فقط از فایل بارگذاری‌شده توسط نماینده بیمه‌گر پذیرفته می‌شود.</p>
+  {% else %}
+    <p>قراردادها در این مرحله فقط به‌صورت پیش‌نویس ساخته و برای تصویب رئیس اداره یا مدیر سامانه ارسال می‌شوند؛ اکسل باعث فعال شدن قرارداد نمی‌شود.</p>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% for field in form %}
+      <div class="form-row">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<small class="muted">{{ field.help_text }}</small>{% endif %}
+        {% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}
+      </div>
+    {% endfor %}
+    {% if form.non_field_errors %}<div class="error-list">{{ form.non_field_errors }}</div>{% endif %}
+    <button class="btn primary" type="submit">اعتبارسنجی و ساخت پیش‌نمایش</button>
+  </form>
+</section>
+
+{% if batch %}
+<section class="panel">
+  <p class="eyebrow">عملیات {{ batch.batch_number }}</p>
+  <h2>۲. پیش‌نمایش و نتیجه اعتبارسنجی</h2>
+  <div class="stats">
+    <article class="stat"><div><span class="muted">کل ردیف‌های بررسی‌شده</span><strong>{{ batch.total_rows }}</strong></div></article>
+    <article class="stat"><div><span class="muted">قابل ثبت</span><strong>{{ batch.valid_rows }}</strong></div></article>
+    <article class="stat"><div><span class="muted">دارای خطا</span><strong>{{ batch.invalid_rows }}</strong></div></article>
+  </div>
+  <p class="muted">نگاشت ذخیره‌شده: {{ batch.column_mapping }}</p>
+  {% if errors %}
+    <h3>ردیف‌های نیازمند اصلاح (حداکثر ۱۰۰ پیام)</h3>
+    <ul class="error-list">{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if preview_rows %}
+    <h3>نمونه داده‌های تبدیل‌شده (حداکثر ۳۰ ردیف)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          {% if profile_code == "people_roster" %}
+            <tr><th>ردیف فایل</th><th>عملیات</th><th>کد ملی</th><th>نام</th><th>نام خانوادگی</th><th>شرکت</th></tr>
+          {% elif profile_code == "claims" %}
+            <tr><th>ردیف فایل</th><th>پرونده بیمه‌گر</th><th>کد ملی</th><th>نوع خدمت</th><th>مبلغ درخواستی</th><th>قابل پرداخت</th></tr>
+          {% else %}
+            <tr><th>ردیف فایل</th><th>شماره قرارداد</th><th>عنوان</th><th>بیمه‌گر</th><th>رشته</th><th>شرکت‌ها</th><th>تاریخ اثر</th></tr>
+          {% endif %}
+        </thead>
+        <tbody>
+          {% for row in preview_rows %}
+          <tr>
+            {% if profile_code == "people_roster" %}
+              <td>{{ row.source_row }}</td><td>{{ row.action }}</td><td>{{ row.national_id }}</td><td>{{ row.first_name }}</td><td>{{ row.last_name }}</td><td>{{ row.company_code }}</td>
+            {% elif profile_code == "claims" %}
+              <td>{{ row.source_row }}</td><td>{{ row.source_claim_number }}</td><td>{{ row.person_id }}</td><td>{{ row.service_type }}</td><td>{{ row.requested_amount }}</td><td>{{ row.payable_amount }}</td>
+            {% else %}
+              <td>{{ row.source_row }}</td><td>{{ row.code }}</td><td>{{ row.title }}</td><td>{{ row.insurer_name }}</td><td>{{ row.line }}</td><td>{{ row.company_codes|join:", " }}</td><td>{{ row.effective_date }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+  {% if confirm_available %}
+    <form method="post" action="{% url 'profile_import_confirm' batch.pk %}">
+      {% csrf_token %}
+      <label for="review_note">یادداشت تأییدکننده</label>
+      <textarea id="review_note" name="review_note" rows="3"></textarea>
+      <p class="notice info">بارگذار این فایل نمی‌تواند آن را تأیید کند. تأیید نهایی پس از کنترل پیش‌نمایش توسط کاربر مجاز دیگری انجام می‌شود.</p>
+      <button class="btn primary" type="submit">تأیید و ثبت نهایی ردیف‌های معتبر</button>
+    </form>
+  {% elif batch.valid_rows %}
+    <p class="notice info">پیش‌نمایش ذخیره شد. پس از ورود یک تأییدکننده مستقل و مجاز، ثبت نهایی انجام می‌شود.</p>
+  {% else %}
+    <p class="notice warning">هیچ ردیف معتبری برای ثبت وجود ندارد. فایل را اصلاح و دوباره بارگذاری کنید.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if pending_batches %}
+<section class="panel">
+  <h2>فایل‌های در انتظار بررسی</h2>
+  {% for item in pending_batches %}
+    <article class="response-box">
+      <strong>{{ item.batch_number }}</strong>
+      <p>بارگذار: {{ item.uploaded_by.get_full_name|default:item.uploaded_by.username }} · {{ item.created_at }}</p>
+      <p>قابل ثبت: {{ item.valid_rows }} · دارای خطا: {{ item.invalid_rows }}</p>
+      {% if can_confirm_batches and item.uploaded_by_id != request.user.pk and item.valid_rows %}
+        <form method="post" action="{% url 'profile_import_confirm' item.pk %}">
+          {% csrf_token %}
+          <label>یادداشت بررسی</label>
+          <textarea name="review_note" rows="2"></textarea>
+          <button class="btn primary" type="submit">تأیید این فایل</button>
+        </form>
+      {% endif %}
+    </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
