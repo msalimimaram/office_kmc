@@ -106,7 +106,7 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
         obj=obj,
         return_delegation=True,
     )
-    target_assignee = delegation.delegate_to if delegation is not None else assignee
+    target_assignee = delegation.delegate_to if delegation is not None else resolved_assignee
     return start_workflow(
         obj=obj,
         code=code,
