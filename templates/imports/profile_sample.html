@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}نمونه استاندارد — {{ profile.title }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">نمونه مورد قبول سیستم</p>
+    <h1>{{ profile.title }}</h1>
+    <p class="muted">{{ profile.description }}</p>
+  </div>
+</div>
+
+<section class="panel">
+  <h2>نمونه ردیف‌های معتبر</h2>
+  <p class="muted">این داده‌ها ساختگی‌اند و فقط قالب، ترتیب و مقدارهای مجاز را نشان می‌دهند. شناسه‌ها و اطلاعات واقعی خود را جایگزین کنید.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% for field in profile.fields %}
+            <th>{{ field.1 }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sample_rows %}
+          <tr>
+            {% for value in row %}
+              <td>{{ value|default:"—" }}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>راهنمای فیلدها و ستون پیش‌فرض</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>نام فنی</th><th>شرح فیلد</th><th>ستون نمونه</th><th>اجباری</th></tr></thead>
+      <tbody>
+        {% for field in profile.fields %}
+          <tr>
+            <td><code>{{ field.0 }}</code></td>
+            <td>{{ field.1 }}</td>
+            <td>{{ field.2 }}</td>
+            <td>{% if field.3 %}بله{% else %}خیر{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted">در فایل خودتان لازم نیست ترتیب ستون‌ها همین باشد. در مرحله بعد، حرف ستون هر فیلد را خودتان تعیین می‌کنید؛ مثلاً کد ملی در D و نام در Y.</p>
+  <p>
+    <a class="btn primary" href="{% url 'import_template' profile_code %}">دانلود فایل Excel نمونه و راهنما</a>
+    <a class="btn secondary" href="{% url 'profile_import' profile_code %}">شروع ورود و تنظیم ستون‌ها</a>
+    <a href="{% url 'import_center' %}">بازگشت به مرکز ورود</a>
+  </p>
+</section>
+{% endblock %}
