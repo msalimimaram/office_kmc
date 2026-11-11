@@ -132,13 +132,12 @@ def _can_review_batch(user, batch):
         return True
     if not isinstance(batch.preview_data, list) or not batch.preview_data:
         return False
-    contract_ids = {
-        row.get("contract_id")
+    if any(
+        not isinstance(row, dict) or not row.get("contract_id")
         for row in batch.preview_data
-        if isinstance(row, dict) and row.get("contract_id")
-    }
-    if len(contract_ids) != len(batch.preview_data):
+    ):
         return False
+    contract_ids = {row["contract_id"] for row in batch.preview_data}
     contracts = Contract.objects.filter(pk__in=contract_ids, is_active=True, status=Contract.Status.ACTIVE)
     return contracts.count() == len(contract_ids) and set(
         contracts.values_list("line", flat=True)
