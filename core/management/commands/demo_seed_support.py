@@ -44,7 +44,7 @@ from workflow.models import (
     BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
     WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
-from workflow.services import start_workflow
+from workflow.services import resolve_initial_assignee, start_workflow, transition_case
 
 
 EXPECTED_MODEL_LABELS = (
@@ -100,8 +100,19 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
     ).first()
     if case:
         return case, False
+    resolved_assignee, delegation = resolve_initial_assignee(
+        definition=definition,
+        obj=obj,
+        return_delegation=True,
+    )
+    target_assignee = delegation.delegate_to if delegation is not None else assignee
     return start_workflow(
-        obj=obj, code=code, actor=actor, assignee=assignee, note=note
+        obj=obj,
+        code=code,
+        actor=actor,
+        assignee=target_assignee,
+        delegation=delegation,
+        note=note,
     ), True
 
 
@@ -359,6 +370,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         company_d.pk: (Person.objects.get(national_id="0012345683"), company_d_rep, company_d_rep),
     }
     service_requests = list(ServiceRequest.objects.filter(reference__in=["IB-DEMO-001", "IB-DEMO-002"]))
+    request_workflows = {}
     for index, (kind, label) in enumerate(ServiceRequest.Kind.choices, start=1):
         company = (company_a, company_b, company_c, company_d)[(index - 1) % 4]
         person, submitter, representative = request_people[company.pk]
@@ -379,10 +391,56 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=("kind", "submitted_by", "person", "company", "title", "description", "is_confidential"),
         )
         service_requests.append(item)
-        _ensure_workflow(
+        case, case_created = _ensure_workflow(
             item, kind, submitter, representative,
             note=f"شروع گردش کار سناریوی {kind}",
         )
+        request_workflows[item.reference] = (case, case_created)
+
+    # Exercise several independent operational paths once. Existing cases are never
+    # replayed or rewound on a subsequent seed run.
+    def advance_demo_request(reference, action_code, actor, recipient=None, note="اقدام نمونه برای آزمون گردش کار"):
+        case, was_created = request_workflows[reference]
+        if not was_created:
+            return case
+        return transition_case(
+            case_id=case.pk,
+            actor=actor,
+            action_code=action_code,
+            recipient=recipient,
+            note=note,
+        )
+
+    # Waiting for employee information.
+    advance_demo_request("DEMO-REQ-001", "accept_for_review", company_rep_a, head)
+    advance_demo_request(
+        "DEMO-REQ-001", "request_information", head, users["employee.a"],
+        note="برای تکمیل بررسی، مدرک تکمیلی نمونه ارسال شود.",
+    )
+    # Internal review and insurer referral.
+    advance_demo_request("DEMO-REQ-005", "accept_for_review", company_rep_a, head)
+    advance_demo_request(
+        "DEMO-REQ-005", "refer_to_insurer", head, insurer_rep,
+        note="برای بررسی پوشش و اعلام نتیجه به بیمه‌گر ارجاع شد.",
+    )
+    # Approved request, still awaiting completion.
+    advance_demo_request("DEMO-REQ-006", "accept_for_review", company_rep_b, head)
+    advance_demo_request("DEMO-REQ-006", "approve", head, head)
+    # Rejected request, kept in its rejected state for review.
+    advance_demo_request("DEMO-REQ-007", "accept_for_review", company_c_rep, head)
+    advance_demo_request(
+        "DEMO-REQ-007", "reject", head, admin,
+        note="درخواست نمونه با توجه به شرایط قرارداد قابل تأیید نیست.",
+    )
+    # Completed but not finally closed.
+    advance_demo_request("DEMO-REQ-009", "accept_for_review", company_rep_a, head)
+    advance_demo_request("DEMO-REQ-009", "approve", head, head)
+    advance_demo_request("DEMO-REQ-009", "mark_completed", head, admin)
+    # Fully closed request.
+    advance_demo_request("DEMO-REQ-010", "accept_for_review", company_rep_b, head)
+    advance_demo_request("DEMO-REQ-010", "approve", head, head)
+    advance_demo_request("DEMO-REQ-010", "mark_completed", head, admin)
+    advance_demo_request("DEMO-REQ-010", "finalize_completion", admin, None)
 
     # Person-change flows are created as immutable requests, never by overwriting Person fields.
     person_change_requests = []
