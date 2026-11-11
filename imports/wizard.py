@@ -664,6 +664,22 @@ def import_center(request):
 
 
 @login_required
+def profile_sample(request, profile):
+    spec = get_profile(profile)
+    if not spec or not _profile_allowed(request.user, profile):
+        raise PermissionDenied
+    sample_rows = [
+        dict(zip([field[0] for field in spec["fields"]], row))
+        for row in spec["sample"]
+    ]
+    return render(request, "imports/profile_sample.html", {
+        "profile_code": profile,
+        "profile": spec,
+        "sample_rows": sample_rows,
+    })
+
+
+@login_required
 def download_profile_template(request, profile):
     spec = get_profile(profile)
     if not spec or not _profile_allowed(request.user, profile):
