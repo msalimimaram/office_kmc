@@ -120,6 +120,30 @@ def _can_review(user, code):
         return _staff(user)
     return False
 
+def _can_review_batch(user, batch):
+    if not _can_review(user, batch.source_type):
+        return False
+    if has_global_access(user):
+        return True
+    if batch.source_type != "claims":
+        return True
+    permitted_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+    if "*" in permitted_lines:
+        return True
+    if not isinstance(batch.preview_data, list) or not batch.preview_data:
+        return False
+    contract_ids = {
+        row.get("contract_id")
+        for row in batch.preview_data
+        if isinstance(row, dict) and row.get("contract_id")
+    }
+    if len(contract_ids) != len(batch.preview_data):
+        return False
+    contracts = Contract.objects.filter(pk__in=contract_ids, is_active=True, status=Contract.Status.ACTIVE)
+    return contracts.count() == len(contract_ids) and set(
+        contracts.values_list("line", flat=True)
+    ).issubset(permitted_lines)
+
 
 def _company_for_row(user, raw_code, row_number):
     representative_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
@@ -259,10 +283,13 @@ def _preview_people(user, mapped_rows):
             else:
                 if not person:
                     raise ValueError(f"ردیف {row_number}: شخصی با این کد ملی یافت نشد.")
-                if not PersonEmployment.objects.filter(
+                active_employments = PersonEmployment.objects.filter(
                     person=person, company=company, status=PersonEmployment.Status.ACTIVE
-                ).exists():
-                    raise ValueError(f"ردیف {row_number}: سابقه اشتغال فعال این شخص در شرکت انتخاب‌شده یافت نشد.")
+                )
+                if active_employments.count() != 1:
+                    raise ValueError(
+                        f"ردیف {row_number}: باید دقیقاً یک سابقه اشتغال فعال در شرکت انتخاب‌شده وجود داشته باشد."
+                    )
 
             normalized_row = {
                 "action": action,
@@ -341,6 +368,8 @@ def _preview_claims(user, mapped_rows):
                 companies__id=company_id,
                 start_date__lte=service_date,
                 end_date__gte=service_date,
+                is_active=True,
+                status=Contract.Status.ACTIVE,
             )
             if is_insurer:
                 contract_qs = contract_qs.filter(insurer_id=insurer_id)
@@ -558,13 +587,17 @@ def profile_import(request, profile):
                 preview_rows = valid_rows[:MAX_PREVIEW_ROWS]
             except (ValueError, ValidationError) as exc:
                 form.add_error("file", str(exc))
-    pending_batches = ImportBatch.objects.filter(
+    candidate_batches = ImportBatch.objects.filter(
         status=ImportBatch.Status.VALIDATED,
         source_type=profile,
-    )
-    if not _can_review(request.user, profile):
-        pending_batches = pending_batches.filter(uploaded_by=request.user)
-    pending_batches = pending_batches.select_related("uploaded_by").order_by("-created_at")[:30]
+    ).select_related("uploaded_by").order_by("-created_at")[:100]
+    pending_batches = []
+    for item in candidate_batches:
+        item.can_confirm = _can_review_batch(request.user, item) and item.uploaded_by_id != request.user.pk
+        if item.uploaded_by_id == request.user.pk or item.can_confirm:
+            pending_batches.append(item)
+        if len(pending_batches) >= 30:
+            break
     return render(request, "imports/profile_import.html", {
         "profile_code": profile,
         "profile": spec,
@@ -625,6 +658,10 @@ def _process_people_batch(batch, reviewer):
                     is_insured=True,
                     is_active=True,
                 )
+            if not person.is_active or not person.is_insured:
+                person.is_active = True
+                person.is_insured = True
+                person.save(update_fields=["is_active", "is_insured", "updated_at"])
             PersonEmployment.objects.create(
                 person=person, company=company, personnel_code=row["personnel_code"],
                 job_title="ثبت گروهی فهرست بیمه‌شدگان", valid_from=today,
@@ -663,11 +700,12 @@ def _process_people_batch(batch, reviewer):
         elif action == "end_employment":
             if not person or not person.is_active:
                 raise ValidationError("شخص برای خاتمه همکاری دیگر فعال یا موجود نیست.")
-            employment = PersonEmployment.objects.select_for_update().filter(
+            employments = PersonEmployment.objects.select_for_update().filter(
                 person=person, company=company, status=PersonEmployment.Status.ACTIVE
-            ).first()
-            if not employment:
-                raise ValidationError("اشتغال فعال این شخص در شرکت در زمان تأیید پیدا نشد.")
+            )
+            if employments.count() != 1:
+                raise ValidationError("در زمان تأیید باید دقیقاً یک سابقه اشتغال فعال در این شرکت وجود داشته باشد.")
+            employment = employments.get()
             employment.status = PersonEmployment.Status.TERMINATED
             employment.valid_until = today
             employment.approved_by = reviewer
@@ -849,7 +887,7 @@ def profile_import_confirm(request, batch_id):
         raise PermissionDenied
     batch = get_object_or_404(ImportBatch.objects.select_related("uploaded_by"), pk=batch_id)
     profile = batch.source_type
-    if profile not in PROFILES or not _can_review(request.user, profile):
+    if profile not in PROFILES or not _can_review_batch(request.user, batch):
         raise PermissionDenied
     if batch.uploaded_by_id == request.user.pk:
         raise PermissionDenied("بارگذار فایل اجازه تأیید نهایی همان فایل را ندارد.")
