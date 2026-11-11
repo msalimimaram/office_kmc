@@ -890,22 +890,23 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
 
     # Service-request coverage is deliberately larger than the set of request
     # kinds. Each case starts through the production workflow service.
-    from workflow.services import resolve_initial_assignee, start_workflow
+    from workflow.services import resolve_initial_assignee, start_workflow, transition_case
 
     def start_case(obj, code, actor, note):
         content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
-        if WorkflowCase.objects.filter(
+        existing_case = WorkflowCase.objects.filter(
             definition__code=code,
             definition__is_active=True,
             content_type=content_type,
             object_id=str(obj.pk),
-        ).exists():
-            return
+        ).first()
+        if existing_case:
+            return existing_case, False
         definition = WorkflowDefinition.objects.filter(code=code, is_active=True).order_by("-version").first()
         if definition is None:
             raise CommandError(f"Missing active workflow definition for demo scenario: {code}")
         assignee, delegation = resolve_initial_assignee(definition=definition, obj=obj, return_delegation=True)
-        start_workflow(
+        case = start_workflow(
             obj=obj,
             code=code,
             actor=actor,
@@ -913,6 +914,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             delegation=delegation,
             note=note,
         )
+        return case, True
 
     demo_requests = list(ServiceRequest.objects.filter(reference__startswith="DEMO-PRES-REQ").order_by("pk"))
     request_kinds = list(ServiceRequest.Kind.values)
@@ -939,7 +941,45 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             verify_fields=("kind", "submitted_by", "person", "company", "is_confidential"),
         )
         demo_requests.append(item)
-        start_case(item, kind, submitter, f"شروع گردش کار نمایشی درخواست {item.reference}")
+        case, case_created = start_case(
+            item, kind, submitter, f"شروع گردش کار نمایشی درخواست {item.reference}"
+        )
+        if case_created:
+            state_slot = index % 8
+            def move(action, actor, recipient=None, note="اقدام نمایشی گردش کار"):
+                return transition_case(
+                    case_id=case.pk,
+                    actor=actor,
+                    action_code=action,
+                    recipient=recipient,
+                    note=note,
+                )
+
+            if state_slot == 1:
+                move("accept_for_review", submitter, admin, "پذیرش اولیه برای نمایش تایم‌لاین بررسی")
+            elif state_slot == 2:
+                move("accept_for_review", submitter, admin)
+                move("request_information", admin, submitter, "مدرک تکمیلی نمونه برای ادامه بررسی لازم است.")
+            elif state_slot == 3:
+                move("accept_for_review", submitter, admin)
+                applicable_contract = contracts_by_company_line[(company.pk, InsuranceLine.HEALTH)]
+                insurer_recipient = insurer_representatives[applicable_contract.insurer_id]
+                move("refer_to_insurer", admin, insurer_recipient, "ارجاع کنترل‌شده برای اعلام نظر بیمه‌گر.")
+            elif state_slot == 4:
+                move("accept_for_review", submitter, admin)
+                move("approve", admin, admin, "درخواست پس از بررسی نمونه تأیید شد.")
+            elif state_slot == 5:
+                move("accept_for_review", submitter, admin)
+                move("reject", admin, admin, "درخواست نمونه با شرایط قرارداد منطبق نیست.")
+            elif state_slot == 6:
+                move("accept_for_review", submitter, admin)
+                move("approve", admin, admin)
+                move("mark_completed", admin, admin)
+            elif state_slot == 7:
+                move("accept_for_review", submitter, admin)
+                move("approve", admin, admin)
+                move("mark_completed", admin, admin)
+                move("finalize_completion", admin, None, "بستن نهایی سناریوی نمایشی.")
 
     # Fifty active, versioned workflow definitions with two steps and explicit
     # approval/closure transitions. The first definitions are the real domain
