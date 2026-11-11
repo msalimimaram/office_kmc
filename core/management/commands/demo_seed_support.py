@@ -41,6 +41,7 @@ from requests_portal.models import ServiceRequest
 from tasks.models import InternalTask, TaskEvent
 from workflow.models import (
     BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
+    WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
 from workflow.services import start_workflow
 
@@ -991,15 +992,68 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             },
         )
 
-    # Ensure every one of the project's 45 concrete domain models has records.
-    from django.apps import apps
-    missing = []
-    for label in EXPECTED_MODEL_LABELS:
-        model = apps.get_model(label)
-        if not model.objects.exists():
-            missing.append(label)
+    # Verify that a namespaced demo fixture exists in each of the 45 concrete models.
+    solar_day = jdatetime.date.fromgregorian(date=date(2026, 11, 11)).strftime("%Y%m%d")
+    demo_usernames = (
+        "admin.demo", "head.demo", "specialist.demo", "companya.demo",
+        "companyb.demo", "employee.a", "employee.b", "insurer.demo",
+        "specialist.fire.demo", "insurer.two.demo", "companyc.demo", "companyd.demo",
+    )
+    service_workflow_codes = [code for code, _label in ServiceRequest.Kind.choices]
+    coverage_checks = {
+        "accounts.user": User.objects.filter(username__in=demo_usernames).count() >= len(demo_usernames),
+        "accounts.organizationalunit": OrganizationalUnit.objects.filter(code__startswith="DEMO-").exists(),
+        "accounts.organizationalposition": OrganizationalPosition.objects.filter(code__startswith="DEMO-").exists(),
+        "accounts.roleassignment": RoleAssignment.objects.filter(user__username__in=demo_usernames).exists(),
+        "accounts.positionassignment": PositionAssignment.objects.filter(position__code__startswith="DEMO-").exists(),
+        "accounts.usernotification": UserNotification.objects.filter(title__startswith="اعلان نمونه").exists(),
+        "announcements.announcement": Announcement.objects.filter(title__startswith="DEMO-ANN").exists(),
+        "assets.insuredasset": InsuredAsset.objects.filter(asset_code__startswith="DEMO-ASSET").exists(),
+        "assets.vehicle": Vehicle.objects.filter(asset__asset_code__startswith="DEMO-ASSET-VEH").exists(),
+        "assets.assetvaluation": AssetValuation.objects.filter(asset__asset_code__startswith="DEMO-ASSET").exists(),
+        "assets.assetpolicyperiod": AssetPolicyPeriod.objects.filter(policy_number__startswith="DEMO-ASSET-POL").exists(),
+        "assets.assetpolicyendorsement": AssetPolicyEndorsement.objects.filter(endorsement_number__startswith="DEMO-END").exists(),
+        "auditlog.auditevent": AuditEvent.objects.filter(action__startswith="demo_").exists(),
+        "claims.claim": Claim.objects.filter(claim_number__startswith="DEMO-FULL-CLM").exists(),
+        "claims.claimpayment": ClaimPayment.objects.filter(source_reference__startswith="DEMO-VOUCHER").exists(),
+        "claims.claimobjection": ClaimObjection.objects.filter(description__startswith="اعتراض نمونه").exists(),
+        "correspondence.correspondencesequence": CorrespondenceSequence.objects.filter(solar_date=solar_day).exists(),
+        "correspondence.correspondence": Correspondence.objects.filter(internal_number__startswith=solar_day).exists(),
+        "correspondence.correspondencelink": CorrespondenceLink.objects.filter(correspondence__internal_number__startswith=solar_day).exists(),
+        "correspondence.correspondenceevent": CorrespondenceEvent.objects.filter(summary__contains="نمونه").exists(),
+        "delegations.workdelegation": WorkDelegation.objects.filter(reason__contains="تفویض نمونه").exists(),
+        "delegations.delegationevent": DelegationEvent.objects.filter(summary__contains="تفویض نمونه").exists(),
+        "documents.documentrecord": DocumentRecord.objects.filter(title__contains="نمونه").exists(),
+        "documents.documentversion": DocumentVersion.objects.filter(document__title__contains="نمونه").exists(),
+        "documents.documentlink": DocumentLink.objects.filter(document__title__contains="نمونه").exists(),
+        "documents.documentaccessevent": DocumentAccessEvent.objects.filter(document__title__contains="نمونه").exists(),
+        "imports.importbatch": ImportBatch.objects.filter(batch_number__startswith="DEMO-IMPORT").exists(),
+        "insurance.insurer": Insurer.objects.filter(name__contains="نمونه").exists(),
+        "insurance.contract": Contract.objects.filter(code__startswith="DEMO-").exists(),
+        "insurance.contractrevision": ContractRevision.objects.filter(contract__code="DEMO-FIRE-01").exists(),
+        "organizations.company": Company.objects.filter(code__in=("DEMO-A", "DEMO-B", "DEMO-C", "DEMO-D")).count() >= 4,
+        "organizations.person": Person.objects.filter(national_id__in=("0012345680", "0012345685", "0012345686")).count() >= 3,
+        "organizations.personemployment": PersonEmployment.objects.filter(source_reference="DEMO-SEED").exists(),
+        "organizations.companyleadershiptitle": CompanyLeadershipTitle.objects.filter(title__in=("مدیر منابع انسانی", "نماینده سلامت و درمان", "مدیر پشتیبانی", "مدیر عملیات")).exists(),
+        "organizations.personchangerequest": PersonChangeRequest.objects.filter(reason__contains="درخواست آزمایشی اصلاح اطلاعات").exists(),
+        "requests_portal.servicerequest": ServiceRequest.objects.filter(reference__startswith="DEMO-REQ").exists(),
+        "tasks.internaltask": InternalTask.objects.filter(title__startswith="وظیفه نمونه").exists(),
+        "tasks.taskevent": TaskEvent.objects.filter(note__contains="وظیفه نمونه").exists(),
+        "workflow.workflowdefinition": WorkflowDefinition.objects.filter(code__in=service_workflow_codes, is_active=True).exists(),
+        "workflow.workflowstep": WorkflowStep.objects.filter(definition__code__in=service_workflow_codes).exists(),
+        "workflow.workflowtransition": WorkflowTransition.objects.filter(definition__code__in=service_workflow_codes).exists(),
+        "workflow.workflowcase": WorkflowCase.objects.filter(definition__code__in=service_workflow_codes).exists(),
+        "workflow.workflowevent": WorkflowEvent.objects.filter(workflow_case__definition__code__in=service_workflow_codes).exists(),
+        "workflow.businesscalendar": BusinessCalendar.objects.filter(code="demo-iran-calendar").exists(),
+        "workflow.calendarholiday": CalendarHoliday.objects.filter(calendar__code="demo-iran-calendar").exists(),
+    }
+    missing = [label for label in EXPECTED_MODEL_LABELS if not coverage_checks.get(label, False)]
+    if len(coverage_checks) != len(EXPECTED_MODEL_LABELS):
+        raise CommandError(
+            f"Coverage manifest has {len(coverage_checks)} checks for {len(EXPECTED_MODEL_LABELS)} models."
+        )
     if missing:
-        raise CommandError("Demo seed incomplete; models without records: " + ", ".join(missing))
+        raise CommandError("Demo seed incomplete; missing demo fixtures for: " + ", ".join(missing))
 
     return {
         "model_coverage": len(EXPECTED_MODEL_LABELS),
