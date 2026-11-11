@@ -52,10 +52,9 @@ class PublishedWorkflowChildQuerySet(models.QuerySet):
             raise ValidationError("مراحل و مسیرهای تعریف منتشرشده فقط خواندنی هستند.")
 
     def update(self, **kwargs):
-        if {"definition", "definition_id"} & set(kwargs):
-            raise ValidationError("مرحله یا مسیر گردش کار را نمی‌توان به تعریف دیگری منتقل کرد.")
-        self._guard_published()
-        return super().update(**kwargs)
+        # QuerySet.update bypasses clean()/save() for draft configuration too,
+        # so it could publish invalid roles or transitions later.
+        raise ValidationError("تغییر گروهی مراحل و مسیرهای گردش کار مجاز نیست؛ از مسیر اعتبارسنجی‌شده save استفاده کنید.")
 
     def delete(self):
         self._guard_published()
