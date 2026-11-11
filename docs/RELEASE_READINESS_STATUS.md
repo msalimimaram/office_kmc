@@ -74,7 +74,7 @@
 
 ## Snapshot بازبینی مهندسی — 2026-11-11
 
-**HEAD بررسی‌شده:** `ac61e3ab9ac9261e7860e5637ea7adc3f26844aa` روی `main`. این snapshot چهار commit پس از commit `ea09fe5` است که مالک در اجرای محلی خود گزارش کرده بود؛ در این چهار commit فایل migration جدیدی اضافه نشده است. شاخه کاری جدید یا GitHub Actions ایجاد نشده و در وضعیت commit نیز check خودکاری ثبت نشده است.
+**HEAD کد بررسی‌شده:** `ac61e3ab9ac9261e7860e5637ea7adc3f26844aa` روی `main`. این snapshot چهار commit پس از commit `ea09fe5` است که مالک در اجرای محلی خود گزارش کرده بود؛ در این چهار commit فایل migration جدیدی اضافه نشده است. پس از این بررسی، commit `c62eb97bee34ef40de0c0d1cec1b73a6bd019885` فقط همین سند وضعیت را به‌روزرسانی کرد و تغییری در کد اجرایی نداد. شاخه کاری جدید یا GitHub Actions ایجاد نشده و در وضعیت commit نیز check خودکاری ثبت نشده است.
 
 ### شواهد اجرای محلی گزارش‌شده توسط مالک
 - روی `ea09fe5`: اجرای `migrate` و `manage.py check` موفق گزارش شده است.
@@ -89,7 +89,7 @@
 - تست‌های delegations برای inbox و management با حساب‌هایی که `must_change_password=False` دارند، پاسخ موفق را بررسی می‌کنند؛ redirect اجباری تغییر رمز برای حساب‌های دارای پرچم اولیه نیز در accounts تست شده است.
 - تست‌های organizations تخصیص درخواست اصلاح، جلوگیری از بستن پرونده توسط نماینده بیمه‌گر و عدم افشای عنوان شغلی شرکت دیگر را پوشش می‌دهند.
 - تست‌های assets/documents/insurance برای عملیات موفق redirect و برای خطا/عدم مجوز پاسخ مناسب را بررسی می‌کنند؛ خطاهای فرم در assertionها قابل مشاهده‌اند.
-- ClamAV از `zINSTREAM\\0`، طول ۴ بایتی network-order، chunk نهایی صفر و پاسخ NUL-terminated استفاده می‌کند؛ پاسخ ناقص/نامعتبر fail-closed رد می‌شود و تست socket mock وجود دارد.
+- ClamAV از `zINSTREAM\0`، طول ۴ بایتی network-order، chunk نهایی صفر و پاسخ NUL-terminated استفاده می‌کند؛ پاسخ ناقص/نامعتبر fail-closed رد می‌شود و تست socket mock وجود دارد.
 - migration `claims 0007_alter_claim_status` در main موجود است؛ وضعیت اعمال‌شدن آن روی دیتابیس محلی در این اجرا قابل مشاهده نبود.
 
 ### مانع ایمنی seed که پیش از اجرای فرمان باید رفع شود
