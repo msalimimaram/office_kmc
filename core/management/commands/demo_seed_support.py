@@ -814,14 +814,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=("actor", "body", "target_url"),
         )
 
-    # Internal correspondence shares a deterministic, non-production demo serial range.
-    # Keep demo serials deterministic across repeated runs and calendar days.
-    solar_day = jdatetime.date.fromgregorian(date=date(2026, 11, 11)).strftime("%Y%m%d")
-    ensure(
-        CorrespondenceSequence, {"solar_date": solar_day},
-        {"last_number": 906},
-        verify_fields=(),
-    )
+    # Use the application's central sequence service so demo numbers never collide.
+    from correspondence.services import next_internal_number
+
     correspondence_rows = []
     correspondence_specs = (
         (Correspondence.Direction.INBOUND, Correspondence.Channel.LETTER, company_a, insurer, line_contracts[InsuranceLine.HEALTH], Correspondence.FollowUp.PENDING, False),
@@ -832,24 +827,30 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         (Correspondence.Direction.INBOUND, Correspondence.Channel.OTHER, company_b, insurer, line_contracts[InsuranceLine.LIFE], Correspondence.FollowUp.NOT_REQUIRED, False),
     )
     for index, (direction, channel, company, corr_insurer, contract, follow_up, confidential) in enumerate(correspondence_specs, start=1):
-        number = f"{solar_day}{900 + index:03d}"
-        item = ensure(
+        external_reference = f"EXT-DEMO-{index:03d}"
+        defaults = {
+            "subject": f"مکاتبه نمونه {index:02d}",
+            "channel": channel, "direction": direction,
+            "company": company, "insurer": corr_insurer, "contract": contract,
+            "external_reference": external_reference,
+            "summary": "خلاصه مکاتبه ساختگی؛ حاوی اطلاعات واقعی نیست.",
+            "occurred_at": now - timedelta(days=index),
+            "follow_up_due": today + timedelta(days=index),
+            "follow_up_status": follow_up,
+            "assigned_to": specialist if index % 2 else head,
+            "is_confidential": confidential,
+            "created_by": head,
+        }
+        existing = Correspondence.objects.filter(external_reference=external_reference).first()
+        number = existing.internal_number if existing else next_internal_number(now)
+        item, _ = record(
             Correspondence,
             {"internal_number": number},
-            {
-                "subject": f"مکاتبه نمونه {index:02d}",
-                "channel": channel, "direction": direction,
-                "company": company, "insurer": corr_insurer, "contract": contract,
-                "external_reference": f"EXT-DEMO-{index:03d}",
-                "summary": "خلاصه مکاتبه ساختگی؛ حاوی اطلاعات واقعی نیست.",
-                "occurred_at": now - timedelta(days=index),
-                "follow_up_due": today + timedelta(days=index),
-                "follow_up_status": follow_up,
-                "assigned_to": specialist if index % 2 else head,
-                "is_confidential": confidential,
-                "created_by": head,
-            },
-            verify_fields=("subject", "channel", "direction", "company", "insurer", "contract", "external_reference", "summary", "is_confidential", "created_by"),
+            defaults,
+            verify_fields=(
+                "subject", "channel", "direction", "company", "insurer",
+                "contract", "external_reference", "summary", "is_confidential", "created_by",
+            ),
         )
         correspondence_rows.append(item)
         event_type = (
@@ -868,6 +869,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             {"actor": specialist, "metadata": {"step": "demo"}, "occurred_at": now - timedelta(days=index - 1)},
             verify_fields=("actor", "metadata"),
         )
+    correspondence_solar_day = correspondence_rows[0].internal_number[:8]
+    if any(item.internal_number[:8] != correspondence_solar_day for item in correspondence_rows):
+        raise CommandError("Demo correspondence records span more than one solar day; rerun the seed.")
     claim_content_type = ContentType.objects.get_for_model(Claim, for_concrete_model=False)
     for index, item in enumerate(correspondence_rows[:3], start=1):
         ensure(
@@ -1008,7 +1012,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         )
 
     # Verify that a namespaced demo fixture exists in each of the 45 concrete models.
-    solar_day = jdatetime.date.fromgregorian(date=date(2026, 11, 11)).strftime("%Y%m%d")
+    solar_day = correspondence_solar_day
     demo_usernames = (
         "admin.demo", "head.demo", "specialist.demo", "companya.demo",
         "companyb.demo", "employee.a", "employee.b", "insurer.demo",
