@@ -123,6 +123,8 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     def ensure(model, lookup, defaults, verify_fields=None):
         return record(model, lookup, defaults, verify_fields)[0]
 
+    additional_users_created = []
+
     def demo_user(username, role, *, company=None, national_id="", insurer_obj=None):
         defaults = {
             "role": role,
@@ -137,6 +139,8 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             if reused_counts is not None:
                 reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
             for field, value in defaults.items():
+                if field == "must_change_password":
+                    continue
                 if getattr(user, field) != value:
                     raise CommandError(
                         f"Seed collision in User ({username}): {field} differs; account untouched."
@@ -147,6 +151,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         user.save()
         if created_counts is not None:
             created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
+        additional_users_created.append(username)
         return user
 
     # Additional company and insurer scopes allow cross-company and cross-insurer tests.
@@ -274,13 +279,19 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         )
     # Dependent records use a valid parent and are kept separate from employment history.
     dependent_c = Person.objects.get(national_id="0012345685")
+    parent_c = Person.objects.get(national_id="0012345682")
     if dependent_c.employee_id is None:
-        dependent_c.employee = Person.objects.get(national_id="0012345682")
+        dependent_c.employee = parent_c
         dependent_c.save(update_fields=["employee"])
+    elif dependent_c.employee_id != parent_c.pk:
+        raise CommandError("Seed collision: dependent DEMO person 0012345685 has a different primary insured.")
     dependent_d = Person.objects.get(national_id="0012345686")
+    parent_d = Person.objects.get(national_id="0012345683")
     if dependent_d.employee_id is None:
-        dependent_d.employee = Person.objects.get(national_id="0012345683")
+        dependent_d.employee = parent_d
         dependent_d.save(update_fields=["employee"])
+    elif dependent_d.employee_id != parent_d.pk:
+        raise CommandError("Seed collision: dependent DEMO person 0012345686 has a different primary insured.")
 
     # Internal organizational chart and multiple position assignments.
     unit_hq = ensure(
@@ -994,6 +1005,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         "model_coverage": len(EXPECTED_MODEL_LABELS),
         "total_model_rows": sum(apps.get_model(label).objects.count() for label in EXPECTED_MODEL_LABELS),
         "additional_users": tuple(extra_users),
+        "additional_users_created": tuple(additional_users_created),
         "service_requests": len(service_requests),
         "claims": len(seeded_claims),
         "assets": len(assets),
