@@ -29,9 +29,10 @@ def _validate_role_list(value, field_name, *, allow_empty=False):
 
 class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        if self.filter(published_at__isnull=False).exists():
-            raise ValidationError("تعریف منتشرشده گردش کار فقط با ایجاد نسخه جدید تغییر می‌کند.")
-        return super().update(**kwargs)
+        # QuerySet.update bypasses model.save()/full_clean(), including the
+        # publication timestamp and approval checks. Configuration changes
+        # must go through the validated model save path.
+        raise ValidationError("تغییر گروهی تعریف گردش کار مجاز نیست؛ از مسیر اعتبارسنجی‌شده save استفاده کنید.")
 
     def delete(self):
         if self.filter(published_at__isnull=False).exists():
@@ -41,6 +42,9 @@ class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
     def bulk_create(self, objs, **kwargs):
         raise ValidationError("تعریف گردش کار باید از مسیر اعتبارسنجی‌شده save ایجاد شود.")
 
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی تعریف گردش کار مجاز نیست؛ از مسیر اعتبارسنجی‌شده save استفاده کنید.")
+
 
 class PublishedWorkflowChildQuerySet(models.QuerySet):
     def _guard_published(self):
@@ -48,6 +52,8 @@ class PublishedWorkflowChildQuerySet(models.QuerySet):
             raise ValidationError("مراحل و مسیرهای تعریف منتشرشده فقط خواندنی هستند.")
 
     def update(self, **kwargs):
+        if {"definition", "definition_id"} & set(kwargs):
+            raise ValidationError("مرحله یا مسیر گردش کار را نمی‌توان به تعریف دیگری منتقل کرد.")
         self._guard_published()
         return super().update(**kwargs)
 
@@ -56,8 +62,10 @@ class PublishedWorkflowChildQuerySet(models.QuerySet):
         return super().delete()
 
     def bulk_update(self, objs, fields, batch_size=None):
-        self._guard_published()
-        return super().bulk_update(objs, fields, batch_size=batch_size)
+        # bulk_update does not apply the queryset filter to the supplied
+        # objects. Reject it rather than allowing a draft queryset to mutate
+        # a published child or move a child into a published definition.
+        raise ValidationError("ویرایش گروهی مراحل و مسیرهای گردش کار مجاز نیست.")
 
     def bulk_create(self, objs, **kwargs):
         raise ValidationError("مراحل و مسیرهای گردش کار باید از مسیر اعتبارسنجی‌شده save ایجاد شوند.")
@@ -100,21 +108,35 @@ class WorkflowDefinition(models.Model):
                 raise ValidationError({"approved_by": "تأییدکننده باید رئیس اداره یا مدیر سامانه باشد."})
 
     def save(self, *args, **kwargs):
+        previous = None
         if self.pk:
             previous = WorkflowDefinition.objects.get(pk=self.pk)
-            if previous.published_at and (
-                previous.code != self.code or previous.version != self.version
-                or previous.title != self.title or previous.description != self.description
-                or previous.approved_by_id != self.approved_by_id
-            ):
-                raise ValidationError("Published workflow definitions are immutable; create a new version.")
+            if previous.published_at:
+                immutable_fields = (
+                    "code", "version", "title", "description",
+                    "created_by_id", "approved_by_id", "created_at", "published_at",
+                )
+                if any(getattr(previous, field) != getattr(self, field) for field in immutable_fields):
+                    raise ValidationError("Published workflow definitions are immutable; create a new version.")
+            elif self.published_at is not None:
+                raise ValidationError("زمان انتشار فقط هنگام انتشار معتبر گردش کار توسط سامانه تعیین می‌شود.")
+        elif self.published_at is not None:
+            raise ValidationError("زمان انتشار فقط هنگام انتشار معتبر گردش کار توسط سامانه تعیین می‌شود.")
+
         if self.is_active and not self.published_at:
             self.published_at = timezone.now()
+            # Keep the publication marker in sync when callers use
+            # save(update_fields=["is_active"]).
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"published_at"}
+
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.published_at:
+        if self.pk and WorkflowDefinition.objects.filter(
+            pk=self.pk, published_at__isnull=False
+        ).exists():
             raise ValidationError("تعریف منتشرشده گردش کار حذف نمی‌شود.")
         return super().delete(*args, **kwargs)
 
@@ -151,13 +173,23 @@ class WorkflowStep(models.Model):
             raise ValidationError({"allow_return": "مرحله پایانی نباید امکان بازگشت داشته باشد."})
 
     def save(self, *args, **kwargs):
-        if self.definition_id and self.definition.published_at:
+        if self.pk:
+            previous = type(self)._base_manager.select_related("definition").get(pk=self.pk)
+            if previous.definition_id != self.definition_id:
+                raise ValidationError("مراحل گردش کار را نمی‌توان به تعریف دیگری منتقل کرد.")
+            if previous.definition.published_at:
+                raise ValidationError("Published workflow steps are immutable; create a new version.")
+        elif self.definition_id and WorkflowDefinition.objects.filter(
+            pk=self.definition_id, published_at__isnull=False
+        ).exists():
             raise ValidationError("Published workflow steps are immutable; create a new version.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.definition.published_at:
+        if self.pk and type(self)._base_manager.filter(
+            pk=self.pk, definition__published_at__isnull=False
+        ).exists():
             raise ValidationError("Published workflow steps cannot be deleted.")
         return super().delete(*args, **kwargs)
 
@@ -200,13 +232,23 @@ class WorkflowTransition(models.Model):
         _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
 
     def save(self, *args, **kwargs):
-        if self.definition_id and self.definition.published_at:
+        if self.pk:
+            previous = type(self)._base_manager.select_related("definition").get(pk=self.pk)
+            if previous.definition_id != self.definition_id:
+                raise ValidationError("مسیرهای گردش کار را نمی‌توان به تعریف دیگری منتقل کرد.")
+            if previous.definition.published_at:
+                raise ValidationError("Published workflow transitions are immutable; create a new version.")
+        elif self.definition_id and WorkflowDefinition.objects.filter(
+            pk=self.definition_id, published_at__isnull=False
+        ).exists():
             raise ValidationError("Published workflow transitions are immutable; create a new version.")
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.definition.published_at:
+        if self.pk and type(self)._base_manager.filter(
+            pk=self.pk, definition__published_at__isnull=False
+        ).exists():
             raise ValidationError("Published workflow transitions cannot be deleted.")
         return super().delete(*args, **kwargs)
 
