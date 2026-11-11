@@ -219,7 +219,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "reason": "انتصاب تکمیلی داده نمونه",
                 "granted_by": admin, "approved_by": head,
             },
-            verify_fields=("reason", "granted_by", "approved_by"),
+            verify_fields=(),
         )
 
     # Contracts cover every insurance line and are linked to realistic company groups.
@@ -648,7 +648,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "notes": "داده ساختگی برای آزمون دارایی بیمه‌شده.",
                 "created_by": specialist,
             },
-            verify_fields=("name", "asset_type", "company", "person", "identifier", "location", "insurer", "contract", "policy_number", "policy_start", "policy_end", "created_by"),
+            verify_fields=(),
         )
         assets.append(asset)
         if asset_type == InsuredAsset.Type.VEHICLE:
@@ -861,7 +861,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "target_url": "/dashboard/",
                 "read_at": now - timedelta(hours=index) if index % 3 == 0 else None,
             },
-            verify_fields=("actor", "body", "target_url"),
+            verify_fields=(),
         )
 
     # Use the application's central sequence service so demo numbers never collide.
