@@ -890,7 +890,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
 
     # Service-request coverage is deliberately larger than the set of request
     # kinds. Each case starts through the production workflow service.
-    from workflow.services import resolve_initial_assignee, start_workflow, transition_case
+    from workflow.services import resolve_initial_assignee, start_workflow, transition_case, set_final_lock
 
     def start_case(obj, code, actor, note):
         content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
@@ -918,12 +918,17 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
 
     demo_requests = list(ServiceRequest.objects.filter(reference__startswith="DEMO-PRES-REQ").order_by("pk"))
     request_kinds = list(ServiceRequest.Kind.values)
+    demo_workflow_cases = []
     while ServiceRequest.objects.count() < MINIMUM_PER_MODEL:
         index = ServiceRequest.objects.count() + 1
         company = companies[(index - 1) % len(companies)]
         person = persons_by_company[company.pk]
         submitter = company_representatives[company.pk]
         kind = request_kinds[(index - 1) % len(request_kinds)]
+        state_slot = index % 8
+        # Keep insurer-referral samples in a non-confidential health request.
+        if state_slot == 3:
+            kind = ServiceRequest.Kind.EXCESS_COVERAGE
         item = ensure(
             ServiceRequest,
             {"reference": f"DEMO-PRES-REQ-{index:04d}"},
@@ -945,7 +950,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             item, kind, submitter, f"شروع گردش کار نمایشی درخواست {item.reference}"
         )
         if case_created:
-            state_slot = index % 8
+            demo_workflow_cases.append(case)
             def move(action, actor, recipient=None, note="اقدام نمایشی گردش کار"):
                 return transition_case(
                     case_id=case.pk,
@@ -980,6 +985,73 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 move("approve", admin, admin)
                 move("mark_completed", admin, admin)
                 move("finalize_completion", admin, None, "بستن نهایی سناریوی نمایشی.")
+
+    # WorkflowCase carries a distinct COMPLETED status in addition to a
+    # domain request being completed-but-awaiting-final-close. Keep one explicit
+    # closed lifecycle snapshot so every model state can be presented.
+    completed_request = ensure(
+        ServiceRequest,
+        {"reference": "DEMO-PRES-WF-COMPLETED"},
+        {
+            "kind": ServiceRequest.Kind.OTHER,
+            "submitted_by": company_representatives[companies[0].pk],
+            "person": persons_by_company[companies[0].pk],
+            "company": companies[0],
+            "title": "نمونه پرونده گردش‌کار تکمیل‌شده",
+            "description": "پرونده تکمیل‌شده مستقل برای نمایش وضعیت نهایی گردش‌کار.",
+            "status": ServiceRequest.Status.COMPLETED,
+            "assigned_to": None,
+            "is_confidential": False,
+        },
+        verify_fields=("kind", "company", "status"),
+    )
+    completed_definition = WorkflowDefinition.objects.filter(
+        code=ServiceRequest.Kind.OTHER, is_active=True
+    ).order_by("-version").first()
+    if completed_definition is None:
+        raise CommandError("The OTHER service-request workflow is required for completion-state coverage.")
+    request_content_type = ContentType.objects.get_for_model(ServiceRequest, for_concrete_model=False)
+    completed_case = ensure(
+        WorkflowCase,
+        {
+            "definition": completed_definition,
+            "content_type": request_content_type,
+            "object_id": str(completed_request.pk),
+        },
+        {
+            "current_step": None,
+            "current_assignee": None,
+            "status": WorkflowCase.Status.COMPLETED,
+            "opened_at": now - timedelta(days=2),
+            "first_viewed_at": now - timedelta(days=2, hours=-1),
+            "first_action_at": now - timedelta(days=1),
+            "sla_due_at": None,
+            "closed_at": now - timedelta(days=1),
+            "is_locked": False,
+            "locked_by": None,
+        },
+        verify_fields=("status", "current_step", "current_assignee"),
+    )
+    ensure(
+        WorkflowEvent,
+        {
+            "workflow_case": completed_case,
+            "event_type": WorkflowEvent.EventType.ACTION,
+            "action_code": "presentation_completed_snapshot",
+            "note": "پرونده نمونه تکمیل و بسته شد.",
+        },
+        {
+            "actor": admin,
+            "from_step": completed_definition.steps.filter(is_initial=True).first(),
+            "to_step": None,
+            "from_assignee": admin,
+            "to_assignee": None,
+            "acted_at": now - timedelta(days=1),
+            "sent_at": now - timedelta(days=1),
+            "metadata": {"fixture": "DEMO-PRESENTATION", "lifecycle": "completed"},
+        },
+        verify_fields=(),
+    )
 
     # Fifty active, versioned workflow definitions with two steps and explicit
     # approval/closure transitions. The first definitions are the real domain
