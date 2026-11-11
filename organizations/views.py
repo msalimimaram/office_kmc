@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -62,8 +62,45 @@ def people_list(request):
             raise PermissionDenied
         people = Person.objects.filter(visible_people)
 
+    if has_global_access(user):
+        title_queryset = CompanyLeadershipTitle.objects.select_related("company")
+    else:
+        # Company representatives may see titles declared by their own
+        # company only. Insured users can see titles on their own profile;
+        # insurer representatives and specialists see titles only for
+        # companies represented in their scoped claims/requests.
+        title_company_ids = set()
+        if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+            title_company_ids.update(
+                company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
+            )
+        if has_role(
+            user,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            RoleAssignment.Role.INSURER_REP,
+        ):
+            title_company_ids.update(
+                scoped_claims_for(user)
+                .exclude(company_snapshot_id__isnull=True)
+                .values_list("company_snapshot_id", flat=True)
+            )
+            title_company_ids.update(
+                scoped_requests_for(user)
+                .exclude(company_id__isnull=True)
+                .values_list("company_id", flat=True)
+            )
+        title_scope = Q(company_id__in=title_company_ids)
+        if has_role(user, RoleAssignment.Role.INSURED_PERSON):
+            title_scope |= (
+                Q(person__user_id=user.pk)
+                | Q(person__employee__user_id=user.pk)
+            )
+        title_queryset = CompanyLeadershipTitle.objects.filter(
+            title_scope
+        ).select_related("company")
+
     people = people.select_related("company", "employee", "user").prefetch_related(
-        "leadership_titles"
+        Prefetch("leadership_titles", queryset=title_queryset)
     )
 
     query = request.GET.get("q", "").strip()[:100]
