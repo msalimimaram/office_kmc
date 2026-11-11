@@ -955,6 +955,170 @@ def _process_claims_batch(batch, reviewer, request):
             )
 
 
+def _process_assets_batch(batch, reviewer, request):
+    if not has_global_access(reviewer):
+        raise PermissionDenied("تأیید نهایی ورود دارایی‌ها فقط در اختیار رئیس اداره یا مدیر سامانه است.")
+    valuation_definition = WorkflowDefinition.objects.filter(
+        code="asset_valuation_approval", is_active=True
+    ).order_by("-version").first()
+    policy_definition = WorkflowDefinition.objects.filter(
+        code="asset_policy_approval", is_active=True
+    ).order_by("-version").first()
+    if not valuation_definition or not policy_definition:
+        raise ValidationError("گردش‌کار تصویب ارزیابی یا بیمه‌نامه دارایی فعال نیست؛ seed_operational_workflows را اجرا کنید.")
+
+    today = timezone.localdate()
+    for row in batch.preview_data:
+        contract = Contract.objects.select_related("insurer").filter(
+            pk=row["contract_id"], is_active=True, status=Contract.Status.ACTIVE
+        ).first()
+        if not contract or contract.code != row["contract_number"]:
+            raise ValidationError("قرارداد پس از پیش‌نمایش غیرفعال شده یا تغییر کرده است.")
+        if not has_global_access(batch.uploaded_by) and not has_role(
+            batch.uploaded_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+        ):
+            raise PermissionDenied("انتصاب بارگذار برای رشته بیمه‌ای این دارایی دیگر معتبر نیست.")
+        policy_start = date.fromisoformat(row["policy_start"])
+        policy_end = date.fromisoformat(row["policy_end"])
+        valuation_date = date.fromisoformat(row["valuation_date"])
+        if (
+            policy_start < contract.start_date
+            or policy_end > contract.end_date
+            or policy_end < policy_start
+            or valuation_date > today
+        ):
+            raise ValidationError("تاریخ‌های بیمه‌نامه یا ارزیابی پس از پیش‌نمایش نامعتبر شده‌اند.")
+        if InsuredAsset.objects.filter(asset_code=row["asset_code"]).exists():
+            raise ValidationError(f"کد دارایی {row['asset_code']} پس از پیش‌نمایش ثبت شده است.")
+        if AssetPolicyPeriod.objects.filter(policy_number=row["policy_number"]).exists():
+            raise ValidationError(f"شماره بیمه‌نامه {row['policy_number']} پس از پیش‌نمایش ثبت شده است.")
+
+        company = None
+        person = None
+        if row["owner_type"] == "company":
+            company = Company.objects.filter(
+                pk=row["company_id"], code=row["company_code"], is_active=True
+            ).first()
+            if not company:
+                raise ValidationError("شرکت مالک این دارایی پس از پیش‌نمایش غیرفعال شده یا تغییر کرده است.")
+            company_id = company.pk
+        else:
+            person = Person.objects.filter(
+                pk=row["person_id"],
+                national_id=row["owner_national_id"],
+                is_active=True,
+            ).first()
+            if not person:
+                raise ValidationError("مالک شخصی این دارایی پس از پیش‌نمایش غیرفعال شده یا تغییر کرده است.")
+            primary = person.employee if person.employee_id else person
+            history = PersonEmployment.objects.filter(person=primary)
+            employment = history.filter(status=PersonEmployment.Status.ACTIVE).filter(
+                models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+            ).filter(
+                models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+            ).order_by("-valid_from", "-pk").first()
+            company_id = employment.company_id if employment else (
+                (primary.company_id or person.company_id) if not history.exists() else None
+            )
+            if not company_id:
+                raise ValidationError("شرکت محل اشتغال فعلی مالک شخصی دیگر قابل تعیین نیست.")
+        if not contract.companies.filter(pk=company_id).exists():
+            raise ValidationError("شرکت مالک این دارایی دیگر در محدوده قرارداد قرار ندارد.")
+
+        asset = InsuredAsset.objects.create(
+            asset_code=row["asset_code"],
+            name=row["name"],
+            asset_type=row["asset_type"],
+            company=company,
+            person=person,
+            identifier=row["identifier"],
+            location=row["location"],
+            insured_value=Decimal(row["insured_value"]),
+            insurer=contract.insurer,
+            contract=contract,
+            policy_number=row["policy_number"],
+            policy_start=policy_start,
+            policy_end=policy_end,
+            is_active=True,
+            notes=f"ثبت گروهی از فایل Excel؛ شماره عملیات {batch.batch_number}.",
+            created_by=batch.uploaded_by,
+        )
+        if asset.asset_type == InsuredAsset.Type.VEHICLE:
+            Vehicle.objects.create(
+                asset=asset,
+                plate_number=row["plate_number"],
+                vin=row["vin"],
+                engine_number=row["engine_number"],
+                make=row["make"],
+                model_name=row["model_name"],
+                model_year=row["model_year"],
+            )
+
+        valuation = AssetValuation.objects.create(
+            asset=asset,
+            valuation_date=valuation_date,
+            market_value=Decimal(row["market_value"]),
+            insured_value=Decimal(row["insured_value"]),
+            method=row["valuation_method"],
+            status=AssetValuation.Status.PENDING_APPROVAL,
+            source_reference=batch.batch_number,
+            note="ارزیابی پیشنهادی واردشده از Excel؛ در انتظار تصویب مستقل.",
+            created_by=batch.uploaded_by,
+        )
+        policy_period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=contract.insurer,
+            contract=contract,
+            policy_number=row["policy_number"],
+            policy_start=policy_start,
+            policy_end=policy_end,
+            status=AssetPolicyPeriod.Status.PENDING_APPROVAL,
+            source_reference=batch.batch_number,
+            note="دوره بیمه‌نامه واردشده از Excel؛ تا تصویب نهایی فعال نمی‌شود.",
+            created_by=batch.uploaded_by,
+        )
+
+        valuation_assignee, valuation_delegation = resolve_initial_assignee(
+            definition=valuation_definition,
+            obj=valuation,
+            return_delegation=True,
+        )
+        start_workflow(
+            obj=valuation,
+            code="asset_valuation_approval",
+            actor=reviewer,
+            assignee=valuation_delegation.delegate_to if valuation_delegation else valuation_assignee,
+            delegation=valuation_delegation,
+            note=f"ثبت ارزیابی از عملیات {batch.batch_number}",
+        )
+        policy_assignee, policy_delegation = resolve_initial_assignee(
+            definition=policy_definition,
+            obj=policy_period,
+            return_delegation=True,
+        )
+        start_workflow(
+            obj=policy_period,
+            code="asset_policy_approval",
+            actor=reviewer,
+            assignee=policy_delegation.delegate_to if policy_delegation else policy_assignee,
+            delegation=policy_delegation,
+            note=f"ثبت دوره بیمه‌نامه از عملیات {batch.batch_number}",
+        )
+        record_event(
+            actor=reviewer,
+            action="asset_excel_import_registered",
+            obj=asset,
+            summary="دارایی و دو پرونده تصویب ارزیابی/بیمه‌نامه از فایل Excel ثبت شدند.",
+            after_data={
+                "batch_id": batch.pk,
+                "valuation_id": valuation.pk,
+                "policy_period_id": policy_period.pk,
+                "asset_code": asset.asset_code,
+            },
+            request=request,
+        )
+
+
 def _process_contracts_batch(batch, reviewer):
     from workflow.models import WorkflowDefinition
 
