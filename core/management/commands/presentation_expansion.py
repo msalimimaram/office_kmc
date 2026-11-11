@@ -6,6 +6,7 @@ cannot reach its declared coverage floor.
 """
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 import os
 
 import jdatetime
@@ -768,6 +769,123 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "rejected_at": now if status == PersonChangeRequest.Status.REJECTED else None,
             },
             verify_fields=("company", "contract", "requested_by", "current_value", "requested_value", "reason"),
+        )
+
+    # Claims cover final decision, rejection, partial settlement, full
+    # settlement, closure, insurer-declared duplicates, and all insurance lines.
+    generated_claims = []
+    claim_statuses = (
+        Claim.Status.APPROVED,
+        Claim.Status.REJECTED,
+        Claim.Status.PARTIALLY_PAID,
+        Claim.Status.PAID,
+        Claim.Status.CLOSED,
+    )
+    line_codes_by_line = {line: line_code for line, line_code in line_specs}
+    specialist_by_line = {
+        InsuranceLine.HEALTH: health_specialist,
+        InsuranceLine.LIFE: health_lead,
+        InsuranceLine.LIABILITY: fire_specialist,
+        InsuranceLine.FIRE: fire_specialist,
+        InsuranceLine.THIRD_PARTY: motor_specialist,
+        InsuranceLine.BODY: motor_specialist,
+        InsuranceLine.OTHER: health_lead,
+    }
+    for index in range(1, 51):
+        company = companies[(index - 1) % len(companies)]
+        line, line_code = line_specs[(index - 1) % len(line_specs)]
+        contract = contracts_by_company_line[(company.pk, line)]
+        person = persons_by_company[company.pk] if index % 2 else dependents_by_company[company.pk]
+        insurer_user = insurer_representatives[contract.insurer_id]
+        status = claim_statuses[(index - 1) % len(claim_statuses)]
+        requested = Decimal("900000") + Decimal(index * 1000)
+        assessed = Decimal("700000") + Decimal(index * 500)
+        payable = Decimal("0") if status == Claim.Status.REJECTED else assessed
+        paid = (
+            Decimal("200000") if status == Claim.Status.PARTIALLY_PAID
+            else payable if status in {Claim.Status.PAID, Claim.Status.CLOSED}
+            else Decimal("0")
+        )
+        service_date = today - timedelta(days=45 + index)
+        registered_date = today - timedelta(days=30 + index)
+        duplicate = index % 13 == 0
+        claim = ensure(
+            Claim,
+            {"claim_number": f"DEMO-PRES-CLM-{index:04d}"},
+            {
+                "source_claim_number": f"INS-PRES-{index:04d}",
+                "person": person,
+                "company_snapshot": company,
+                "contract": contract,
+                "insurer": contract.insurer,
+                "service_date": service_date,
+                "registered_date": registered_date,
+                "source_registered_date": registered_date,
+                "contract_number_snapshot": contract.code,
+                "service_type": f"خسارت نمونه رشته {line_code} شماره {index:04d}",
+                "requested_amount": requested,
+                "assessed_amount": assessed,
+                "payable_amount": payable,
+                "paid_amount": paid,
+                "payment_date": registered_date if paid > 0 else None,
+                "status": status,
+                "source_reference": "DEMO-PRESENTATION-CLAIMS",
+                "source_duplicate_status": (
+                    Claim.DuplicateStatus.DECLARED_DUPLICATE if duplicate
+                    else Claim.DuplicateStatus.NOT_DECLARED
+                ),
+                "source_duplicate_reference": f"INS-PRES-{max(1, index - 1):04d}" if duplicate else "",
+                "source_duplicate_note": "تکراری بودن فقط با اعلام رسمی نماینده بیمه‌گر ثبت شده است." if duplicate else "",
+                "source_duplicate_reported_at": now if duplicate else None,
+                "source_duplicate_reported_by": insurer_user if duplicate else None,
+                "assessment_note": f"ارزیابی غیرپزشکی نمونه رشته {line_code}.",
+                "assessed_by": specialist_by_line[line],
+                "assessed_at": now - timedelta(days=2),
+                "result_sent_at": now - timedelta(days=1),
+                "result_sent_by": specialist_by_line[line],
+            },
+            verify_fields=("person", "company_snapshot", "contract", "insurer", "status", "source_claim_number"),
+        )
+        generated_claims.append(claim)
+
+        if paid > 0:
+            tranche_amount = paid / Decimal("4")
+            for tranche in range(1, 5):
+                ensure(
+                    ClaimPayment,
+                    {
+                        "claim": claim,
+                        "entry_type": ClaimPayment.EntryType.PAYMENT,
+                        "source_reference": f"DEMO-PRES-PAY-{index:04d}-{tranche}",
+                    },
+                    {
+                        "amount": tranche_amount,
+                        "paid_at": registered_date,
+                        "source_insurer": contract.insurer,
+                        "recorded_by": insurer_user,
+                        "confirmed_by": head,
+                        "note": f"قسط {tranche} از چهار قسط پرداخت اعلام‌شده برای خسارت نمایشی.",
+                        "is_legacy_import": False,
+                    },
+                    verify_fields=("amount", "source_insurer", "recorded_by", "confirmed_by"),
+                )
+
+        objection_statuses = list(ClaimObjection.Status.values)
+        objection_status = objection_statuses[(index - 1) % len(objection_statuses)]
+        ensure(
+            ClaimObjection,
+            {"claim": claim, "description": f"اعتراض نمایشی شماره {index:04d} به نتیجه خسارت."},
+            {
+                "submitted_by": persons_by_company[company.pk].user,
+                "status": objection_status,
+                "response": (
+                    f"پاسخ نمایشی اعتراض شماره {index:04d}."
+                    if objection_status in {ClaimObjection.Status.ANSWERED, ClaimObjection.Status.CLOSED}
+                    else ""
+                ),
+                "deadline_at": claim.result_sent_at + timedelta(days=60),
+            },
+            verify_fields=("submitted_by", "status", "deadline_at"),
         )
 
     # Service-request coverage is deliberately larger than the set of request
