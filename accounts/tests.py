@@ -155,7 +155,11 @@ class UserNotificationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["unread_notification_count"], 2)
-        self.assertEqual(len(response.context["notifications"]), 2)
+        self.assertEqual(len(response.context["notifications"]), 3)
+        self.assertEqual(
+            sum(notification.read_at is None for notification in response.context["notifications"]),
+            2,
+        )
 
     def test_active_position_holder_can_access_notifications_for_assigned_tasks(self):
         user = User.objects.create_user(
