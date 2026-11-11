@@ -558,6 +558,14 @@ def _process_people_batch(batch, reviewer):
     today = timezone.localdate()
     for row in batch.preview_data:
         company = Company.objects.get(pk=row["company_id"], is_active=True)
+        uploader = batch.uploaded_by
+        uploader_still_authorized = (
+            has_global_access(uploader)
+            or has_role(uploader, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code="health")
+            or has_role(uploader, RoleAssignment.Role.SUBSIDIARY_REP, company_id=company.pk)
+        )
+        if not uploader_still_authorized:
+            raise PermissionDenied("انتصاب بارگذار برای شرکت این ردیف معتبر نیست یا لغو شده است.")
         action = row["action"]
         person = Person.objects.filter(national_id=row["national_id"]).first()
         if action == "add_employee":
@@ -608,6 +616,17 @@ def _process_people_batch(batch, reviewer):
 
 def _process_claims_batch(batch, reviewer, request):
     for row in batch.preview_data:
+        contract = Contract.objects.select_related("insurer").get(pk=row["contract_id"])
+        if not has_global_access(batch.uploaded_by) and not has_role(
+            batch.uploaded_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+        ) and not (
+            has_role(batch.uploaded_by, RoleAssignment.Role.INSURER_REP, insurer_id=contract.insurer_id)
+        ):
+            raise PermissionDenied("انتصاب بارگذار برای بیمه‌گر یا رشته این پرونده دیگر معتبر نیست.")
+        if not has_global_access(reviewer) and not has_role(
+            reviewer, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+        ):
+            raise PermissionDenied("کارشناس تأییدکننده به رشته بیمه‌ای این پرونده دسترسی ندارد.")
         item = dict(row)
         item.pop("_row", None)
         for field in ("service_date", "registered_date", "source_registered_date", "payment_date"):
@@ -641,6 +660,10 @@ def _process_contracts_batch(batch, reviewer):
     if not definition:
         raise ValidationError("گردش‌کار فعال contract_approval موجود نیست؛ ابتدا seed_operational_workflows را اجرا کنید.")
     for row in batch.preview_data:
+        if not has_global_access(batch.uploaded_by) and not has_role(
+            batch.uploaded_by, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=row["line"]
+        ):
+            raise PermissionDenied("انتصاب بارگذار برای رشته این قرارداد دیگر معتبر نیست.")
         insurer = Insurer.objects.get(pk=row["insurer_id"], is_active=True)
         companies = list(Company.objects.filter(pk__in=row["company_ids"], is_active=True))
         contract = Contract.objects.create(
