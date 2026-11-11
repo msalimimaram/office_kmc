@@ -451,7 +451,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             },
             verify_fields=(
                 "source_claim_number", "person", "company_snapshot", "contract", "insurer",
-                "service_date", "registered_date", "service_type", "requested_amount",
+                "service_type", "requested_amount",
                 "assessed_amount", "payable_amount", "source_duplicate_status",
                 "source_duplicate_reference", "source_duplicate_note",
             ),
@@ -609,7 +609,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "created_by": specialist,
                 "approved_by": head if status == AssetValuation.Status.APPROVED else None,
             },
-            verify_fields=("valuation_date", "market_value", "insured_value", "method", "created_by", "source_reference"),
+            verify_fields=("market_value", "insured_value", "method", "created_by", "source_reference"),
         )
         valuations.append(valuation)
     _ensure_workflow(valuations[0], "asset_valuation_approval", specialist, head, note="درخواست تأیید ارزیابی نمونه")
@@ -647,7 +647,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "created_by": specialist,
             "approved_by": None,
         },
-        verify_fields=("effective_date", "description", "created_by"),
+        verify_fields=("description", "created_by"),
     )
     _ensure_workflow(endorsement, "asset_endorsement_approval", specialist, head, note="ارجاع الحاقیه دارایی برای تأیید")
 
@@ -673,7 +673,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "valid_until": today + timedelta(days=30),
                 "revocation_reason": "تعلیق آزمایشی" if status == WorkDelegation.Status.SUSPENDED else "",
             },
-            verify_fields=("reason", "valid_from", "valid_until", "delegate_role", "delegate_to", "granted_by"),
+            verify_fields=("reason", "delegate_role", "delegate_to", "granted_by"),
         )
         delegations.append(delegation)
         ensure(
