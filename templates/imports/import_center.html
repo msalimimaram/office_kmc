@@ -14,7 +14,8 @@
     <p class="eyebrow">{{ item.audience }}</p>
     <h2>{{ item.title }}</h2>
     <p>{{ item.description }}</p>
-    <p><a class="btn secondary" href="{% url 'import_template' item.code %}">مشاهده و دریافت نمونه مورد قبول</a></p>
+    <p><a class="btn secondary" href="{% url 'import_sample' item.code %}">مشاهده نمونه مورد قبول سیستم</a></p>
+    <p><a href="{% url 'import_template' item.code %}">دانلود فایل Excel نمونه و راهنما</a></p>
     <p><a class="btn primary" href="{% url 'profile_import' item.code %}">شروع ورود و تنظیم ستون‌ها</a></p>
   </section>
   {% endfor %}
