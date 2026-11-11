@@ -24,12 +24,14 @@ from accounts.access import (
     company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for,
 )
 from accounts.models import RoleAssignment
+from assets.models import AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle
 from auditlog.services import record_event
 from claims.models import Claim
 from claims.services import record_imported_payment
 from core.uploads import validate_uploaded_file
 from insurance.models import Contract, ContractRevision, InsuranceLine, Insurer
 from organizations.models import Company, Person, PersonEmployment, normalize_national_id
+from workflow.models import WorkflowDefinition
 from workflow.services import resolve_initial_assignee, start_workflow
 
 from .forms import FlexibleExcelImportForm
@@ -107,6 +109,8 @@ def _profile_allowed(user, code):
         )
     if code == "contracts":
         return _staff(user)
+    if code == "assets":
+        return _staff(user)
     return False
 
 
@@ -118,6 +122,8 @@ def _can_review(user, code):
         return has_global_access(user) or ("health" in specialist_lines or "*" in specialist_lines)
     if code == "claims":
         return _staff(user)
+    if code == "assets":
+        return has_global_access(user)
     return False
 
 def _can_review_batch(user, batch):
@@ -423,6 +429,159 @@ def _preview_claims(user, mapped_rows):
     return valid, errors
 
 
+def _preview_assets(user, mapped_rows):
+    valid, errors, seen_assets, seen_policies = [], [], set(), set()
+    asset_types = dict(InsuredAsset.Type.choices)
+    owner_types = {"company", "person"}
+    valuation_methods = {
+        AssetValuation.Method.FORMAL,
+        AssetValuation.Method.EXPERT,
+        AssetValuation.Method.DECLARED,
+    }
+    today = timezone.localdate()
+
+    for row_number, raw in mapped_rows:
+        try:
+            asset_code = _text(raw.get("asset_code"))
+            name = _text(raw.get("name"))
+            asset_type = _text(raw.get("asset_type")).lower()
+            owner_type = _text(raw.get("owner_type")).lower()
+            contract_code = _text(raw.get("contract_number"))
+            policy_number = _text(raw.get("policy_number"))
+            if not all((asset_code, name, asset_type, owner_type, contract_code, policy_number)):
+                raise ValueError(f"ردیف {row_number}: کد و عنوان دارایی، نوع مالک، نوع دارایی، شماره قرارداد و شماره بیمه‌نامه الزامی است.")
+            if len(asset_code) > 80 or len(name) > 250 or len(policy_number) > 100:
+                raise ValueError(f"ردیف {row_number}: طول کد/عنوان دارایی یا شماره بیمه‌نامه بیش از حد مجاز است.")
+            if asset_type not in asset_types:
+                raise ValueError(f"ردیف {row_number}: نوع دارایی معتبر نیست.")
+            if owner_type not in owner_types:
+                raise ValueError(f"ردیف {row_number}: مالک باید company یا person باشد.")
+            if asset_code in seen_assets or InsuredAsset.objects.filter(asset_code=asset_code).exists():
+                raise ValueError(f"ردیف {row_number}: کد دارایی تکراری است.")
+            if policy_number in seen_policies or AssetPolicyPeriod.objects.filter(policy_number=policy_number).exists():
+                raise ValueError(f"ردیف {row_number}: شماره بیمه‌نامه تکراری است.")
+
+            contract = Contract.objects.filter(
+                code=contract_code,
+                status=Contract.Status.ACTIVE,
+                is_active=True,
+            ).select_related("insurer").first()
+            if not contract:
+                raise ValueError(f"ردیف {row_number}: قرارداد فعال با شماره {contract_code} یافت نشد.")
+            if not has_global_access(user) and not has_role(
+                user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=contract.line
+            ):
+                raise ValueError(f"ردیف {row_number}: رشته قرارداد خارج از انتصاب فعال شماست.")
+
+            company = None
+            person = None
+            if owner_type == "company":
+                company_code = _text(raw.get("company_code"))
+                if not company_code:
+                    raise ValueError(f"ردیف {row_number}: کد شرکت مالک الزامی است.")
+                company = Company.objects.filter(code=company_code, is_active=True).first()
+                if not company:
+                    raise ValueError(f"ردیف {row_number}: شرکت فعال با این کد پیدا نشد.")
+                if _text(raw.get("owner_national_id")):
+                    raise ValueError(f"ردیف {row_number}: برای دارایی شرکتی، کد ملی مالک باید خالی باشد.")
+                company_id = company.pk
+            else:
+                national_id = normalize_national_id(raw.get("owner_national_id"))
+                if len(national_id) != 10:
+                    raise ValueError(f"ردیف {row_number}: برای دارایی شخصی، کد ملی مالک الزامی و باید ۱۰ رقمی باشد.")
+                if _text(raw.get("company_code")):
+                    raise ValueError(f"ردیف {row_number}: برای دارایی شخصی، ستون کد شرکت باید خالی باشد.")
+                person = Person.objects.filter(national_id=national_id, is_active=True).first()
+                if not person:
+                    raise ValueError(f"ردیف {row_number}: مالک شخصی فعال با این کد ملی پیدا نشد.")
+                primary = person.employee if person.employee_id else person
+                history = PersonEmployment.objects.filter(person=primary)
+                employment = history.filter(status=PersonEmployment.Status.ACTIVE).filter(
+                    models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+                ).filter(
+                    models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+                ).order_by("-valid_from", "-pk").first()
+                company_id = employment.company_id if employment else (
+                    (primary.company_id or person.company_id) if not history.exists() else None
+                )
+                if not company_id:
+                    raise ValueError(f"ردیف {row_number}: شرکت محل اشتغال فعلی مالک شخصی قابل تعیین نیست.")
+            if not contract.companies.filter(pk=company_id).exists():
+                raise ValueError(f"ردیف {row_number}: قرارداد برای شرکت مالک این دارایی تعریف نشده است.")
+
+            insured_value = _parse_amount(raw.get("insured_value"), row_number, "insured_value")
+            market_value = _parse_amount(raw.get("market_value"), row_number, "market_value")
+            if insured_value <= 0 or market_value <= 0:
+                raise ValueError(f"ردیف {row_number}: ارزش بیمه‌شده و ارزش روز باید بزرگ‌تر از صفر باشند.")
+            policy_start = _parse_date(raw.get("policy_start"), row_number, "policy_start")
+            policy_end = _parse_date(raw.get("policy_end"), row_number, "policy_end")
+            valuation_date = _parse_date(raw.get("valuation_date"), row_number, "valuation_date")
+            if not policy_start or not policy_end or not valuation_date or policy_end < policy_start:
+                raise ValueError(f"ردیف {row_number}: تاریخ شروع/پایان پوشش و تاریخ ارزیابی باید معتبر باشند.")
+            if policy_start < contract.start_date or policy_end > contract.end_date:
+                raise ValueError(f"ردیف {row_number}: بازه بیمه‌نامه باید داخل بازه قرارداد باشد.")
+            if valuation_date > today:
+                raise ValueError(f"ردیف {row_number}: تاریخ ارزیابی نمی‌تواند در آینده باشد.")
+            valuation_method = _text(raw.get("valuation_method")).lower()
+            if valuation_method not in valuation_methods:
+                raise ValueError(f"ردیف {row_number}: روش ارزیابی باید formal، expert یا declared باشد.")
+
+            plate_number = _text(raw.get("plate_number"))
+            vin = _text(raw.get("vin"))
+            engine_number = _text(raw.get("engine_number"))
+            make = _text(raw.get("make"))
+            model_name = _text(raw.get("model_name"))
+            model_year_raw = _text(raw.get("model_year")).translate(PERSIAN_DIGITS)
+            model_year = None
+            if asset_type == InsuredAsset.Type.VEHICLE:
+                if not plate_number:
+                    raise ValueError(f"ردیف {row_number}: شماره پلاک برای دارایی خودرو الزامی است.")
+                if model_year_raw:
+                    try:
+                        model_year = int(model_year_raw)
+                    except ValueError:
+                        raise ValueError(f"ردیف {row_number}: سال ساخت خودرو باید عددی باشد.")
+                    if not 1886 <= model_year <= today.year + 1:
+                        raise ValueError(f"ردیف {row_number}: سال ساخت خودرو خارج از بازه معتبر است.")
+            elif any((plate_number, vin, engine_number, make, model_name, model_year_raw)):
+                raise ValueError(f"ردیف {row_number}: مشخصات خودرو فقط برای نوع vehicle مجاز است.")
+
+            valid.append({
+                "asset_code": asset_code,
+                "name": name,
+                "asset_type": asset_type,
+                "owner_type": owner_type,
+                "company_id": company.pk if company else None,
+                "company_code": company.code if company else "",
+                "person_id": person.pk if person else None,
+                "owner_national_id": person.national_id if person else "",
+                "identifier": _text(raw.get("identifier"))[:120],
+                "location": _text(raw.get("location"))[:250],
+                "insured_value": str(insured_value),
+                "contract_id": contract.pk,
+                "contract_number": contract.code,
+                "insurer_id": contract.insurer_id,
+                "policy_number": policy_number,
+                "policy_start": policy_start.isoformat(),
+                "policy_end": policy_end.isoformat(),
+                "valuation_date": valuation_date.isoformat(),
+                "market_value": str(market_value),
+                "valuation_method": valuation_method,
+                "plate_number": plate_number[:40],
+                "vin": vin[:80],
+                "engine_number": engine_number[:80],
+                "make": make[:100],
+                "model_name": model_name[:100],
+                "model_year": model_year,
+                "source_row": row_number,
+            })
+            seen_assets.add(asset_code)
+            seen_policies.add(policy_number)
+        except (ValueError, ValidationError, PermissionDenied) as exc:
+            errors.append(str(exc))
+    return valid, errors
+
+
 def _preview_contracts(user, mapped_rows):
     valid, errors, seen = [], [], set()
     allowed_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
@@ -564,6 +723,8 @@ def profile_import(request, profile):
                     valid_rows, errors = _preview_people(request.user, mapped_rows)
                 elif profile == "claims":
                     valid_rows, errors = _preview_claims(request.user, mapped_rows)
+                elif profile == "assets":
+                    valid_rows, errors = _preview_assets(request.user, mapped_rows)
                 else:
                     valid_rows, errors = _preview_contracts(request.user, mapped_rows)
                 upload.seek(0)
@@ -903,6 +1064,8 @@ def profile_import_confirm(request, batch_id):
                 _process_people_batch(batch, request.user)
             elif profile == "claims":
                 _process_claims_batch(batch, request.user, request)
+            elif profile == "assets":
+                _process_assets_batch(batch, request.user, request)
             else:
                 _process_contracts_batch(batch, request.user)
             batch.status = ImportBatch.Status.PROCESSED
