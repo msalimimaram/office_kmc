@@ -333,9 +333,9 @@ def _preview_claims(user, mapped_rows):
             national_id = normalize_national_id(raw.get("national_id"))
             service_type = _text(raw.get("service_type"))
             contract_code = _text(raw.get("contract_number"))
-            line_code = _text(raw.get("line_code")) or "health"
+            line_code = _text(raw.get("line_code")).lower()
             service_date = _parse_date(raw.get("service_date"), row_number, "service_date")
-            if not source_number or not national_id or not service_type or not contract_code or not service_date:
+            if not source_number or not national_id or not service_type or not contract_code or not service_date or not line_code:
                 raise ValueError(f"ردیف {row_number}: شناسه پرونده، کد ملی، نوع خدمت، شماره قرارداد و تاریخ خدمت الزامی است.")
             if len(source_number) > 120:
                 raise ValueError(f"ردیف {row_number}: شماره پرونده منبع بیش از حد مجاز است.")
