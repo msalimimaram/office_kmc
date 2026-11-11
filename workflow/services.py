@@ -21,6 +21,7 @@ User = get_user_model()
 
 HEALTH_REQUEST_KINDS = {
     "medical_assistance", "anonymous_plan", "excess_coverage",
+    "identity_change", "iban_change",
     "add_coverage", "remove_coverage", "base_insurance_waiver",
 }
 
