@@ -471,6 +471,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "response": "",
             "deadline_at": objection_claim.result_sent_at + timedelta(days=60),
         },
+        verify_fields=("submitted_by", "response"),
     )
     _ensure_workflow(
         objection, "claim_objection", head, specialist,
@@ -786,7 +787,8 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         )
 
     # Internal correspondence shares a deterministic, non-production demo serial range.
-    solar_day = jdatetime.date.fromgregorian(date=today).strftime("%Y%m%d")
+    # Keep demo serials deterministic across repeated runs and calendar days.
+    solar_day = jdatetime.date.fromgregorian(date=date(2026, 11, 11)).strftime("%Y%m%d")
     ensure(
         CorrespondenceSequence, {"solar_date": solar_day},
         {"last_number": 900},
@@ -947,7 +949,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         (date(2026, 3, 22), "تعطیلی نمونه دوم", False),
         (date(2026, 4, 1), "تعطیلی مناسبتی نمونه", False),
         (date(2026, 4, 3), "روز کاری استثنایی نمونه", True),
-        (today + timedelta(days=20), "تعطیلی آتی نمونه", False),
+        (date(2026, 12, 1), "تعطیلی آتی نمونه", False),
     )
     for holiday_date, title, override in holiday_specs:
         ensure(
