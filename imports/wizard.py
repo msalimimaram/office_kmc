@@ -514,6 +514,10 @@ def _preview_assets(user, mapped_rows):
                 )
                 if not company_id:
                     raise ValueError(f"ردیف {row_number}: شرکت محل اشتغال فعلی مالک شخصی قابل تعیین نیست.")
+                if person.company_id and person.company_id != company_id:
+                    raise ValueError(
+                        f"ردیف {row_number}: شرکت ثبت‌شده در مشخصات مالک با سابقه اشتغال فعلی او مغایرت دارد؛ ابتدا سوابق شرکت اصلاح شود."
+                    )
             if not contract.companies.filter(pk=company_id).exists():
                 raise ValueError(f"ردیف {row_number}: قرارداد برای شرکت مالک این دارایی تعریف نشده است.")
 
@@ -1031,6 +1035,8 @@ def _process_assets_batch(batch, reviewer, request):
             )
             if not company_id:
                 raise ValidationError("شرکت محل اشتغال فعلی مالک شخصی دیگر قابل تعیین نیست.")
+            if person.company_id and person.company_id != company_id:
+                raise ValidationError("شرکت ثبت‌شده در مشخصات مالک با سابقه اشتغال فعلی او مغایرت دارد.")
         if not contract.companies.filter(pk=company_id).exists():
             raise ValidationError("شرکت مالک این دارایی دیگر در محدوده قرارداد قرار ندارد.")
 
