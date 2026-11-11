@@ -1,12 +1,14 @@
 from django.db import models
 from django.conf import settings
 
+
 class ImportBatch(models.Model):
     class Status(models.TextChoices):
         UPLOADED = "uploaded", "بارگذاری‌شده"
         VALIDATED = "validated", "اعتبارسنجی‌شده و در انتظار تأیید"
         PROCESSED = "processed", "تأیید و پردازش‌شده"
         FAILED = "failed", "ناموفق"
+
     batch_number = models.CharField("شماره عملیات", max_length=40, unique=True)
     source_type = models.CharField("نوع داده", max_length=50, default="claims")
     file = models.FileField("فایل اکسل", upload_to="imports/")
@@ -17,6 +19,7 @@ class ImportBatch(models.Model):
     invalid_rows = models.PositiveIntegerField(default=0)
     result_report = models.TextField("گزارش نتیجه", blank=True)
     preview_data = models.JSONField("داده موقت پیش‌نمایش", default=list, blank=True)
+    column_mapping = models.JSONField("نگاشت ستون‌های اکسل", default=dict, blank=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="reviewed_import_batches")
     reviewed_at = models.DateTimeField("زمان تأیید", null=True, blank=True)
     review_note = models.TextField("یادداشت بررسی", blank=True)
