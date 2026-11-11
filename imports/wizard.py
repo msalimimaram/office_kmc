@@ -93,9 +93,10 @@ def _staff(user):
 
 def _profile_allowed(user, code):
     if code == "people_roster":
+        specialist_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
         return (
             has_global_access(user)
-            or has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+            or ("health" in specialist_lines or "*" in specialist_lines)
             or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
         )
     if code == "claims":
@@ -112,7 +113,10 @@ def _profile_allowed(user, code):
 def _can_review(user, code):
     if code == "contracts":
         return has_global_access(user)
-    if code in {"people_roster", "claims"}:
+    if code == "people_roster":
+        specialist_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+        return has_global_access(user) or ("health" in specialist_lines or "*" in specialist_lines)
+    if code == "claims":
         return _staff(user)
     return False
 
@@ -288,7 +292,7 @@ def _preview_claims(user, mapped_rows):
                 raise ValueError(f"ردیف {row_number}: شماره پرونده منبع بیش از حد مجاز است.")
             if line_code not in line_choices:
                 raise ValueError(f"ردیف {row_number}: کد رشته بیمه معتبر نیست.")
-            if line_code != "health" and not is_insurer and not has_global_access(user):
+            if not is_insurer and not has_global_access(user) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
                 if not has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line_code):
                     raise ValueError(f"ردیف {row_number}: رشته بیمه خارج از محدوده انتصاب شماست.")
             if source_number in seen:
