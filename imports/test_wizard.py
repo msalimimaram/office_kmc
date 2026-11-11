@@ -206,3 +206,156 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.assertTrue(PersonEmployment.objects.filter(
             person=primary, company=self.company_a, status=PersonEmployment.Status.ACTIVE
         ).exists())
+
+
+class SpecialistAssetImportTests(TestCase):
+    def setUp(self):
+        from insurance.models import Contract, Insurer, InsuranceLine
+
+        self.company = Company.objects.create(code="AST-XLS-A", name="شرکت نمونه دارایی")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر نمونه دارایی")
+        self.contract = Contract.objects.create(
+            code="AST-XLS-FIRE-01",
+            title="قرارداد آتش‌سوزی نمونه",
+            insurer=self.insurer,
+            line=InsuranceLine.FIRE,
+            start_date=date(2026, 1, 1),
+            end_date=date(2028, 12, 29),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.contract.companies.set([self.company])
+
+        self.specialist = User.objects.create_user(
+            username="asset-fire-specialist",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.FIRE,
+            reason="کارشناس آتش‌سوزی برای آزمون ورود دارایی",
+        )
+        self.reviewer = User.objects.create_user(
+            username="asset-import-reviewer",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=self.reviewer,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای تأیید مستقل ورود دارایی",
+        )
+
+    def _asset_row(self, *, asset_code="AST-XLS-VEH-001", contract_number=None):
+        return [
+            asset_code,
+            "خودروی سازمانی نمونه",
+            "vehicle",
+            "company",
+            self.company.code,
+            "",
+            "AST-REG-001",
+            "پارکینگ شرکت",
+            7500000000,
+            contract_number or self.contract.code,
+            "AST-POL-001",
+            "2026-11-15",
+            "2027-11-14",
+            "2026-11-10",
+            7600000000,
+            "formal",
+            "ایران 11-123 الف",
+            "AST-VIN-001",
+            "AST-ENG-001",
+            "سازنده نمونه",
+            "مدل آزمایشی",
+            2024,
+        ]
+
+    def _asset_upload(self, row):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append([f"source_{index}" for index in range(1, 23)])
+        sheet.append(row)
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+        return SimpleUploadedFile(
+            "assets.xlsx",
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def _asset_post_data(self, row):
+        from openpyxl.utils import get_column_letter
+        from imports.profiles import PROFILES
+
+        data = {"header_row": 1, "file": self._asset_upload(row)}
+        for index, (key, _label, _default, _required) in enumerate(PROFILES["assets"]["fields"], start=1):
+            data[f"column_{key}"] = get_column_letter(index)
+        return data
+
+    def test_asset_import_creates_vehicle_and_pending_approval_workflows(self):
+        from assets.models import AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle
+        from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
+        from workflow.models import WorkflowCase
+
+        WorkflowSeedCommand().handle()
+        self.client.force_login(self.specialist)
+        response = self.client.post(
+            reverse("asset_import"),
+            self._asset_post_data(self._asset_row()),
+        )
+        self.assertEqual(response.status_code, 200)
+        batch = ImportBatch.objects.get(source_type="assets")
+        self.assertEqual(batch.valid_rows, 1)
+        self.assertEqual(batch.invalid_rows, 0)
+        self.assertEqual(InsuredAsset.objects.filter(asset_code="AST-XLS-VEH-001").count(), 0)
+
+        self.client.force_login(self.reviewer)
+        response = self.client.post(reverse("profile_import_confirm", args=[batch.pk]))
+        self.assertEqual(response.status_code, 302)
+
+        asset = InsuredAsset.objects.get(asset_code="AST-XLS-VEH-001")
+        vehicle = Vehicle.objects.get(asset=asset)
+        self.assertEqual(vehicle.plate_number, "ایران 11-123 الف")
+        valuation = AssetValuation.objects.get(asset=asset)
+        policy_period = AssetPolicyPeriod.objects.get(asset=asset)
+        self.assertEqual(valuation.status, AssetValuation.Status.PENDING_APPROVAL)
+        self.assertEqual(policy_period.status, AssetPolicyPeriod.Status.PENDING_APPROVAL)
+        self.assertTrue(WorkflowCase.objects.filter(
+            definition__code="asset_valuation_approval",
+            object_id=str(valuation.pk),
+        ).exists())
+        self.assertTrue(WorkflowCase.objects.filter(
+            definition__code="asset_policy_approval",
+            object_id=str(policy_period.pk),
+        ).exists())
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, ImportBatch.Status.PROCESSED)
+
+    def test_asset_specialist_cannot_import_outside_assigned_insurance_line(self):
+        from imports.models import ImportBatch
+
+        health_user = User.objects.create_user(
+            username="asset-health-only",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=health_user,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="کارشناس درمان بدون اختیار رشته اموال",
+        )
+        self.client.force_login(health_user)
+        response = self.client.post(
+            reverse("asset_import"),
+            self._asset_post_data(self._asset_row(asset_code="AST-XLS-OUT-001")),
+        )
+        self.assertEqual(response.status_code, 200)
+        batch = ImportBatch.objects.get(source_type="assets")
+        self.assertEqual(batch.valid_rows, 0)
+        self.assertEqual(batch.invalid_rows, 1)
+        self.assertFalse(__import__("assets.models", fromlist=["InsuredAsset"]).InsuredAsset.objects.filter(
+            asset_code="AST-XLS-OUT-001"
+        ).exists())
