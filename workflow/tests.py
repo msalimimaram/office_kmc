@@ -496,6 +496,115 @@ class WorkflowEngineTests(TestCase):
 
 
 
+    def test_published_workflow_definition_rejects_queryset_and_bulk_mutation(self):
+        with self.assertRaises(ValidationError):
+            WorkflowDefinition.objects.filter(pk=self.definition.pk).update(published_at=None)
+
+        altered = WorkflowDefinition.objects.get(pk=self.definition.pk)
+        altered.title = "عنوان دستکاری‌شده"
+        with self.assertRaises(ValidationError):
+            WorkflowDefinition.objects.bulk_update([altered], ["title"])
+
+        altered.refresh_from_db()
+        altered.published_at = None
+        with self.assertRaises(ValidationError):
+            altered.save(update_fields=["published_at"])
+
+        altered.refresh_from_db()
+        self.assertIsNotNone(altered.published_at)
+
+    def test_publication_timestamp_is_saved_when_activation_uses_update_fields(self):
+        draft = WorkflowDefinition.objects.create(
+            code="publish-update-fields",
+            title="انتشار با update_fields",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=draft,
+            code="initial",
+            title="مرحله آغازین",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        draft.approved_by = self.admin
+        draft.is_active = True
+        draft.save(update_fields=["is_active"])
+
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_active)
+        self.assertIsNotNone(draft.published_at)
+
+    def test_workflow_children_cannot_be_reparented_across_publication_boundary(self):
+        draft = WorkflowDefinition.objects.create(
+            code="draft-child-parent",
+            title="تعریف پیش‌نویس برای آزمون انتقال",
+            created_by=self.admin,
+        )
+        draft_step = WorkflowStep.objects.create(
+            definition=draft,
+            code="draft-step",
+            title="مرحله پیش‌نویس",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        draft_transition = WorkflowTransition.objects.create(
+            definition=draft,
+            source_step=draft_step,
+            action_code="draft-close",
+            title="بستن پیش‌نویس",
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            closes_case=True,
+        )
+
+        published_step = WorkflowStep.objects.get(pk=self.initial.pk)
+        published_step.definition = draft
+        with self.assertRaises(ValidationError):
+            published_step.save()
+        published_step.refresh_from_db()
+        published_step.definition = draft
+        with self.assertRaises(ValidationError):
+            published_step.delete()
+
+        draft_step.definition = self.definition
+        with self.assertRaises(ValidationError):
+            draft_step.save()
+        draft_step.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.filter(pk=draft_step.pk).update(
+                definition_id=self.definition.pk
+            )
+        draft_step.definition = self.definition
+        with self.assertRaises(ValidationError):
+            WorkflowStep.objects.filter(pk=draft_step.pk).bulk_update(
+                [draft_step], ["definition"]
+            )
+
+        published_transition = WorkflowTransition.objects.get(pk=self.transition.pk)
+        published_transition.definition = draft
+        with self.assertRaises(ValidationError):
+            published_transition.save()
+        published_transition.refresh_from_db()
+        published_transition.definition = draft
+        with self.assertRaises(ValidationError):
+            published_transition.delete()
+
+        draft_transition.definition = self.definition
+        with self.assertRaises(ValidationError):
+            draft_transition.save()
+        draft_transition.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            WorkflowTransition.objects.filter(pk=draft_transition.pk).update(
+                definition_id=self.definition.pk
+            )
+        draft_transition.definition = self.definition
+        with self.assertRaises(ValidationError):
+            WorkflowTransition.objects.filter(pk=draft_transition.pk).bulk_update(
+                [draft_transition], ["definition"]
+            )
+
+
 class OperationalWorkflowSeedCommandTests(TestCase):
     def test_seed_command_publishes_all_operational_workflows_idempotently(self):
         from django.core.management import call_command
