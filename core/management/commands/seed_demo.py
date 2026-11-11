@@ -24,10 +24,21 @@ def _get_or_create_unchanged(model, *, lookup, defaults, verify_fields=None):
     """
     obj = model.objects.filter(**lookup).first()
     if obj is not None:
-        fields = verify_fields if verify_fields is not None else tuple(defaults)
+        # Fixture values may be specified either as lookup keys or as defaults.
+        # This matters for immutable/source identifiers such as source_reference,
+        # and for scoped relations included in the natural-key lookup.
+        expected_values = dict(lookup)
+        expected_values.update(defaults)
+        fields = tuple(verify_fields) if verify_fields is not None else tuple(expected_values)
+        missing_fields = [field for field in fields if field not in expected_values]
+        if missing_fields:
+            raise CommandError(
+                f"Invalid seed verification for {model._meta.label} ({lookup}): "
+                f"no expected value supplied for: {', '.join(missing_fields)}."
+            )
         mismatches = [
             field for field in fields
-            if getattr(obj, field) != defaults[field]
+            if getattr(obj, field) != expected_values[field]
         ]
         if mismatches:
             label = ", ".join(mismatches)
