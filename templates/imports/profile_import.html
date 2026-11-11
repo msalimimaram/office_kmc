@@ -101,7 +101,7 @@
       <strong>{{ item.batch_number }}</strong>
       <p>بارگذار: {{ item.uploaded_by.get_full_name|default:item.uploaded_by.username }} · {{ item.created_at }}</p>
       <p>قابل ثبت: {{ item.valid_rows }} · دارای خطا: {{ item.invalid_rows }}</p>
-      {% if can_confirm_batches and item.uploaded_by_id != request.user.pk and item.valid_rows %}
+      {% if item.can_confirm and item.valid_rows %}
         <form method="post" action="{% url 'profile_import_confirm' item.pk %}">
           {% csrf_token %}
           <label>یادداشت بررسی</label>
