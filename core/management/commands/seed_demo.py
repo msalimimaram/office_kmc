@@ -159,31 +159,36 @@ class Command(BaseCommand):
             verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
 
+        import os
+        demo_password = os.environ.get("PRESENTATION_DEMO_PASSWORD", "")
+        if not demo_password:
+            raise CommandError("Set PRESENTATION_DEMO_PASSWORD in the environment before creating demo accounts.")
         user_specs = (
-            ("admin.demo", User.Role.SYSTEM_ADMIN, None, "", None),
-            ("head.demo", User.Role.DEPARTMENT_HEAD, None, "", None),
-            ("specialist.demo", User.Role.INSURANCE_SPECIALIST, None, "", None),
-            ("companya.demo", User.Role.SUBSIDIARY_REP, company_a, "", None),
-            ("companyb.demo", User.Role.SUBSIDIARY_REP, company_b, "", None),
-            ("employee.a", User.Role.EMPLOYEE, company_a, employee_a.national_id, None),
-            ("employee.b", User.Role.EMPLOYEE, company_b, employee_b.national_id, None),
-            ("insurer.demo", User.Role.INSURER, None, "", insurer),
+            ("Admin", User.Role.SYSTEM_ADMIN, None, "", None, "مدیر", "سامانه", "", ("",)),
+            ("Shahamat", User.Role.DEPARTMENT_HEAD, None, "", None, "رئیس", "اداره بیمه", "", ("",)),
+            ("Salimi", User.Role.INSURANCE_SPECIALIST, None, "", None, "سرپرست", "بیمه تکمیلی درمان", "09120000001", ("health",)),
+            ("Amiri", User.Role.INSURANCE_SPECIALIST, None, "", None, "کارشناس", "بیمه تکمیلی درمان", "09120000002", ("health",)),
+            ("Delbari", User.Role.INSURANCE_SPECIALIST, None, "", None, "مسئول", "بیمه مسئولیت و آتش‌سوزی", "09120000003", ("liability", "fire")),
+            ("Mahbod", User.Role.INSURANCE_SPECIALIST, None, "", None, "مسئول", "بیمه‌های خودرو", "09120000004", ("third_party", "body")),
+            ("Namayande1", User.Role.SUBSIDIARY_REP, company_a, "", None, "نماینده", "شرکت نمونه الف", "09121110001", ("*",)),
+            ("Namayande2", User.Role.SUBSIDIARY_REP, company_b, "", None, "نماینده", "شرکت نمونه ب", "09121110002", ("*",)),
+            ("employee.a", User.Role.EMPLOYEE, company_a, employee_a.national_id, None, "علی", "نمونه", "09121111111", ("*",)),
+            ("employee.b", User.Role.EMPLOYEE, company_b, employee_b.national_id, None, "رضا", "آزمایشی", "09122222222", ("*",)),
+            ("Saman", User.Role.INSURER, None, "", insurer, "نماینده", "بیمه‌گر سامان", "09123330001", ("",)),
         )
         users = {}
         generated_users = []
-        for username, role, company, national_id, insurer_obj in user_specs:
+        for username, role, company, national_id, insurer_obj, first_name, last_name, mobile, line_codes in user_specs:
             defaults = {
-                "role": role,
-                "company": company,
-                "national_id": national_id,
-                "insurer": insurer_obj,
-                "is_active": True,
-                "must_change_password": True,
+                "role": role, "company": company, "national_id": national_id,
+                "insurer": insurer_obj, "first_name": first_name, "last_name": last_name,
+                "mobile": mobile, "is_active": True, "is_staff": username == "Admin",
+                "must_change_password": False,
             }
             user = User.objects.filter(username=username).first()
             if user is None:
                 user = User(username=username, **defaults)
-                user.set_unusable_password()
+                user.set_password(demo_password)
                 user.save()
                 created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
                 generated_users.append(username)
@@ -194,42 +199,43 @@ class Command(BaseCommand):
                             f"Seed collision in accounts.User (username={username}): "
                             f"{field} differs. Existing account and password were not changed."
                         )
+                if not user.has_usable_password():
+                    user.set_password(demo_password)
+                    user.must_change_password = False
+                    user.save(update_fields=["password", "must_change_password"])
                 reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
             users[username] = user
 
-            assignment_role = {
-                User.Role.SYSTEM_ADMIN: RoleAssignment.Role.SYSTEM_ADMIN,
-                User.Role.DEPARTMENT_HEAD: RoleAssignment.Role.DEPARTMENT_HEAD,
-                User.Role.INSURANCE_SPECIALIST: RoleAssignment.Role.INSURANCE_SPECIALIST,
-                User.Role.SUBSIDIARY_REP: RoleAssignment.Role.SUBSIDIARY_REP,
-                User.Role.EMPLOYEE: RoleAssignment.Role.INSURED_PERSON,
-                User.Role.INSURER: RoleAssignment.Role.INSURER_REP,
-            }[role]
-            assignment_company = company if role in {
-                User.Role.SUBSIDIARY_REP, User.Role.EMPLOYEE
-            } else None
+        users.update({
+            "admin.demo": users["Admin"], "head.demo": users["Shahamat"],
+            "supervisor.demo": users["Salimi"], "specialist.demo": users["Amiri"],
+            "specialist.fire.demo": users["Delbari"], "companya.demo": users["Namayande1"],
+            "companyb.demo": users["Namayande2"], "employee.a": users["employee.a"],
+            "employee.b": users["employee.b"], "insurer.demo": users["Saman"],
+        })
+
+        assignment_roles = {
+            User.Role.SYSTEM_ADMIN: RoleAssignment.Role.SYSTEM_ADMIN,
+            User.Role.DEPARTMENT_HEAD: RoleAssignment.Role.DEPARTMENT_HEAD,
+            User.Role.INSURANCE_SPECIALIST: RoleAssignment.Role.INSURANCE_SPECIALIST,
+            User.Role.SUBSIDIARY_REP: RoleAssignment.Role.SUBSIDIARY_REP,
+            User.Role.EMPLOYEE: RoleAssignment.Role.INSURED_PERSON,
+            User.Role.INSURER: RoleAssignment.Role.INSURER_REP,
+        }
+        for username, role, company, _national_id, insurer_obj, _first, _last, _mobile, line_codes in user_specs:
+            user = users[username]
+            assignment_company = company if role in {User.Role.SUBSIDIARY_REP, User.Role.EMPLOYEE} else None
             assignment_insurer = insurer_obj if role == User.Role.INSURER else None
-            assignment_line = (
-                "health" if role == User.Role.INSURANCE_SPECIALIST else
-                "*" if role in {User.Role.SUBSIDIARY_REP, User.Role.EMPLOYEE} else ""
-            )
-            record(
-                RoleAssignment,
-                {
-                    "user": user,
-                    "role": assignment_role,
-                    "company": assignment_company,
-                    "insurer": assignment_insurer,
-                    "line_code": assignment_line,
-                },
-                {
-                    "valid_from": date(2026, 1, 1),
-                    "valid_until": None,
-                    "is_active": True,
-                    "reason": "انتصاب داده نمونه",
-                },
-                verify_fields=("reason",),
-            )
+            for line_code in line_codes:
+                record(
+                    RoleAssignment,
+                    {"user": user, "role": assignment_roles[role], "company": assignment_company,
+                     "insurer": assignment_insurer, "line_code": line_code},
+                    {"valid_from": date(2026, 1, 1), "valid_until": None, "is_active": True,
+                     "reason": "انتصاب کاربر نمایشی مطابق نقش و حوزه خدمت",
+                     "granted_by": users["Admin"], "approved_by": users["Shahamat"]},
+                    verify_fields=("reason", "granted_by", "approved_by"),
+                )
 
         claim_a, _ = record(
             Claim,
@@ -347,14 +353,9 @@ class Command(BaseCommand):
             f"{extended['work_delegations']} تفویض اختیار"
         )
         new_demo_users = list(generated_users) + list(extended["additional_users_created"])
-        if new_demo_users:
-            self.stdout.write(
-                "حساب‌های جدید بدون رمز قابل استفاده ایجاد شدند: "
-                + ", ".join(new_demo_users)
-            )
-            self.stdout.write(
-                "برای ورود محلی، برای هر حساب با set_password یک رمز قوی تعیین کنید؛ "
-                "فرمان seed رمز یا وضعیت تغییر رمز حساب‌های موجود را دست‌کاری نمی‌کند."
-            )
+        self.stdout.write("حساب‌های نمایشی: Admin, Shahamat, Salimi, Amiri, Delbari, Mahbod, "
+                         "Namayande1 تا Namayande4، Saman و Saman2")
+        self.stdout.write("رمز مشترک حساب‌های تازه‌ساخته‌شده از PRESENTATION_DEMO_PASSWORD خوانده شد.")
+        self.stdout.write("این حساب‌ها فقط برای نمایش و آزمون هستند؛ پیش از استقرار واقعی غیرفعال/بازتنظیم شوند.")
         self.stdout.write("تعداد ایجادشده: " + str(sum(created_counts.values())))
         self.stdout.write("تعداد بازیابی‌شده بدون تغییر: " + str(sum(reused_counts.values())))
