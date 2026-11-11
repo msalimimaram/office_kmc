@@ -537,7 +537,10 @@ def profile_import(request, profile):
                 preview_rows = valid_rows[:MAX_PREVIEW_ROWS]
             except (ValueError, ValidationError) as exc:
                 form.add_error("file", str(exc))
-    pending_batches = ImportBatch.objects.filter(status=ImportBatch.Status.VALIDATED)
+    pending_batches = ImportBatch.objects.filter(
+        status=ImportBatch.Status.VALIDATED,
+        source_type=profile,
+    )
     if not _can_review(request.user, profile):
         pending_batches = pending_batches.filter(uploaded_by=request.user)
     pending_batches = pending_batches.select_related("uploaded_by").order_by("-created_at")[:30]
