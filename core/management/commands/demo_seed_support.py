@@ -386,7 +386,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "reason": f"درخواست آزمایشی اصلاح اطلاعات شماره {index}؛ بررسی و تأیید مستقل لازم است.",
                 "status": PersonChangeRequest.Status.SUBMITTED,
             },
-            verify_fields=("company", "contract", "requested_by", "current_value", "requested_value", "reason"),
+            verify_fields=("company", "contract", "requested_by", "requested_value", "reason"),
         )
         person_change_requests.append(change)
         _ensure_workflow(
@@ -530,7 +530,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             "snapshot": snapshot,
             "effective_date": today + timedelta(days=1),
         },
-        verify_fields=("description", "created_by", "snapshot", "effective_date"),
+        verify_fields=("description", "created_by", "effective_date"),
     )
     _ensure_workflow(revision, "contract_approval", specialist, head, note="ارسال نسخه قرارداد برای تصویب")
 
@@ -826,11 +826,13 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             CorrespondenceEvent,
             {"correspondence": item, "event_type": CorrespondenceEvent.EventType.CREATED, "summary": "مکاتبه نمونه ثبت شد."},
             {"actor": head, "metadata": {"fixture": "DEMO-SEED"}, "occurred_at": now - timedelta(days=index)},
+            verify_fields=("actor", "metadata"),
         )
         ensure(
             CorrespondenceEvent,
             {"correspondence": item, "event_type": event_type, "summary": "رویداد پیگیری نمونه ثبت شد."},
             {"actor": specialist, "metadata": {"step": "demo"}, "occurred_at": now - timedelta(days=index - 1)},
+            verify_fields=("actor", "metadata"),
         )
     claim_content_type = ContentType.objects.get_for_model(Claim, for_concrete_model=False)
     for index, item in enumerate(correspondence_rows[:3], start=1):
@@ -914,11 +916,13 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             TaskEvent,
             {"task": task, "event_type": TaskEvent.EventType.CREATED, "note": "ایجاد وظیفه نمونه"},
             {"actor": creator, "from_value": "", "to_value": task.status, "occurred_at": now - timedelta(days=index)},
+            verify_fields=("actor", "from_value"),
         )
         ensure(
             TaskEvent,
             {"task": task, "event_type": TaskEvent.EventType.ASSIGNED, "note": "تخصیص وظیفه نمونه"},
             {"actor": creator, "from_value": "", "to_value": assignee.username, "occurred_at": now - timedelta(days=index - 1)},
+            verify_fields=("actor", "from_value", "to_value"),
         )
 
     # Calendar fixtures include holidays and an explicit exceptional working day.
