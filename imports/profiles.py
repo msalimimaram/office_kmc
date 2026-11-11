@@ -54,7 +54,7 @@ PROFILES = {
             ["INS-CLM-1001", "0012345678", "ویزیت پزشک", "DEMO-1405", "2026-10-20", "2026-10-22", "2026-10-22", 1250000, 1000000, 900000, 450000, "2026-11-01", "no", "", "", "health"],
             ["INS-CLM-1002", "0012345679", "دارو", "DEMO-1405", "2026-10-21", "2026-10-23", "2026-10-23", 850000, 800000, 750000, 0, "", "no", "", "", "health"],
         ],
-        "required": {"claim_number", "national_id", "service_type", "contract_number", "service_date"},
+        "required": {"claim_number", "national_id", "service_type", "contract_number", "service_date", "line_code"},
     },
     "assets": {
         "title": "دارایی‌های بیمه‌شده، ارزیابی و دوره بیمه‌نامه",
