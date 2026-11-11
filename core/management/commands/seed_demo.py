@@ -90,6 +90,7 @@ class Command(BaseCommand):
                 "status": Contract.Status.ACTIVE,
                 "is_active": True,
             },
+            verify_fields=("title", "insurer", "line", "start_date", "end_date"),
         )
         expected_company_ids = {company_a.pk, company_b.pk}
         if contract_created:
@@ -113,6 +114,7 @@ class Command(BaseCommand):
                 "is_insured": True,
                 "is_active": True,
             },
+            verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
         record(
             Person,
@@ -128,6 +130,7 @@ class Command(BaseCommand):
                 "is_insured": True,
                 "is_active": True,
             },
+            verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
         employee_b, _ = record(
             Person,
@@ -142,6 +145,7 @@ class Command(BaseCommand):
                 "is_insured": True,
                 "is_active": True,
             },
+            verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
 
         user_specs = (
@@ -234,6 +238,7 @@ class Command(BaseCommand):
                 "source_reference": "DEMO",
                 "assessment_note": "داده آزمایشی",
             },
+            verify_fields=("person", "contract", "insurer", "service_type", "requested_amount", "assessed_amount", "payable_amount", "assessment_note"),
         )
         claim_b, _ = record(
             Claim,
@@ -253,6 +258,7 @@ class Command(BaseCommand):
                 "status": Claim.Status.PAID,
                 "source_reference": "DEMO",
             },
+            verify_fields=("person", "contract", "insurer", "service_type", "requested_amount", "assessed_amount", "payable_amount", "source_reference"),
         )
 
         record(
@@ -284,6 +290,7 @@ class Command(BaseCommand):
                 "assigned_to": None,
                 "is_confidential": False,
             },
+            verify_fields=("kind", "submitted_by", "person", "company", "title", "description", "is_confidential"),
         )
         record(
             ServiceRequest,
@@ -299,6 +306,7 @@ class Command(BaseCommand):
                 "assigned_to": None,
                 "is_confidential": True,
             },
+            verify_fields=("kind", "submitted_by", "person", "company", "title", "description", "is_confidential"),
         )
 
         from core.management.commands.demo_seed_support import seed_extended_fixtures
