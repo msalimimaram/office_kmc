@@ -300,7 +300,31 @@ class Command(BaseCommand):
             },
         )
 
+        from core.management.commands.demo_seed_support import seed_extended_fixtures
+
+        extended = seed_extended_fixtures(
+            record=record,
+            users=users,
+            company_a=company_a,
+            company_b=company_b,
+            insurer=insurer,
+            employee_a=employee_a,
+            employee_b=employee_b,
+            created_counts=created_counts,
+            reused_counts=reused_counts,
+        )
+
         self.stdout.write(self.style.SUCCESS("داده‌های نمونه ایجاد/بازیابی شدند؛ هیچ رکورد موجودی بازنویسی نشد."))
+        self.stdout.write(f"پوشش مدل‌ها: {extended['model_coverage']} از 45 مدل")
+        self.stdout.write(f"مجموع رکوردهای موجود در مدل‌های تحت پوشش: {extended['total_model_rows']}")
+        self.stdout.write(
+            "سناریوها: "
+            f"{extended['service_requests']} درخواست، "
+            f"{extended['claims']} خسارت، "
+            f"{extended['assets']} دارایی، "
+            f"{extended['documents']} سند و "
+            f"{extended['work_delegations']} تفویض اختیار"
+        )
         if generated_users:
             self.stdout.write(
                 "حساب‌های جدید بدون رمز قابل استفاده ایجاد شدند: "
