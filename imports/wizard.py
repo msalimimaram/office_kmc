@@ -382,6 +382,7 @@ def _preview_claims(user, mapped_rows):
                 "source_duplicate_reference": _text(raw.get("source_duplicate_reference"))[:120],
                 "source_duplicate_note": _text(raw.get("source_duplicate_note"))[:4000],
                 "source_duplicate_reported_at": timezone.now().isoformat() if duplicate else None,
+                "source_duplicate_reported_by_id": user.pk if duplicate else None,
                 **{key: str(value) for key, value in amounts.items()},
                 **{key: value.isoformat() if value else None for key, value in dates.items()},
                 "source_reference": "Excel import",
