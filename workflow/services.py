@@ -948,9 +948,10 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             and target_position_assignment.pk != target_step_position_assignment.pk
         ):
             raise PermissionDenied("انتصاب سمت گیرنده با مرحله مقصد یکسان نیست.")
-        position_assignment = (
-            target_step_position_assignment or target_position_assignment
-        )
+        # The target step defines the enduring authorization grant. The
+        # transition recipient rule is an additional gate, not a substitute
+        # for the grant that authorizes the next stage.
+        position_assignment = target_step_position_assignment
         case.current_step = transition.target_step
         case.current_assignee = target
         case.current_position_assignment = position_assignment
