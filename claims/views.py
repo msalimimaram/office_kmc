@@ -70,8 +70,8 @@ def _claim_workflow_case(claim):
         content_type=content_type,
         object_id=str(claim.pk),
     ).select_related(
-        "current_step", "current_assignee", "current_position_assignment", "delegation"
-    ).first()
+        "definition", "current_step", "current_assignee", "current_position_assignment", "delegation"
+    ).order_by("-definition__is_active", "-definition__version", "-pk").first()
 
 
 def _can_assess_claim(user, claim, case):
@@ -104,6 +104,8 @@ def _objection_workflow_case(objection):
     return WorkflowCase.objects.filter(
         content_type=content_type,
         object_id=str(objection.pk),
+    ).select_related("definition", "current_step", "current_assignee").order_by(
+        "-definition__is_active", "-definition__version", "-pk"
     ).first()
 
 def _can_manage_claim_payments(user, claim):
