@@ -72,6 +72,7 @@ def _manager_scope(user):
 
         subordinate_scope = PositionAssignment.objects.filter(
             unit_id__in=unit_ids,
+            unit__company__isnull=True,
             is_active=True,
             valid_from__lte=today,
             position__level__gt=assignment.position.level,
