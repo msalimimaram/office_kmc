@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.db.models import Q
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, is_unit_manager
 from accounts.models import RoleAssignment, User
 from .models import WorkflowCase, WorkflowTransition
 from .presentation import build_workflow_presentation
@@ -24,13 +24,23 @@ def _visible_cases(user):
     )
     if has_global_access(user):
         return qs
-    # Previous assignees retain read access to the audit trail, but actions
-    # remain restricted to the current assignee in workflow.services.
-    return qs.filter(
+
+    # Current and former assignees can read their own audit trail. A supervisor
+    # or responsible can additionally monitor cases assigned to active internal
+    # subordinates in their authorized organizational branch; this is read-only.
+    visible = (
         Q(current_assignee=user)
         | Q(events__from_assignee=user)
         | Q(events__to_assignee=user)
-    ).distinct()
+    )
+    if is_unit_manager(user):
+        from django.contrib.auth import get_user_model
+        from tasks.forms import _manager_scope
+
+        UserModel = get_user_model()
+        subordinate_ids = UserModel.objects.filter(_manager_scope(user)).values("pk")
+        visible |= Q(current_assignee_id__in=subordinate_ids)
+    return qs.filter(visible).distinct()
 
 
 def _eligible_recipients(case, transition):

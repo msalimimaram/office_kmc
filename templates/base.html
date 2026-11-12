@@ -42,7 +42,7 @@
         <a class="sidebar-link" href="{% url 'dashboard' %}"><span class="sidebar-icon">⌂</span><span>داشبورد</span></a>
         {% if access.notifications %}<a class="sidebar-link" href="{% url 'notification_list' %}"><span class="sidebar-icon">♧</span><span>اعلان‌ها</span>{% if unread_notification_count %}<span class="sidebar-count">{{ unread_notification_count }}</span>{% endif %}</a>{% endif %}
         <span class="sidebar-section-label">کارها و گردش‌کار</span>
-        <a class="sidebar-link" href="{% url 'workflow_case_list' %}"><span class="sidebar-icon">↗</span><span>ارجاعات من</span></a>
+        {% if access.workflow %}<a class="sidebar-link" href="{% url 'workflow_case_list' %}"><span class="sidebar-icon">↗</span><span>صندوق گردش‌کار</span></a>{% endif %}
         {% if access.delegation_inbox %}<a class="sidebar-link" href="{% url 'delegation_inbox' %}"><span class="sidebar-icon">⇢</span><span>کارهای تفویض‌شده</span></a>{% endif %}
         {% if access.delegation_manage %}<a class="sidebar-link" href="{% url 'delegation_management' %}"><span class="sidebar-icon">⚙</span><span>مدیریت تفویض اختیار</span></a>{% endif %}
         {% if access.tasks %}<a class="sidebar-link" href="{% url 'task_list' %}"><span class="sidebar-icon">☷</span><span>وظایف</span></a>{% endif %}

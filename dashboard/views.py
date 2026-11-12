@@ -11,7 +11,12 @@ from core.permissions import scoped_claims_for, scoped_requests_for
 from dashboard.services import insured_dashboard_metrics, management_kpis, personnel_performance_metrics
 from django.utils import timezone
 from workflow.models import WorkflowCase
-from workflow.services import is_delegated_assignee
+from workflow.presentation import build_workflow_presentation
+from workflow.services import (
+    _case_actor_authorized,
+    _scope_for_object,
+    is_delegated_assignee,
+)
 
 
 def _capabilities_for(user):
@@ -84,6 +89,67 @@ def home(request):
         if is_delegated_assignee(case, user)
     ]
 
+    active_statuses = [WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING]
+    assigned_candidates = WorkflowCase.objects.filter(
+        current_assignee=user,
+        status__in=active_statuses,
+        is_locked=False,
+    ).select_related(
+        "definition", "current_step", "current_assignee",
+        "current_position_assignment", "delegation", "content_type",
+    ).order_by("sla_due_at", "opened_at")[:500]
+    assigned_rows = []
+    for case in assigned_candidates:
+        authorized = (
+            is_delegated_assignee(case, user)
+            if case.delegation_id
+            else bool(
+                case.current_step
+                and _case_actor_authorized(
+                    case,
+                    user,
+                    case.current_step.allowed_roles,
+                    position_levels=case.current_step.allowed_position_levels,
+                    scope=_scope_for_object(case.content_object),
+                )
+            )
+        )
+        if authorized:
+            case.domain_presentation = build_workflow_presentation(case, user=user)
+            assigned_rows.append(case)
+
+    unit_workflow_rows = []
+    if is_unit_manager(user) and not is_management:
+        from django.contrib.auth import get_user_model
+        from tasks.forms import _manager_scope
+
+        UserModel = get_user_model()
+        subordinate_ids = UserModel.objects.filter(_manager_scope(user)).values("pk")
+        subordinate_cases = WorkflowCase.objects.filter(
+            current_assignee_id__in=subordinate_ids,
+            status__in=active_statuses,
+            is_locked=False,
+        ).select_related(
+            "definition", "current_step", "current_assignee",
+            "current_position_assignment", "delegation", "content_type",
+        ).order_by("sla_due_at", "opened_at")[:100]
+        for case in subordinate_cases:
+            case.domain_presentation = build_workflow_presentation(case, user=user)
+            unit_workflow_rows.append(case)
+
+    oversight_workflow_count = (
+        WorkflowCase.objects.filter(status__in=active_statuses, is_locked=False).count()
+        if is_management else 0
+    )
+    oversight_overdue_count = (
+        WorkflowCase.objects.filter(
+            status__in=active_statuses,
+            is_locked=False,
+            sla_due_at__lt=timezone.now(),
+        ).count()
+        if is_management else 0
+    )
+
     context = {
         "claim_count": claims.count(),
         "request_count": requests.count(),
@@ -129,6 +195,15 @@ def home(request):
         "insured_metrics": insured_dashboard_metrics(user) if is_insured_dashboard else {},
         "delegated_work_cases": delegated_case_rows[:5],
         "delegated_work_count": len(delegated_case_rows),
+        "workflow_action_cases": assigned_rows[:8],
+        "workflow_action_count": len(assigned_rows),
+        "workflow_overdue_count": sum(
+            1 for case in assigned_rows if case.sla_due_at and case.sla_due_at < timezone.now()
+        ),
+        "unit_workflow_cases": unit_workflow_rows[:8],
+        "unit_workflow_count": len(unit_workflow_rows),
+        "oversight_workflow_count": oversight_workflow_count,
+        "oversight_overdue_count": oversight_overdue_count,
     }
     return render(request, "dashboard/home.html", context)
 

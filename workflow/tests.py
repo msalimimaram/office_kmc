@@ -3,7 +3,8 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import TestCase
+from django.test import TestCase, Client
+from django.urls import reverse
 
 from accounts.models import (
     OrganizationalPosition, OrganizationalUnit, PositionAssignment, RoleAssignment,
@@ -341,6 +342,72 @@ class WorkflowEngineTests(TestCase):
         final_event = case.events.latest("sent_at")
         self.assertEqual(final_event.from_position_assignment_id, supervisor_assignment.pk)
         self.assertIsNone(final_event.to_position_assignment_id)
+
+    def test_supervisor_can_monitor_subordinate_workflow_but_cannot_act_for_them(self):
+        unit_root = OrganizationalUnit.objects.create(
+            code="WF-MONITOR-ROOT",
+            name="واحد نظارت درمان",
+        )
+        unit_child = OrganizationalUnit.objects.create(
+            code="WF-MONITOR-CHILD",
+            name="زیرواحد درمان",
+            parent=unit_root,
+        )
+        supervisor_position = OrganizationalPosition.objects.create(
+            unit=unit_root,
+            code="WF-MONITOR-SUPERVISOR",
+            title="سرپرست درمان",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        specialist_position = OrganizationalPosition.objects.create(
+            unit=unit_child,
+            code="WF-MONITOR-SPECIALIST",
+            title="کارشناس درمان",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-monitor-supervisor",
+            password="StrongPass!123",
+        )
+        PositionAssignment.objects.create(
+            user=supervisor,
+            unit=unit_root,
+            position=supervisor_position,
+            line_code="health",
+            reason="سرپرست واحد درمان",
+        )
+        PositionAssignment.objects.create(
+            user=self.specialist,
+            unit=unit_child,
+            position=specialist_position,
+            line_code="health",
+            reason="کارشناس زیرمجموعه",
+        )
+        case = start_workflow(
+            obj=self.request,
+            code="test-request",
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+
+        client = Client()
+        client.force_login(supervisor)
+        detail = client.get(reverse("workflow_case_detail", args=[case.pk]))
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.context["can_act"])
+        self.assertEqual(detail.context["transitions"], [])
+        self.assertContains(detail, "مشاهده تاریخچه")
+        self.assertNotContains(detail, 'name="action"')
+
+        denied = client.post(
+            reverse("workflow_case_detail", args=[case.pk]),
+            {"action": "send-to-head", "note": "اقدام غیرمجاز سرپرست"},
+        )
+        self.assertEqual(denied.status_code, 302)
+        case.refresh_from_db()
+        self.assertEqual(case.current_assignee_id, self.specialist.pk)
+        self.assertEqual(case.current_step_id, self.initial.pk)
 
     def test_position_grant_expiration_blocks_actions_and_preserves_provenance(self):
         unit = OrganizationalUnit.objects.create(

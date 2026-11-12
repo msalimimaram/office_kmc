@@ -82,6 +82,66 @@
 </section>
 {% endif %}
 
+{% if workflow_action_count %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">مسئولیت جاری</p><h2>پرونده‌های ارجاع‌شده به شما</h2></div>
+    <a href="{% url 'workflow_case_list' %}">مشاهده همه ←</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>پرونده</th><th>شرکت / بیمه‌شده</th><th>مرحله</th><th>مهلت</th><th>اولین مشاهده / اقدام</th><th></th></tr></thead>
+      <tbody>
+      {% for case in workflow_action_cases %}
+        <tr>
+          <td><strong>{{ case.domain_presentation.title }}</strong><small>{{ case.domain_presentation.type_label }} · {{ case.domain_presentation.reference }}</small></td>
+          <td>{{ case.domain_presentation.company|default:"—" }}<small>{{ case.domain_presentation.person|default:"" }}</small></td>
+          <td>{{ case.current_step.title|default:"—" }}</td>
+          <td>{% if case.sla_due_at %}{{ case.sla_due_at|date:"Y/m/d H:i" }}{% else %}—{% endif %}</td>
+          <td><small>مشاهده: {{ case.first_viewed_at|date:"Y/m/d H:i"|default:"ثبت نشده" }}</small><small>اقدام: {{ case.first_action_at|date:"Y/m/d H:i"|default:"ثبت نشده" }}</small></td>
+          <td><a href="{% url 'workflow_case_detail' case.pk %}">رسیدگی ←</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted">پرونده‌ها بر اساس مسئول جاری، اعتبار انتصاب/تفویض و محدوده رشته نمایش داده می‌شوند. موارد منقضی‌شده در صف اقدام قرار نمی‌گیرند.</p>
+</section>
+{% endif %}
+
+{% if unit_workflow_count %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">نظارت سازمانی · فقط مشاهده</p><h2>پرونده‌های واحد و زیرمجموعه</h2></div>
+    <span class="status">{{ unit_workflow_count }} پرونده</span>
+  </div>
+  <p class="muted">این فهرست برای پیگیری و نظارت است. اقدام در هر مرحله فقط توسط مسئول جاری همان پرونده انجام می‌شود.</p>
+  <div class="activity-list">
+    {% for case in unit_workflow_cases %}
+      <a class="activity" href="{% url 'workflow_case_detail' case.pk %}">
+        <span class="activity-dot"></span>
+        <span><strong>{{ case.domain_presentation.title }}</strong><small>{{ case.domain_presentation.type_label }} · {{ case.domain_presentation.reference }} · {{ case.current_step.title|default:"مرحله جاری" }} · مسئول: {{ case.current_assignee.get_full_name|default:case.current_assignee.username }}</small></span>
+        <span class="arrow">←</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if is_management %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">نمای نظارتی</p><h2>وضعیت گردش‌کارهای باز</h2></div>
+    <a href="{% url 'workflow_case_list' %}">مشاهده صندوق پرونده‌ها ←</a>
+  </div>
+  <div class="stats">
+    <article class="stat"><div><span class="muted">پرونده‌های باز و در انتظار</span><strong>{{ oversight_workflow_count }}</strong></div></article>
+    <article class="stat"><div><span class="muted">پرونده‌های دارای تأخیر SLA</span><strong>{{ oversight_overdue_count }}</strong></div></article>
+  </div>
+  <p class="muted">نمای نظارتی به معنی اجازه اقدام در همه مراحل نیست؛ اقدام عملیاتی همچنان تابع مسئول جاری و مجوز همان مرحله است.</p>
+</section>
+{% endif %}
+
 {% if delegated_work_count %}
 <section class="panel">
   <div class="section-heading">

@@ -26,6 +26,13 @@ def access_flags(request):
         or has_role(user, RoleAssignment.Role.INSURER_REP)
         or active_position_assignment.exists()
     )
+    workflow_access = (
+        staff
+        or unit_manager
+        or has_role(user, RoleAssignment.Role.INSURED_PERSON)
+        or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+        or has_role(user, RoleAssignment.Role.INSURER_REP)
+    )
     delegation_inbox_access = has_global_access(user)
     if not delegation_inbox_access:
         # A recipient sees the inbox link only when a delegation was issued
@@ -42,6 +49,7 @@ def access_flags(request):
         "access": {
             "notifications": notification_access,
             "delegation_inbox": delegation_inbox_access,
+            "workflow": workflow_access,
             "delegation_manage": has_global_access(user),
             "staff": staff,
             "global": has_global_access(user),
