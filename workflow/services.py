@@ -510,8 +510,10 @@ def _validate_actor(case, actor, roles, *, scope, position_levels=()):
         raise PermissionDenied("مسئولیت اقدام این مرحله به حساب شما واگذار نشده است.")
     if case.delegation_id and not is_delegated_assignee(case, actor):
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
-    if not _has_any_role(actor, roles, position_levels=position_levels, **scope):
-        raise PermissionDenied("نقش یا سمت فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
+    if not _case_actor_authorized(
+        case, actor, roles, position_levels=position_levels, scope=scope
+    ):
+        raise PermissionDenied("نقش یا انتصاب سمت ثبت‌شده برای مسئول جاری پرونده معتبر نیست.")
 
 
 def _workflow_owner_candidates(obj):
@@ -674,6 +676,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
     scope = _scope_for_object(obj)
+    position_assignment = None
     if delegation is not None:
         from delegations.services import delegation_matches
         item_type = str(
@@ -689,7 +692,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         ):
             raise PermissionDenied("تفویض انتخاب‌شده برای این پرونده معتبر یا فعال نیست.")
     else:
-        _validate_recipient(
+        position_assignment = _validate_recipient(
             assignee,
             initial.allowed_roles,
             position_levels=initial.allowed_position_levels,
@@ -704,6 +707,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
             "current_step": initial,
             "current_assignee": assignee,
             "delegation": delegation,
+            "current_position_assignment": position_assignment,
             "status": WorkflowCase.Status.OPEN,
         },
     )
@@ -720,6 +724,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         event_type=WorkflowEvent.EventType.STARTED,
         to_step=initial,
         to_assignee=assignee,
+        to_position_assignment=position_assignment,
         note=(note + (" | تفویض‌شده: " + delegation.reason if delegation else ""))[:4000],
         sent_at=timezone.now(),
     )
@@ -762,11 +767,12 @@ def mark_case_opened(*, case_id, actor):
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     if not delegated and (
         not case.current_step
-        or not _has_any_role(
+        or not _case_actor_authorized(
+            case,
             actor,
             case.current_step.allowed_roles,
             position_levels=case.current_step.allowed_position_levels,
-            **_scope_for_object(case.content_object),
+            scope=_scope_for_object(case.content_object),
         )
     ):
         raise PermissionDenied("انتصاب فعال شما برای مشاهده عملیاتی این مرحله معتبر نیست.")
@@ -801,11 +807,12 @@ def acknowledge_case(*, case_id, actor, note=""):
         raise PermissionDenied("تأیید رسمی مشاهده در این مرحله فعال نشده است.")
     if (
         not is_delegated_assignee(case, actor)
-        and not _has_any_role(
+        and not _case_actor_authorized(
+            case,
             actor,
             case.current_step.allowed_roles,
             position_levels=case.current_step.allowed_position_levels,
-            **_scope_for_object(case.content_object),
+            scope=_scope_for_object(case.content_object),
         )
     ):
         raise PermissionDenied("نقش شما برای تأیید مشاهده در این محدوده مجاز نیست.")
@@ -894,6 +901,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
 
     old_step = case.current_step
     old_assignee = case.current_assignee
+    old_position_assignment = case.current_position_assignment
     delegation_id = case.delegation_id
     now = timezone.now()
 
@@ -903,6 +911,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         case.current_step = None
         case.current_assignee = None
         case.delegation = None
+        case.current_position_assignment = None
         case.status = WorkflowCase.Status.CLOSED
         case.closed_at = now
         event_type = WorkflowEvent.EventType.RETURNED if transition.is_return else WorkflowEvent.EventType.ACTION
@@ -915,20 +924,30 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             transition.recipient_position_levels
             or transition.target_step.allowed_position_levels
         )
-        _validate_recipient(
+        target_position_assignment = _validate_recipient(
             target,
             allowed_recipients,
             position_levels=allowed_position_recipients,
             scope=scope,
         )
-        _validate_recipient(
+        target_step_position_assignment = _validate_recipient(
             target,
             transition.target_step.allowed_roles,
             position_levels=transition.target_step.allowed_position_levels,
             scope=scope,
         )
+        if (
+            target_position_assignment
+            and target_step_position_assignment
+            and target_position_assignment.pk != target_step_position_assignment.pk
+        ):
+            raise PermissionDenied("انتصاب سمت گیرنده با مرحله مقصد یکسان نیست.")
+        position_assignment = (
+            target_step_position_assignment or target_position_assignment
+        )
         case.current_step = transition.target_step
         case.current_assignee = target
+        case.current_position_assignment = position_assignment
         if case.delegation_id and case.delegation.delegate_to_id != target.pk:
             case.delegation = None
         case.status = WorkflowCase.Status.WAITING
@@ -942,7 +961,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     if not case.first_action_at:
         case.first_action_at = now
     case.save(update_fields=[
-        "current_step", "current_assignee", "delegation", "status", "closed_at",
+        "current_step", "current_assignee", "delegation", "current_position_assignment",
+        "status", "closed_at",
         "sla_due_at", "first_action_at",
     ])
     domain_object = case.content_object
@@ -964,6 +984,8 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         to_step=case.current_step,
         from_assignee=old_assignee,
         to_assignee=case.current_assignee,
+        from_position_assignment=old_position_assignment,
+        to_position_assignment=case.current_position_assignment,
         note=note,
         acted_at=now,
         sent_at=now,
