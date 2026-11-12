@@ -24,7 +24,10 @@ def _active_staff_ids():
         ],
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
     positions = PositionAssignment.objects.filter(
-        is_active=True, valid_from__lte=today,
+        is_active=True,
+        valid_from__lte=today,
+        unit__company__isnull=True,
+        line_code__gt="",
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
     return User.objects.filter(is_active=True).filter(Q(pk__in=roles) | Q(pk__in=positions)).distinct()
 
