@@ -377,6 +377,12 @@ class LegacyRequestTransitionPermissionTests(TestCase):
             role="insurance_specialist",
             must_change_password=False,
         )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="*",
+            reason="مجوز صریح تمام رشته‌ها برای درخواست فاقد رشته مشخص در آزمون سازگاری",
+        )
         self.item = ServiceRequest.objects.create(
             reference="IB-TRANSITION-1",
             kind=ServiceRequest.Kind.OTHER,
