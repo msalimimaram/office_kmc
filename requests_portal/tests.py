@@ -31,7 +31,8 @@ class ServiceRequestTests(TestCase):
             user=representative,
             role=RoleAssignment.Role.SUBSIDIARY_REP,
             company=self.company,
-            reason="نماینده اولیه برای آزمون ثبت درخواست",
+            line_code="*",
+            reason="نماینده اولیه کل شرکت برای آزمون درخواست با رشته نامشخص",
         )
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.OTHER,
@@ -691,7 +692,8 @@ class RequestWorkflowCreationTests(TestCase):
             user=representative,
             role=RoleAssignment.Role.SUBSIDIARY_REP,
             company=company,
-            reason="نماینده یگانه شرکت برای آزمون گردش کار",
+            line_code="health",
+            reason="نماینده درمان شرکت برای آزمون گردش کار",
         )
         RoleAssignment.objects.create(
             user=head,
