@@ -1,6 +1,8 @@
+from datetime import date
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -110,7 +112,33 @@ class Person(models.Model):
     def save(self, *args, **kwargs):
         self.national_id = normalize_national_id(self.national_id)
         self.full_clean()
-        return super().save(*args, **kwargs)
+        with transaction.atomic():
+            result = super().save(*args, **kwargs)
+            active_relationship = PersonRelationship.objects.filter(
+                dependent_person_id=self.pk,
+                status=PersonRelationship.Status.ACTIVE,
+            ).first()
+            if self.employee_id:
+                if active_relationship is None:
+                    PersonRelationship.objects.create(
+                        primary_person_id=self.employee_id,
+                        dependent_person_id=self.pk,
+                        relationship_type=self.relationship,
+                        status=PersonRelationship.Status.ACTIVE,
+                        source_reference="legacy-person-employee",
+                    )
+                elif (
+                    active_relationship.primary_person_id != self.employee_id
+                    or active_relationship.relationship_type != self.relationship
+                ):
+                    raise ValidationError(
+                        "تغییر سرپرست یا نوع رابطه باید از مسیر کنترل‌شده اصلاح روابط انجام شود."
+                    )
+            elif active_relationship is not None:
+                raise ValidationError(
+                    "حذف رابطه فعال فرد تحت تکفل بدون پایان‌دهی تاریخ‌دار به رابطه مجاز نیست."
+                )
+            return result
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -165,6 +193,143 @@ class PersonEmployment(models.Model):
 
     def __str__(self):
         return f"{self.person} — {self.company}"
+
+
+class PersonRelationship(models.Model):
+    """Time-bounded relationship between a primary insured person and a dependent.
+
+    The legacy Person.employee/relationship columns remain as a compatibility
+    mirror. New writes through Person.save() are synchronized into this table;
+    historical rows are backfilled by the accompanying data migration.
+    """
+
+    class RelationshipType(models.TextChoices):
+        SPOUSE = "spouse", "همسر"
+        CHILD = "child", "فرزند"
+        FATHER = "father", "پدر"
+        MOTHER = "mother", "مادر"
+        OTHER = "other", "سایر افراد تحت تکفل"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "معتبر"
+        ENDED = "ended", "پایان‌یافته"
+        VOIDED = "voided", "ابطال‌شده"
+
+    primary_person = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="dependent_relationships",
+        verbose_name="بیمه‌شده اصلی",
+    )
+    dependent_person = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="primary_relationships",
+        verbose_name="فرد تحت تکفل",
+    )
+    relationship_type = models.CharField(
+        "نوع رابطه",
+        max_length=20,
+        choices=RelationshipType.choices,
+    )
+    valid_from = models.DateField("اعتبار از", null=True, blank=True)
+    valid_until = models.DateField("اعتبار تا", null=True, blank=True)
+    status = models.CharField(
+        "وضعیت رابطه",
+        max_length=12,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    source_reference = models.CharField(
+        "مرجع ایجاد رابطه",
+        max_length=160,
+        blank=True,
+    )
+    created_at = models.DateTimeField("ایجاد", auto_now_add=True)
+    updated_at = models.DateTimeField("آخرین تغییر", auto_now=True)
+
+    class Meta:
+        ordering = ("dependent_person_id", "valid_from", "pk")
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(primary_person=models.F("dependent_person")),
+                name="person_relationship_not_self",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_from__isnull=True)
+                    | models.Q(valid_until__gte=models.F("valid_from"))
+                ),
+                name="person_relationship_dates_ordered",
+            ),
+            models.UniqueConstraint(
+                fields=("dependent_person",),
+                condition=models.Q(status="active"),
+                name="uniq_active_primary_per_dependent",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("primary_person", "status", "valid_from"),
+                name="person_rel_primary_state",
+            ),
+            models.Index(
+                fields=("dependent_person", "status", "valid_until"),
+                name="person_rel_dependent_state",
+            ),
+        ]
+        verbose_name = "رابطه بیمه‌شده و فرد تحت تکفل"
+        verbose_name_plural = "روابط بیمه‌شدگان و افراد تحت تکفل"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
+            errors["valid_until"] = "پایان اعتبار رابطه نمی‌تواند قبل از شروع آن باشد."
+
+        primary = (
+            Person.objects.filter(pk=self.primary_person_id).first()
+            if self.primary_person_id else None
+        )
+        dependent = (
+            Person.objects.filter(pk=self.dependent_person_id).first()
+            if self.dependent_person_id else None
+        )
+        if primary and (
+            primary.relationship != Person.Relationship.EMPLOYEE
+            or primary.employee_id is not None
+        ):
+            errors["primary_person"] = "فقط بیمه‌شده اصلی مستقل می‌تواند سرپرست رابطه باشد."
+        if dependent:
+            if dependent.relationship == Person.Relationship.EMPLOYEE:
+                errors["dependent_person"] = "فرد تحت تکفل باید نسبت غیر اصلی داشته باشد."
+            if dependent.relationship != self.relationship_type:
+                errors["relationship_type"] = (
+                    "نوع رابطه باید با نسبت ثبت‌شده برای شخص هماهنگ باشد."
+                )
+            if primary and dependent.employee_id != primary.pk:
+                errors["dependent_person"] = (
+                    "رابطه باید با اتصال ثبت‌شده شخص به بیمه‌شده اصلی یکسان باشد."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def is_valid_on(self, on_date=None):
+        on_date = on_date or timezone.localdate()
+        return (
+            self.status == self.Status.ACTIVE
+            and (self.valid_from is None or self.valid_from <= on_date)
+            and (self.valid_until is None or self.valid_until >= on_date)
+        )
+
+    def __str__(self):
+        return f"{self.dependent_person} — {self.get_relationship_type_display()} — {self.primary_person}"
 
 
 class CompanyLeadershipPosition(models.Model):
