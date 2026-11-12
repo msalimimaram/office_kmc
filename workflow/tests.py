@@ -135,6 +135,9 @@ class WorkflowEngineTests(TestCase):
             ],
             is_initial=True,
         )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
 
         assignee = resolve_initial_assignee(
             definition=definition,
