@@ -1483,7 +1483,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "item_type": item_type,
                 "delegate_role": role,
                 "delegate_to": delegate,
-                "granted_by": head,
+                "granted_by": admin,
                 "company": scope_company,
                 "insurer": scope_insurer,
                 "line_code": line_code if role != RoleAssignment.Role.INSURER_REP else "",
@@ -1506,7 +1506,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         ensure(
             DelegationEvent,
             {"delegation": delegation, "event_type": DelegationEvent.EventType.CREATED, "summary": f"ایجاد تفویض نمایشی {index:04d}"},
-            {"actor": head, "metadata": {"fixture": "DEMO-PRESENTATION", "company_id": company.pk}},
+            {"actor": admin, "metadata": {"fixture": "DEMO-PRESENTATION", "company_id": company.pk}},
         )
         state_event = {
             WorkDelegation.Status.ACTIVE: None,
@@ -1518,7 +1518,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             ensure(
                 DelegationEvent,
                 {"delegation": delegation, "event_type": state_event, "summary": f"تغییر وضعیت تفویض نمایشی {index:04d}"},
-                {"actor": head, "metadata": {"fixture": "DEMO-PRESENTATION", "status": status}},
+                {"actor": admin, "metadata": {"fixture": "DEMO-PRESENTATION", "status": status}},
             )
 
     # Expand the append-only records and lookup tables that are naturally
