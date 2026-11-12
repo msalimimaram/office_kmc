@@ -138,6 +138,8 @@ def _has_any_role(
             scoped = assignments.filter(role=role, company_id=company_id)
             if line_code:
                 scoped = scoped.filter(Q(line_code="*") | Q(line_code=line_code))
+            else:
+                scoped = scoped.filter(line_code="*")
             if scoped.exists():
                 return True
             continue
@@ -367,6 +369,8 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
             role_scope &= Q(company_id=company_id)
             if line_code:
                 role_scope &= Q(line_code__in=[line_code, "*"])
+            else:
+                role_scope &= Q(line_code="*")
         elif role == RoleAssignment.Role.INSURER_REP:
             if not insurer_id:
                 continue
