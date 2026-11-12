@@ -4,7 +4,13 @@ from django.core.exceptions import PermissionDenied
 from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
-from .models import Company, CompanyLeadershipPosition, Person, PersonChangeRequest
+from .models import (
+    Company,
+    CompanyLeadershipPosition,
+    Person,
+    PersonChangeRequest,
+    PersonRelationship,
+  )
 
 
 @admin.register(Company)
@@ -138,6 +144,41 @@ class PersonAdmin(admin.ModelAdmin):
             },
             request=request,
         )
+
+
+@admin.register(PersonRelationship)
+class PersonRelationshipAdmin(admin.ModelAdmin):
+    list_display = (
+        "dependent_person", "relationship_type", "primary_person",
+        "valid_from", "valid_until", "status",
+    )
+    list_filter = ("relationship_type", "status")
+    search_fields = (
+        "primary_person__national_id",
+        "primary_person__first_name",
+        "primary_person__last_name",
+        "dependent_person__national_id",
+        "dependent_person__first_name",
+        "dependent_person__last_name",
+    )
+    readonly_fields = tuple(
+        field.name for field in PersonRelationship._meta.fields
+    )
+
+    def has_module_permission(self, request):
+        return bool(request.user and has_global_access(request.user))
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and has_global_access(request.user))
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PersonChangeRequest)
