@@ -136,11 +136,11 @@ class OrganizationalTaskScopeTests(TestCase):
         )
         PositionAssignment.objects.create(
             user=self.subordinate, unit=self.child, position=self.specialist_position,
-            valid_from=timezone.localdate(), reason="کارشناس واحد زیرمجموعه",
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد زیرمجموعه",
         )
         PositionAssignment.objects.create(
             user=self.outsider, unit=self.other_unit, position=self.other_position,
-            valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
         )
         RoleAssignment.objects.create(
             user=self.subordinate,
