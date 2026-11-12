@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q, Count
 from django.utils import timezone
+from django.urls import reverse
 
 from accounts.access import (
     active_assignments, active_position_assignments,
@@ -761,7 +762,7 @@ def _notify_workflow_owners(case, actor, *, started=False, closed=False):
         "وضعیت درخواست شما به‌روزرسانی شد"
     )
     if closed:
-        body = "رسیدگی به درخواست شما به پایان رسیده است. برای مشاهده نتیجه، پرونده را باز کنید."
+        body = "رسیدگی به درخواست شما پایان یافته است. در صورت تمایل، می‌توانید تجربه خود از فرایند رسیدگی را ارزیابی کنید."
     elif started:
         body = "درخواست شما ثبت شده و در مسیر رسیدگی قرار گرفته است."
     else:
@@ -771,6 +772,12 @@ def _notify_workflow_owners(case, actor, *, started=False, closed=False):
     for recipient in _workflow_owner_candidates(obj):
         if recipient.pk == getattr(actor, "pk", None):
             continue
+        if closed:
+            from .models import WorkflowSatisfactionSurvey
+            if WorkflowSatisfactionSurvey.objects.filter(
+                workflow_case=case, respondent=recipient
+            ).exists():
+                continue
         notification_role = (
             has_global_access(recipient)
             or has_role(recipient, RoleAssignment.Role.INSURANCE_SPECIALIST)
@@ -780,7 +787,10 @@ def _notify_workflow_owners(case, actor, *, started=False, closed=False):
         )
         if not notification_role:
             continue
-        target_url = _workflow_owner_can_view(obj, recipient, case)
+        target_url = (
+            reverse("workflow_satisfaction_submit", args=[case.pk])
+            if closed else _workflow_owner_can_view(obj, recipient, case)
+        )
         if not target_url:
             continue
         UserNotification.objects.create(

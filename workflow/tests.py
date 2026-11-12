@@ -1281,6 +1281,80 @@ class WorkflowEngineTests(TestCase):
             )
 
 
+class WorkflowSatisfactionTests(TestCase):
+    def setUp(self):
+        from django.contrib.contenttypes.models import ContentType
+        from accounts.models import User
+        from organizations.models import Company
+        from requests_portal.models import ServiceRequest
+        from workflow.models import WorkflowCase, WorkflowDefinition
+
+        self.owner = User.objects.create_user(
+            username="workflow-survey-owner",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.other = User.objects.create_user(
+            username="workflow-survey-other",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        company = Company.objects.create(code="WF-SURVEY", name="شرکت نظرسنجی")
+        item = ServiceRequest.objects.create(
+            reference="IB-WF-SURVEY-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=self.owner,
+            company=company,
+            title="درخواست نظرسنجی",
+            description="شرح",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="workflow-survey-test",
+            title="آزمون نظرسنجی",
+            created_by=self.owner,
+        )
+        self.case = WorkflowCase.objects.create(
+            definition=definition,
+            content_type=ContentType.objects.get_for_model(item, for_concrete_model=False),
+            object_id=str(item.pk),
+            status=WorkflowCase.Status.CLOSED,
+        )
+
+    def test_request_owner_can_submit_one_immutable_satisfaction_survey(self):
+        from django.urls import reverse
+        from workflow.models import WorkflowSatisfactionSurvey
+
+        client = Client()
+        client.force_login(self.owner)
+        response = client.post(
+            reverse("workflow_satisfaction_submit", args=[self.case.pk]),
+            {"rating": "5", "comment": "فرایند شفاف و قابل پیگیری بود."},
+        )
+        self.assertEqual(response.status_code, 302)
+        survey = WorkflowSatisfactionSurvey.objects.get(
+            workflow_case=self.case, respondent=self.owner
+        )
+        self.assertEqual(survey.rating, 5)
+        self.assertEqual(survey.comment, "فرایند شفاف و قابل پیگیری بود.")
+
+        response = client.post(
+            reverse("workflow_satisfaction_submit", args=[self.case.pk]),
+            {"rating": "1", "comment": "تلاش برای تغییر پاسخ"},
+        )
+        self.assertEqual(response.status_code, 200)
+        survey.refresh_from_db()
+        self.assertEqual(survey.rating, 5)
+
+    def test_unrelated_user_cannot_submit_satisfaction_survey(self):
+        from django.core.exceptions import PermissionDenied
+        from django.urls import reverse
+
+        client = Client()
+        client.force_login(self.other)
+        with self.assertRaises(PermissionDenied):
+            client.get(reverse("workflow_satisfaction_submit", args=[self.case.pk]))
+
+
 class OperationalWorkflowSeedCommandTests(TestCase):
     def test_seed_command_publishes_new_version_when_active_baseline_is_outdated(self):
         from django.core.management import call_command

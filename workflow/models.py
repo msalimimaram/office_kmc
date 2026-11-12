@@ -485,3 +485,69 @@ class CalendarHoliday(models.Model):
         ordering = ("date",)
         verbose_name = "تعطیلی/استثنای تقویم"
         verbose_name_plural = "تعطیلی‌ها و استثناهای تقویم"
+
+
+class ImmutableWorkflowSatisfactionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("پاسخ نظرسنجی پس از ثبت قابل ویرایش نیست.")
+
+    def delete(self):
+        raise ValidationError("پاسخ نظرسنجی حذف نمی‌شود.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("ویرایش گروهی پاسخ نظرسنجی مجاز نیست.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("ثبت گروهی پاسخ نظرسنجی خارج از مسیر کنترل‌شده مجاز نیست.")
+
+
+class WorkflowSatisfactionSurvey(models.Model):
+    objects = ImmutableWorkflowSatisfactionQuerySet.as_manager()
+
+    workflow_case = models.ForeignKey(
+        WorkflowCase,
+        on_delete=models.PROTECT,
+        related_name="satisfaction_surveys",
+    )
+    respondent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="workflow_satisfaction_surveys",
+    )
+    rating = models.PositiveSmallIntegerField("امتیاز رضایت")
+    comment = models.TextField("نظر تکمیلی", blank=True, max_length=1200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("workflow_case", "respondent"),
+                name="uniq_workflow_survey_respondent",
+            ),
+            models.CheckConstraint(
+                condition=Q(rating__gte=1, rating__lte=5),
+                name="workflow_survey_rating_1_5",
+            ),
+        ]
+        ordering = ("-created_at", "-pk")
+        verbose_name = "ارزیابی رضایت از رسیدگی"
+        verbose_name_plural = "ارزیابی‌های رضایت از رسیدگی"
+
+    def clean(self):
+        super().clean()
+        if self.rating not in range(1, 6):
+            raise ValidationError({"rating": "امتیاز رضایت باید بین ۱ تا ۵ باشد."})
+        if self.workflow_case_id and self.workflow_case.status not in {
+            WorkflowCase.Status.CLOSED,
+            WorkflowCase.Status.COMPLETED,
+        }:
+            raise ValidationError("ثبت ارزیابی رضایت فقط پس از پایان گردش کار مجاز است.")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("پاسخ ثبت‌شده نظرسنجی غیرقابل ویرایش است.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("پاسخ نظرسنجی حذف نمی‌شود.")

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}ارزیابی رضایت از رسیدگی{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>ارزیابی رضایت از رسیدگی</h1>
+  <p>این فرم اختیاری است و پاسخ شما فقط برای بهبود کیفیت فرایندهای اداره بیمه استفاده می‌شود.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">ثبت ارزیابی</button>
+  </form>
+</section>
+{% endblock %}

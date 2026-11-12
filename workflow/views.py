@@ -8,13 +8,15 @@ from django.db.models import Q
 
 from accounts.access import has_global_access, is_unit_manager
 from accounts.models import RoleAssignment, User
-from .models import WorkflowCase, WorkflowEvent, WorkflowTransition
+from .models import WorkflowCase, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowTransition
+from .forms import WorkflowSatisfactionForm
 from .presentation import build_workflow_presentation
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
     set_final_lock, transition_case, is_delegated_assignee,
     _case_actor_authorized,
     active_position_assignments_for_level,
+    _workflow_owner_candidates,
 )
 
 
@@ -251,4 +253,58 @@ def workflow_case_detail(request, pk):
         "transitions": transitions,
         "can_act": can_act,
         "can_lock": can_lock,
+    })
+
+
+@login_required
+def workflow_satisfaction_submit(request, pk):
+    case = get_object_or_404(
+        WorkflowCase.objects.select_related("definition", "content_type"),
+        pk=pk,
+        status__in=[WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED],
+    )
+    owners = _workflow_owner_candidates(case.content_object)
+    if not any(owner.pk == request.user.pk for owner in owners):
+        raise PermissionDenied("ثبت ارزیابی فقط برای درخواست‌کننده یا بیمه‌شده مرتبط مجاز است.")
+
+    existing = WorkflowSatisfactionSurvey.objects.filter(
+        workflow_case=case, respondent=request.user
+    ).first()
+    if existing:
+        return render(request, "workflow/satisfaction_submitted.html", {
+            "survey": existing,
+        })
+
+    form = WorkflowSatisfactionForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        survey = form.save(commit=False)
+        survey.workflow_case = case
+        survey.respondent = request.user
+        try:
+            survey.save()
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            return redirect("workflow_satisfaction_submitted", pk=case.pk)
+
+    return render(request, "workflow/satisfaction_form.html", {
+        "case": case,
+        "form": form,
+    })
+
+
+@login_required
+def workflow_satisfaction_submitted(request, pk):
+    case = get_object_or_404(
+        WorkflowCase.objects.select_related("definition", "content_type"),
+        pk=pk,
+        status__in=[WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED],
+    )
+    survey = get_object_or_404(
+        WorkflowSatisfactionSurvey,
+        workflow_case=case,
+        respondent=request.user,
+    )
+    return render(request, "workflow/satisfaction_submitted.html", {
+        "survey": survey,
     })
