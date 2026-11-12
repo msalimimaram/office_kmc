@@ -26,6 +26,69 @@ class OrganizationScopeTests(TestCase):
         self.assertContains(response, "علی")
         self.assertNotContains(response, "رضا")
 
+    def test_former_company_representative_cannot_view_transferred_employee_profile(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        old_company = Company.objects.create(code="HIST-A", name="شرکت سابق")
+        current_company = Company.objects.create(code="HIST-B", name="شرکت جاری")
+        person = Person.objects.create(
+            company=old_company,
+            national_id="1122334455",
+            first_name="کارمند",
+            last_name="انتقال‌یافته",
+            birth_date=date(1990, 1, 1),
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=old_company,
+            valid_from=today - timedelta(days=365),
+            valid_until=today - timedelta(days=1),
+            status=PersonEmployment.Status.TRANSFERRED,
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=current_company,
+            valid_from=today,
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        old_rep = User.objects.create_user(
+            username="historical-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=old_company,
+        )
+        current_rep = User.objects.create_user(
+            username="current-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=current_company,
+        )
+        RoleAssignment.objects.create(
+            user=old_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=old_company,
+            line_code="*",
+            reason="نماینده شرکت سابق",
+        )
+        RoleAssignment.objects.create(
+            user=current_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=current_company,
+            line_code="*",
+            reason="نماینده شرکت جاری",
+        )
+
+        client = Client()
+        client.force_login(old_rep)
+        old_response = client.get(reverse("people_list"))
+        self.assertNotContains(old_response, "انتقال‌یافته")
+
+        client.force_login(current_rep)
+        current_response = client.get(reverse("people_list"))
+        self.assertContains(current_response, "انتقال‌یافته")
+
     def test_dependent_cannot_belong_to_a_different_company_than_employee(self):
         from django.core.exceptions import ValidationError
 

@@ -34,11 +34,32 @@ def people_list(request):
         if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
             company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
             if company_ids:
-                employment_people = PersonEmployment.objects.filter(
-                    company_id__in=company_ids
+                today = timezone.localdate()
+                active_employee_ids = PersonEmployment.objects.filter(
+                    company_id__in=company_ids,
+                    status=PersonEmployment.Status.ACTIVE,
+                ).filter(
+                    Q(valid_from__isnull=True) | Q(valid_from__lte=today)
+                ).filter(
+                    Q(valid_until__isnull=True) | Q(valid_until__gte=today)
                 ).values_list("person_id", flat=True)
+                any_employment_ids = PersonEmployment.objects.values_list(
+                    "person_id", flat=True
+                )
+                # A company representative's people register is a current
+                # employment directory, not a historical-person archive.
+                # Dependents inherit the active employee's company scope.
+                legacy_person_ids = Person.objects.filter(
+                    company_id__in=company_ids
+                ).exclude(
+                    pk__in=any_employment_ids
+                ).exclude(
+                    employee_id__in=any_employment_ids
+                ).values_list("pk", flat=True)
                 visible_people |= (
-                    Q(company_id__in=company_ids) | Q(pk__in=employment_people)
+                    Q(pk__in=active_employee_ids)
+                    | Q(employee_id__in=active_employee_ids)
+                    | Q(pk__in=legacy_person_ids)
                 )
                 has_people_scope = True
 

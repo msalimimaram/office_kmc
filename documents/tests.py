@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from datetime import date
 
 from accounts.models import RoleAssignment, User
 from organizations.models import Company
@@ -122,7 +123,7 @@ class DocumentUploadAuthorizationTests(TestCase):
             national_id="1234567890",
             first_name="کارمند",
             last_name="منتقل‌شده",
-            birth_date=timezone.datetime(1990, 1, 1).date(),
+            birth_date=date(1990, 1, 1),
         )
         PersonEmployment.objects.create(
             person=person,
