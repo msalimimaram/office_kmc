@@ -142,6 +142,12 @@ class CompanyLeadershipTitleFlowTests(TestCase):
     def setUp(self):
         self.company_a = Company.objects.create(code="LEAD-A", name="شرکت سمت الف")
         self.company_b = Company.objects.create(code="LEAD-B", name="شرکت سمت ب")
+        CompanyLeadershipPosition.objects.create(
+            company=self.company_a, code="assistant_ceo", title="معاون مدیرعامل",
+        )
+        CompanyLeadershipPosition.objects.create(
+            company=self.company_b, code="ceo", title="مدیرعامل",
+        )
         self.person_a = Person.objects.create(
             company=self.company_a,
             national_id="5555555555",
@@ -582,6 +588,12 @@ class PersonChangeRequestWorkflowTests(TestCase):
             username="pcr-admin",
             email="pcr-admin@example.invalid",
             password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=self.today,
+            reason="مدیر سامانه برای آزمون اصلاح اطلاعات",
         )
         self.insured = User.objects.create_user(
             username="1234567890",
