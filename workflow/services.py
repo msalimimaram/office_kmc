@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import has_global_access, has_role
+from accounts.access import active_assignments, has_global_access, has_role
 from accounts.models import RoleAssignment
 from .models import (
     BusinessCalendar, WorkflowCase, WorkflowDefinition, WorkflowEvent,
@@ -101,29 +101,59 @@ def _has_any_role(
 ):
     if not user or not user.is_authenticated or not user.is_active or not roles:
         return False
+
+    assignments = active_assignments(user)
     for role in roles:
         # A scoped role must never become an unscoped role because an object
         # lacks the corresponding scope field.
-        if role == RoleAssignment.Role.SUBSIDIARY_REP and company_id is None:
+        if role == RoleAssignment.Role.SUBSIDIARY_REP:
+            if company_id is None:
+                continue
+            scoped = assignments.filter(role=role, company_id=company_id)
+            if line_code:
+                scoped = scoped.filter(Q(line_code="*") | Q(line_code=line_code))
+            if scoped.exists():
+                return True
             continue
-        if role == RoleAssignment.Role.INSURER_REP and insurer_id is None:
+        if role == RoleAssignment.Role.INSURER_REP:
+            if insurer_id is None:
+                continue
+            if assignments.filter(role=role, insurer_id=insurer_id).exists():
+                return True
             continue
-        if role == RoleAssignment.Role.INSURANCE_SPECIALIST and not line_code:
+        if role == RoleAssignment.Role.INSURANCE_SPECIALIST:
+            if not line_code:
+                continue
+            if assignments.filter(role=role).filter(
+                Q(line_code="*") | Q(line_code=line_code)
+            ).exists():
+                return True
             continue
-        if role == RoleAssignment.Role.INSURED_PERSON and owner_user_id != user.pk:
+        if role == RoleAssignment.Role.INSURED_PERSON:
+            if owner_user_id == user.pk and has_role(user, role):
+                return True
             continue
-        if has_role(
-            user,
-            role,
-            company_id=company_id if role == RoleAssignment.Role.SUBSIDIARY_REP else None,
-            insurer_id=insurer_id if role == RoleAssignment.Role.INSURER_REP else None,
-            line_code=line_code if role in {
-                RoleAssignment.Role.INSURANCE_SPECIALIST,
-                RoleAssignment.Role.SUBSIDIARY_REP,
-            } else None,
-        ):
+
+        # A Django superuser is a system administrator, not automatically a
+        # specialist, company representative, or insurer representative.
+        if getattr(user, "is_superuser", False):
+            if role == RoleAssignment.Role.SYSTEM_ADMIN and has_role(user, role):
+                return True
+            if assignments.filter(role=role).exists():
+                return True
+            continue
+        if has_role(user, role):
             return True
     return False
+
+
+def _sync_domain_assignee(obj, assignee):
+    """Synchronize an opted-in domain adapter with WorkflowCase ownership."""
+    if obj is None:
+        return
+    adapter = getattr(obj, "sync_workflow_assignee", None)
+    if callable(adapter):
+        adapter(assignee=assignee)
 
 
 def _sync_domain_status(obj, *, step_code=None, closed=False, actor=None):
@@ -270,8 +300,6 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
 
 
 def _validate_recipient(user, roles, *, scope):
-    if has_global_access(user):
-        return
     if not _has_any_role(user, roles, **scope):
         raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش مجاز این مرحله ندارد.")
 
@@ -312,12 +340,10 @@ def is_delegated_assignee(case, user):
 def _validate_actor(case, actor, roles, *, scope):
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied
-    if has_global_access(actor):
-        return
     if case.current_assignee_id != actor.pk:
-        raise PermissionDenied("مسئولیت این مرحله به حساب شما واگذار نشده است.")
-    if is_delegated_assignee(case, actor):
-        return
+        raise PermissionDenied("مسئولیت اقدام این مرحله به حساب شما واگذار نشده است.")
+    if case.delegation_id and not is_delegated_assignee(case, actor):
+        raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     if not _has_any_role(actor, roles, **scope):
         raise PermissionDenied("نقش فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
 
@@ -513,6 +539,7 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
     if not created:
         raise ValidationError("برای این رکورد، پرونده‌ای از همین نسخه گردش کار وجود دارد.")
     _sync_domain_status(obj, step_code=initial.code, actor=actor)
+    _sync_domain_assignee(obj, assignee)
     if initial.sla_minutes:
         case.sla_due_at = add_business_minutes(case.opened_at, initial.sla_minutes, calendar)
         case.save(update_fields=["sla_due_at"])
@@ -557,13 +584,9 @@ def mark_case_opened(*, case_id, actor):
         raise PermissionDenied
     if case.is_locked or case.status in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}:
         return case
-    if not has_global_access(actor) and case.current_assignee_id != actor.pk:
-        raise PermissionDenied
-    if (
-        not has_global_access(actor)
-        and case.delegation_id
-        and not is_delegated_assignee(case, actor)
-    ):
+    if case.current_assignee_id != actor.pk:
+        raise PermissionDenied("مشاهده عملیاتی این مرحله فقط برای مسئول جاری پرونده ثبت می‌شود.")
+    if case.delegation_id and not is_delegated_assignee(case, actor):
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     now = timezone.now()
     if not case.first_viewed_at:
@@ -588,8 +611,10 @@ def acknowledge_case(*, case_id, actor, note=""):
     case = WorkflowCase.objects.select_for_update().get(pk=case_id)
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied
-    if case.is_locked or (not has_global_access(actor) and case.current_assignee_id != actor.pk):
-        raise PermissionDenied
+    if case.is_locked or case.current_assignee_id != actor.pk:
+        raise PermissionDenied("تأیید مشاهده فقط توسط مسئول جاری پرونده مجاز است.")
+    if case.delegation_id and not is_delegated_assignee(case, actor):
+        raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     if not case.current_step or not case.current_step.requires_acknowledgement:
         raise PermissionDenied("تأیید رسمی مشاهده در این مرحله فعال نشده است.")
     if not has_global_access(actor) and not is_delegated_assignee(case, actor) and not _has_any_role(
@@ -709,14 +734,16 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         "current_step", "current_assignee", "delegation", "status", "closed_at",
         "sla_due_at", "first_action_at",
     ])
+    domain_object = case.content_object
     _sync_domain_status(
-        case.content_object,
+        domain_object,
         step_code=old_step.code if transition.closes_case else (
             case.current_step.code if case.current_step else None
         ),
         closed=transition.closes_case,
         actor=actor,
     )
+    _sync_domain_assignee(domain_object, case.current_assignee)
     WorkflowEvent.objects.create(
         workflow_case=case,
         actor=actor,
