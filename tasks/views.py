@@ -157,14 +157,21 @@ def task_update(request, pk):
                 old_ids = set(locked.assignees.values_list("pk", flat=True))
                 new_ids = {user.pk for user in new_assignees}
                 locked.assignees.set(new_assignees)
-                TaskEvent.objects.create(
-                    task=locked,
-                    actor=request.user,
-                    event_type=TaskEvent.EventType.ASSIGNED,
-                    from_value=",".join(map(str, sorted(old_ids)))[:80],
-                    to_value=",".join(map(str, sorted(new_ids)))[:80],
-                    note=reassign_form.cleaned_data["note"].strip(),
-                )
+                reason = reassign_form.cleaned_data["note"].strip()
+                for removed_id in sorted(old_ids - new_ids):
+                    TaskEvent.objects.create(
+                        task=locked, actor=request.user,
+                        event_type=TaskEvent.EventType.ASSIGNED,
+                        from_value=str(removed_id), to_value="",
+                        note=f"حذف مجری از تخصیص: {reason}",
+                    )
+                for added_id in sorted(new_ids - old_ids):
+                    TaskEvent.objects.create(
+                        task=locked, actor=request.user,
+                        event_type=TaskEvent.EventType.ASSIGNED,
+                        from_value="", to_value=str(added_id),
+                        note=f"افزودن مجری به تخصیص: {reason}",
+                    )
                 AuditEvent.objects.create(
                     actor=request.user,
                     action="internal_task_reassigned",
@@ -178,6 +185,14 @@ def task_update(request, pk):
                             locked, assignee, request.user,
                             title="وظیفه جدید به شما تخصیص یافت",
                             body=f"وظیفه «{locked.title}» به شما تخصیص داده شد.",
+                        )
+                for removed_id in old_ids - new_ids:
+                    removed_user = User.objects.filter(pk=removed_id).first()
+                    if removed_user:
+                        _notify_task_recipient(
+                            locked, removed_user, request.user,
+                            title="وظیفه از شما بازتخصیص یافت",
+                            body=f"وظیفه «{locked.title}» از فهرست مسئولیت‌های شما خارج شد.",
                         )
             messages.success(request, "تخصیص وظیفه با ثبت دلیل و تاریخچه تغییر کرد.")
             return redirect("task_update", pk=task.pk)
