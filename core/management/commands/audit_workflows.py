@@ -7,6 +7,7 @@ from insurance.models import ContractRevision
 from organizations.models import PersonChangeRequest
 from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowDefinition
+from reports.models import Report
 
 
 class Command(BaseCommand):
@@ -21,6 +22,7 @@ class Command(BaseCommand):
         "asset_valuation_approval",
         "asset_policy_approval",
         "asset_endorsement_approval",
+        "management_report_approval",
     }
 
     def handle(self, *args, **options):
@@ -195,6 +197,28 @@ class Command(BaseCommand):
                         if not closing_roles or not closing_roles.issubset(global_roles):
                             errors.append(f"{code}/{transition.action_code}: بستن درخواست عمومی فقط برای رئیس اداره/مدیر سامانه مجاز است.")
 
+            if code == "management_report_approval":
+                required_steps = {
+                    "supervisor_review", "responsible_review", "head_review",
+                    "returned", "approved", "rejected",
+                }
+                missing_steps = required_steps - {step.code for step in steps}
+                if missing_steps:
+                    errors.append(f"{code}: مراحل ضروری تعریف نشده‌اند: {', '.join(sorted(missing_steps))}")
+                by_action = {item.action_code: item for item in transitions}
+                for action_code in {
+                    "approve_to_responsible", "approve_to_head", "return_to_creator",
+                    "approve", "reject", "resubmit", "finalize", "finalize_rejection",
+                }:
+                    if action_code not in by_action:
+                        errors.append(f"{code}: اقدام ضروری {action_code} تعریف نشده است.")
+                if any(
+                    transition.closes_case
+                    and not set(transition.allowed_roles or transition.source_step.allowed_roles).issubset(global_roles)
+                    for transition in transitions
+                ):
+                    errors.append(f"{code}: مختومه‌سازی گزارش فقط برای رئیس اداره/مدیر سامانه مجاز است.")
+
             if code == "claim_review":
                 if not initial_steps or initial_steps[0].code != Claim.Status.UNDER_REVIEW:
                     errors.append("claim_review: مرحله آغازین باید under_review باشد.")
@@ -288,6 +312,8 @@ class Command(BaseCommand):
 
     @staticmethod
     def _domain_contract(code):
+        if code == "management_report_approval":
+            return set(dict(Report.Status.choices)), {Report.Status.APPROVED, Report.Status.REJECTED}
         if code == "claim_review":
             return set(dict(Claim.Status.choices)), {
                 Claim.Status.APPROVED,

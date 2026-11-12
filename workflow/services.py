@@ -667,6 +667,9 @@ def _workflow_owner_candidates(obj):
     if label == "requests_portal.servicerequest":
         if getattr(obj, "submitted_by_id", None):
             candidates.append(obj.submitted_by)
+    elif label == "reports.report":
+        if getattr(obj, "created_by_id", None):
+            candidates.append(obj.created_by)
     elif label == "organizations.personchangerequest":
         if getattr(obj, "requested_by_id", None):
             candidates.append(obj.requested_by)
@@ -752,6 +755,12 @@ def _workflow_owner_can_view(obj, recipient, case):
         return (
             reverse("asset_detail", args=[obj.pk])
             if _asset_scope(recipient).filter(pk=obj.pk).exists() else ""
+        )
+    if label == "reports.report":
+        from reports.views import _visible_reports
+        return (
+            reverse("report_detail", args=[obj.pk])
+            if _visible_reports(recipient).filter(pk=obj.pk).exists() else ""
         )
     if label == "insurance.contractrevision":
         from insurance.views import _contract_scope
@@ -1060,6 +1069,14 @@ RETURN_TO_PREVIOUS_ACTIONS = {
     "send_back_to_insurer",
     "resume_review",
 }
+RETURN_TO_INITIATOR_ACTIONS = {"return_to_creator"}
+
+
+def _workflow_initiator(case):
+    event = case.events.filter(
+        event_type=WorkflowEvent.EventType.STARTED
+    ).select_related("actor").order_by("sent_at", "pk").first()
+    return event.actor if event else None
 
 
 def transition_case(*, case_id, actor, action_code, recipient=None, note="", calendar=None):
@@ -1152,7 +1169,14 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     else:
         if transition.target_step is None:
             raise ValidationError("مرحله مقصد برای این اقدام مشخص نشده است.")
-        if action_code in RETURN_TO_PREVIOUS_ACTIONS:
+        if action_code in RETURN_TO_INITIATOR_ACTIONS:
+            previous_owner = _workflow_initiator(case)
+            if previous_owner is None:
+                raise ValidationError("تهیه‌کننده اولیه پرونده برای بازگشت معتبر پیدا نشد.")
+            if recipient is not None and recipient.pk != previous_owner.pk:
+                raise PermissionDenied("این اقدام باید به تهیه‌کننده اولیه گزارش بازگردد.")
+            recipient = previous_owner
+        elif action_code in RETURN_TO_PREVIOUS_ACTIONS:
             previous_owner = _previous_assignee_for_case(case)
             if previous_owner is None:
                 raise ValidationError("مسئول قبلی پرونده برای بازگشت معتبر پیدا نشد؛ پرونده باید توسط مدیر بررسی شود.")

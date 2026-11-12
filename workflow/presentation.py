@@ -47,6 +47,14 @@ def build_workflow_presentation(case, *, user=None):
     confidential = bool(getattr(obj, "is_confidential", False))
     is_current_owner = bool(user and case.current_assignee_id == user.pk)
 
+    if label == "reports.report":
+        latest = obj.latest_version
+        return {
+            "title": obj.title,
+            "subtitle": f"گزارش {obj.get_report_type_display()} — رشته {obj.line_code}",
+            "summary": latest.summary if latest else "نسخه محتوایی گزارش ثبت نشده است.",
+            "sensitive": False,
+        }
     if label == "requests_portal.servicerequest":
         reference = obj.reference
         request_kind = obj.get_kind_display()

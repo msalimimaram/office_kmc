@@ -46,6 +46,12 @@ def _visible_cases(user):
 
 
 def _eligible_recipients(case, transition):
+    if transition.action_code == "return_to_creator":
+        started = WorkflowEvent.objects.filter(
+            workflow_case=case,
+            event_type=WorkflowEvent.EventType.STARTED,
+        ).order_by("sent_at", "pk").first()
+        return User.objects.filter(pk=started.actor_id, is_active=True) if started else User.objects.none()
     if transition.action_code in {
         "submit_information", "return_from_insurer", "return_for_correction",
         "send_back_to_insurer", "resume_review",

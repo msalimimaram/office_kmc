@@ -4,7 +4,7 @@ from django.db import transaction
 from django.db.models import Q, Max
 from django.utils import timezone
 
-from accounts.models import RoleAssignment
+from accounts.models import OrganizationalPosition, RoleAssignment
 from requests_portal.models import ServiceRequest
 from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition
 from workflow.services import _scope_for_object, _validate_recipient, is_delegated_assignee
@@ -23,6 +23,7 @@ class Command(BaseCommand):
         ("person_change", "اصلاح اطلاعات بیمه‌شده", "approved"),
         ("claim_review", "ارزیابی و تصمیم خسارت", "approved"),
         ("claim_objection", "رسیدگی به اعتراض خسارت", "closed"),
+        ("management_report_approval", "تأیید سلسله‌مراتبی گزارش مدیریتی", "approved"),
     )
 
     @transaction.atomic
@@ -84,6 +85,8 @@ class Command(BaseCommand):
                 self._build_claim_review(definition, global_roles)
             elif code == "claim_objection":
                 self._build_claim_objection(definition, global_roles)
+            elif code == "management_report_approval":
+                self._build_report_approval(definition, global_roles)
             else:
                 self._build_global_approval(definition, approved_step_code, global_roles)
             definition.approved_by = actor
@@ -207,6 +210,45 @@ class Command(BaseCommand):
                     "to_version": definition.version,
                 },
             )
+
+    def _build_report_approval(self, definition, global_roles):
+        specialist_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST]
+        supervisor_level = int(OrganizationalPosition.Level.SUPERVISOR)
+        responsible_level = int(OrganizationalPosition.Level.RESPONSIBLE)
+        specs = (
+            ("supervisor_review", "بررسی سرپرست", [], [supervisor_level], True),
+            ("responsible_review", "بررسی مسئول", [], [responsible_level], False),
+            ("head_review", "بررسی رئیس اداره", global_roles, [], False),
+            ("returned", "بازگشت برای اصلاح", specialist_roles, [], False),
+            ("approved", "تأیید نهایی", global_roles, [], False),
+            ("rejected", "رد گزارش", global_roles, [], False),
+        )
+        steps = {}
+        for order, (code, title, roles, levels, initial) in enumerate(specs, start=1):
+            steps[code] = WorkflowStep.objects.create(
+                definition=definition, code=code, title=title, order=order,
+                allowed_roles=roles, allowed_position_levels=levels,
+                is_initial=initial, allow_return=True,
+            )
+
+        def add(source, target, action, title, roles, recipient_roles=(), *, levels=(), recipient_levels=(), note=False, returned=False, closes=False):
+            WorkflowTransition.objects.create(
+                definition=definition, source_step=steps[source],
+                target_step=None if closes else steps[target], action_code=action,
+                title=title, allowed_roles=roles, allowed_position_levels=levels,
+                recipient_roles=recipient_roles, recipient_position_levels=recipient_levels,
+                requires_note=note, is_return=returned, closes_case=closes,
+            )
+
+        add("supervisor_review", "responsible_review", "approve_to_responsible", "تأیید سرپرست و ارجاع به مسئول", [], recipient_levels=[responsible_level], levels=[supervisor_level])
+        add("supervisor_review", "returned", "return_to_creator", "بازگشت به تهیه‌کننده برای اصلاح", [], specialist_roles, levels=[supervisor_level], note=True, returned=True)
+        add("responsible_review", "head_review", "approve_to_head", "تأیید مسئول و ارجاع به رئیس اداره", [], global_roles, levels=[responsible_level])
+        add("responsible_review", "returned", "return_to_creator", "بازگشت به تهیه‌کننده برای اصلاح", [], specialist_roles, levels=[responsible_level], note=True, returned=True)
+        add("head_review", "approved", "approve", "تأیید نهایی گزارش", global_roles, global_roles)
+        add("head_review", "rejected", "reject", "رد گزارش", global_roles, global_roles, note=True)
+        add("returned", "supervisor_review", "resubmit", "ارسال نسخه اصلاح‌شده به سرپرست", specialist_roles, recipient_levels=[supervisor_level])
+        add("approved", None, "finalize", "مختومه‌سازی گزارش تأییدشده", global_roles, closes=True)
+        add("rejected", None, "finalize_rejection", "مختومه‌سازی گزارش ردشده", global_roles, closes=True)
 
     def _build_service_request(self, definition, global_roles):
         company_roles = [RoleAssignment.Role.SUBSIDIARY_REP]
