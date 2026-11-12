@@ -12,7 +12,7 @@ from workflow.services import _scope_for_object, _validate_recipient, is_delegat
 
 class Command(BaseCommand):
     help = "Publish versioned operational workflows; preserve historical definitions and cases."
-    BASELINE_SCHEMA_VERSION = "baseline-route-v2"
+    BASELINE_SCHEMA_VERSION = "baseline-route-v3"
 
     WORKFLOWS = (
         ("contract_approval", "تأیید قرارداد", "approved"),
@@ -265,7 +265,6 @@ class Command(BaseCommand):
             (ServiceRequest.Status.APPROVED, "تأییدشده", global_roles, False, False),
             (ServiceRequest.Status.REJECTED, "ردشده", global_roles, False, False),
             (ServiceRequest.Status.COMPLETED, "انجام‌شده", global_roles, False, False),
-            (ServiceRequest.Status.CLOSED, "بسته‌شده", global_roles, False, True),
         )
         for order, (code, title, roles, initial, terminal) in enumerate(step_specs, start=1):
             steps[code] = WorkflowStep.objects.create(

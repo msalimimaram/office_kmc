@@ -61,6 +61,8 @@ class Command(BaseCommand):
 
             valid_statuses, decision_steps = self._domain_contract(code)
             for step in steps:
+                if step.is_terminal and step.outgoing_transitions.exists():
+                    errors.append(f"{code}/{step.code}: مرحله پایانی نباید مسیر خروجی داشته باشد.")
                 if step.code not in valid_statuses:
                     errors.append(f"{code}/{step.code}: کد مرحله با وضعیت مدل دامنه سازگار نیست.")
                 if not step.allowed_roles and not step.allowed_position_levels:
@@ -69,6 +71,23 @@ class Command(BaseCommand):
                     errors.append(f"{code}/{step.code}: نقش عمومی * مجاز نیست.")
                 if not step.is_terminal and not step.outgoing_transitions.exists():
                     errors.append(f"{code}/{step.code}: مرحله غیرپایانی مسیر خروجی ندارد.")
+
+            if len(initial_steps) == 1:
+                reachable_ids = {initial_steps[0].pk}
+                changed = True
+                while changed:
+                    changed = False
+                    for transition in transitions:
+                        if (
+                            transition.source_step_id in reachable_ids
+                            and transition.target_step_id
+                            and transition.target_step_id not in reachable_ids
+                        ):
+                            reachable_ids.add(transition.target_step_id)
+                            changed = True
+                for step in steps:
+                    if step.pk not in reachable_ids:
+                        errors.append(f"{code}/{step.code}: مرحله از مرحله آغازین قابل دسترسی نیست.")
 
             for transition in transitions:
                 if transition.source_step_id not in {step.pk for step in steps}:

@@ -234,12 +234,20 @@ def workflow_case_detail(request, pk):
         mark_case_opened(case_id=case.pk, actor=request.user)
         case.refresh_from_db()
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
-    if (
-        getattr(case.content_object, "is_confidential", False)
-        and not has_global_access(request.user)
+    domain_object = case.content_object
+    is_confidential_request = bool(getattr(domain_object, "is_confidential", False))
+    is_person_change = bool(
+        case.content_type_id
+        and case.content_type.app_label == "organizations"
+        and case.content_type.model == "personchangerequest"
+    )
+    is_current_owner = case.current_assignee_id == request.user.pk
+    if not has_global_access(request.user) and (
+        is_confidential_request or (is_person_change and not is_current_owner)
     ):
-        # Workflow notes are free text and may contain medical details. The
-        # non-global recipient sees the routing timeline, never those notes.
+        # Medical notes may contain clinical details. Historical person-change
+        # recipients may see the routing trail, never free-text notes that can
+        # reveal old/new identity, contact, or banking values.
         for event in events:
             event.note = ""
     presentation = build_workflow_presentation(case, user=request.user)
