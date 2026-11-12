@@ -46,6 +46,8 @@ def build_workflow_presentation(case, *, user=None):
     person_name = ""
     confidential = bool(getattr(obj, "is_confidential", False))
     is_current_owner = bool(user and case.current_assignee_id == user.pk)
+    from accounts.access import has_global_access
+    can_view_confidential_content = bool(user and has_global_access(user))
 
     if label == "reports.report":
         latest = obj.latest_version
@@ -58,16 +60,19 @@ def build_workflow_presentation(case, *, user=None):
     if label == "requests_portal.servicerequest":
         reference = obj.reference
         request_kind = obj.get_kind_display()
-        title = request_kind if confidential else obj.title
+        title = (
+            obj.title if not confidential or can_view_confidential_content
+            else request_kind
+        )
         _add(fields, "نوع درخواست", request_kind)
         company_name = _text(getattr(obj, "company", None))
-        person_name = _text(getattr(obj, "person", None))
         _add(fields, "شرکت", company_name)
-        _add(fields, "بیمه‌شده / متقاضی", person_name)
-        _add(fields, "وضعیت درخواست", obj.get_status_display())
-        _add(fields, "ثبت‌کننده", getattr(obj, "submitted_by", None))
-        if not confidential:
+        if not confidential or can_view_confidential_content:
+            person_name = _text(getattr(obj, "person", None))
+            _add(fields, "بیمه‌شده / متقاضی", person_name)
+            _add(fields, "ثبت‌کننده", getattr(obj, "submitted_by", None))
             description = obj.description or ""
+        _add(fields, "وضعیت درخواست", obj.get_status_display())
 
     elif label == "claims.claim":
         reference = obj.claim_number
@@ -159,8 +164,7 @@ def build_workflow_presentation(case, *, user=None):
 
     # Former assignees retain a read-only timeline. Do not keep exposing
     # personal-change payloads or internal assessment narratives after handoff.
-    from accounts.access import has_global_access
-    if not is_current_owner and not has_global_access(user):
+    if not is_current_owner and not can_view_confidential_content:
         description = ""
         if label == "organizations.personchangerequest":
             fields = [

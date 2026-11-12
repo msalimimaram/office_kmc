@@ -152,6 +152,20 @@ def scoped_requests_for(user):
 
     allowed = Q(pk__in=[])
 
+    content_type = ContentType.objects.get_for_model(
+        ServiceRequest, for_concrete_model=False
+    )
+    active_workflow_request_ids = WorkflowCase.objects.filter(
+        content_type=content_type,
+        current_assignee_id=user.pk,
+        status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        is_locked=False,
+    ).values("object_id")
+    confidential_assigned_scope = ServiceRequest.objects.filter(
+        pk__in=active_workflow_request_ids,
+        is_confidential=True,
+    )
+
     health_request_kinds = {
         ServiceRequest.Kind.MEDICAL_ASSISTANCE,
         ServiceRequest.Kind.ANONYMOUS_PLAN,
@@ -175,6 +189,13 @@ def scoped_requests_for(user):
             # This model has no direct contract/line link yet. Only request
             # kinds with an unambiguous health line are visible to this rep.
             allowed |= company_scope & Q(kind__in=health_request_kinds)
+        if "*" in representative_lines or "health" in representative_lines:
+            # A confidential request is visible to a company representative
+            # only while that exact user owns its active workflow stage.
+            allowed |= Q(pk__in=confidential_assigned_scope.filter(
+                company_id__in=company_ids,
+                kind__in=health_request_kinds,
+            ).values("pk"))
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) or has_role(
         user, RoleAssignment.Role.INSURER_REP
@@ -183,9 +204,6 @@ def scoped_requests_for(user):
         # Prior assignees retain read access to the audit trail, but never gain
         # an action right from this visibility rule. The legacy assigned_to
         # field is consulted only for records that predate workflow creation.
-        content_type = ContentType.objects.get_for_model(
-            ServiceRequest, for_concrete_model=False
-        )
         workflow_cases = WorkflowCase.objects.filter(
             content_type=content_type,
         ).annotate(domain_pk=Cast("object_id", BigIntegerField()))
@@ -217,9 +235,12 @@ def scoped_requests_for(user):
             )
             if specialist_lines:
                 # Explicit assignment is the work grant for a request whose
-                # kind has no intrinsic insurance-line mapping. Confidential
-                # requests remain excluded by assigned_scope.
+                # kind has no intrinsic insurance-line mapping.
                 role_scoped_ids |= Q(pk__in=assigned_scope.values("pk"))
+                if "*" in specialist_lines or "health" in specialist_lines:
+                    role_scoped_ids |= Q(pk__in=confidential_assigned_scope.filter(
+                        kind__in=health_request_kinds,
+                    ).values("pk"))
 
         insurer_ids = insurer_ids_for(user)
         if insurer_ids:
@@ -238,15 +259,19 @@ def scoped_requests_for(user):
                 kind__in=health_request_kinds,
                 company_id__in=insured_company_ids,
             ).values("pk"))
+            role_scoped_ids |= Q(pk__in=confidential_assigned_scope.filter(
+                kind__in=health_request_kinds,
+                company_id__in=insured_company_ids,
+            ).values("pk"))
 
         allowed |= role_scoped_ids
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         # Employees must still see their own requests when a company
         # representative submitted the form on their behalf. Confidential
-        # medical requests remain limited to the linked insured person and
-        # authorized insurance staff; the company-representative scope above
-        # deliberately continues to exclude confidential records.
+        # Medical requests remain limited to the linked insured person and
+        # explicitly assigned workflow recipients; only minimum metadata is
+        # available to non-global operational recipients.
         allowed |= (
             Q(submitted_by_id=user.pk)
             | Q(person__user_id=user.pk)

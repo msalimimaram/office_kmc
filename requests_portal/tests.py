@@ -7,7 +7,7 @@ from accounts.models import RoleAssignment, User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from core.permissions import can_transition_request, scoped_requests_for
-from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition
 
 NATIONAL_ID_A = "1" * 10
 NATIONAL_ID_B = "2" * 10
@@ -223,7 +223,7 @@ class ServiceRequestTests(TestCase):
         visible = set(scoped_requests_for(self.user).values_list("reference", flat=True))
         self.assertEqual(visible, {"IB-OWN-1"})
 
-    def test_medical_assistance_is_visible_to_head_but_not_specialist_or_company_rep(self):
+    def test_medical_assistance_requires_workflow_assignment_and_global_role_for_full_detail(self):
         medical = ServiceRequest.objects.create(
             reference="IB-MED-1", kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             submitted_by=self.user, company=self.company,
@@ -246,20 +246,71 @@ class ServiceRequestTests(TestCase):
         client = Client()
         client.force_login(head)
         self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 200)
-        decision = client.post(reverse("request_detail", args=[medical.pk]), {
-            "status": ServiceRequest.Status.IN_REVIEW,
-            "response": "در حال بررسی",
-        })
-        self.assertEqual(decision.status_code, 302)
-        decision = client.post(reverse("request_detail", args=[medical.pk]), {
+        denied = client.post(reverse("request_detail", args=[medical.pk]), {
             "status": ServiceRequest.Status.APPROVED,
-            "response": "درخواست بررسی و تأیید شد",
+            "response": "تغییر مستقیم وضعیت ممنوع",
         })
-        self.assertEqual(decision.status_code, 302)
+        self.assertEqual(denied.status_code, 403)
         medical.refresh_from_db()
-        self.assertEqual(medical.status, ServiceRequest.Status.APPROVED)
-        client.force_login(specialist)
-        self.assertEqual(client.get(reverse("request_detail", args=[medical.pk])).status_code, 404)
+        self.assertEqual(medical.status, ServiceRequest.Status.SUBMITTED)
+
+    def test_assigned_medical_workflow_recipient_sees_only_minimum_metadata(self):
+        person = Person.objects.create(
+            company=self.company, user=self.user, national_id=NATIONAL_ID_A,
+            first_name="نام", last_name="بیمار محرمانه", birth_date=date(1990, 1, 1),
+        )
+        medical = ServiceRequest.objects.create(
+            reference="IB-MED-ASSIGNED", kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.user, person=person, company=self.company,
+            title="تشخیص پزشکی محرمانه", description="شرح تشخیص محرمانه",
+            is_confidential=True,
+        )
+        rep = User.objects.create_user(
+            username="rep-med-assigned", password="StrongPass!2026", must_change_password=False,
+            role="subsidiary_rep", company=self.company,
+        )
+        RoleAssignment.objects.create(
+            user=rep, role=RoleAssignment.Role.SUBSIDIARY_REP, company=self.company,
+            line_code="health", reason="مسئول رسیدگی اولیه درمان",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="گردش کمک‌هزینه درمان", created_by=self.workflow_admin,
+        )
+        step = WorkflowStep.objects.create(
+            definition=definition, code=ServiceRequest.Status.SUBMITTED,
+            title="بررسی نماینده شرکت", order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP], is_initial=True,
+        )
+        definition.approved_by = self.workflow_admin
+        definition.is_active = True
+        definition.save()
+        from django.contrib.contenttypes.models import ContentType
+        case = WorkflowCase.objects.create(
+            definition=definition,
+            content_type=ContentType.objects.get_for_model(medical, for_concrete_model=False),
+            object_id=str(medical.pk), current_step=step, current_assignee=rep,
+        )
+        WorkflowEvent.objects.create(
+            workflow_case=case, actor=self.user,
+            event_type=WorkflowEvent.EventType.STARTED,
+            to_step=step, to_assignee=rep, note="یادداشت حاوی شرح پزشکی محرمانه",
+        )
+
+        self.assertIn(medical, scoped_requests_for(rep))
+        client = Client()
+        client.force_login(rep)
+        response = client.get(reverse("request_detail", args=[medical.pk]), follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "کمک‌هزینه درمان")
+        self.assertNotContains(response, "تشخیص پزشکی محرمانه")
+        self.assertNotContains(response, "شرح تشخیص محرمانه")
+        self.assertNotContains(response, "بیمار محرمانه")
+        self.assertNotContains(response, "یادداشت حاوی شرح پزشکی محرمانه")
+        self.assertEqual(
+            client.get(reverse("request_attachment_download", args=[medical.pk])).status_code,
+            403,
+        )
 
     def test_employee_cannot_change_request_status(self):
         item = ServiceRequest.objects.create(

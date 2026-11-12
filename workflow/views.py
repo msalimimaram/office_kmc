@@ -234,6 +234,14 @@ def workflow_case_detail(request, pk):
         mark_case_opened(case_id=case.pk, actor=request.user)
         case.refresh_from_db()
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
+    if (
+        getattr(case.content_object, "is_confidential", False)
+        and not has_global_access(request.user)
+    ):
+        # Workflow notes are free text and may contain medical details. The
+        # non-global recipient sees the routing timeline, never those notes.
+        for event in events:
+            event.note = ""
     presentation = build_workflow_presentation(case, user=request.user)
     transitions = []
     if can_act:
