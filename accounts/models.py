@@ -327,17 +327,15 @@ class RoleAssignment(models.Model):
             self.full_clean()
             result = super().save(*args, **kwargs)
             if self.role in {self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}:
-                today = timezone.localdate()
-                active_global = RoleAssignment.objects.filter(
+                # is_staff is only Django's technical gate. Set it for any
+                # scheduled global appointment; RestrictAdminAccessMiddleware
+                # still checks the time-valid business role on every request.
+                has_global_appointment = RoleAssignment.objects.filter(
                     user_id=self.user_id,
                     role__in={self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD},
                     is_active=True,
-                    valid_from__lte=today,
-                ).filter(
-                    models.Q(valid_until__isnull=True)
-                    | models.Q(valid_until__gte=today)
                 ).exists()
-                if active_global:
+                if has_global_appointment:
                     User.objects.filter(pk=self.user_id, is_staff=False).update(is_staff=True)
             return result
 

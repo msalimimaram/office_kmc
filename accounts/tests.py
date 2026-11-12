@@ -422,3 +422,19 @@ class AdminBusinessRoleBoundaryTests(TestCase):
         client = Client()
         client.force_login(user)
         self.assertEqual(client.get("/admin/").status_code, 403)
+
+    def test_future_global_appointment_sets_technical_staff_flag_but_not_early_access(self):
+        user = User.objects.create_user(
+            username="future-head-admin", password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=user, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=timezone.localdate() + timedelta(days=1),
+            reason="انتصاب آتی رئیس اداره",
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        client = Client()
+        client.force_login(user)
+        self.assertEqual(client.get("/admin/").status_code, 403)
