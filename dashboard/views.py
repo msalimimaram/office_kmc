@@ -40,17 +40,17 @@ def _capabilities_for(user):
     if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
         capabilities.update({
             "claims", "requests", "people", "contracts", "assets",
-            "correspondence", "reports",
+            "correspondence",
         })
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         capabilities.update({"claims", "requests", "people"})
     if has_role(user, RoleAssignment.Role.INSURER_REP):
         capabilities.update({
             "claims", "requests", "assets", "contracts", "correspondence",
-            "imports", "reports",
+            "imports",
         })
     if is_unit_manager(user):
-        capabilities.update({"tasks", "correspondence"})
+        capabilities.update({"tasks", "correspondence", "reports"})
     return capabilities
 
 
@@ -202,6 +202,7 @@ def home(request):
         "show_people": "people" in capabilities,
         "show_correspondence": "correspondence" in capabilities,
         "show_imports": "imports" in capabilities,
+        "show_reports": "reports" in capabilities,
         "can_review_requests": is_management,
         "can_create_request": any(
             has_role(user, role) for role in (

@@ -53,6 +53,7 @@
         {% if access.contracts %}<a class="sidebar-link" href="{% url 'contract_list' %}"><span class="sidebar-icon">▣</span><span>قراردادها</span></a>{% endif %}
         {% if access.assets %}<a class="sidebar-link" href="{% url 'asset_list' %}"><span class="sidebar-icon">◇</span><span>دارایی‌ها</span></a>{% endif %}
         {% if access.imports %}<a class="sidebar-link" href="{% url 'claim_import' %}"><span class="sidebar-icon">⇧</span><span>ورود اکسل</span></a>{% endif %}
+        {% if access.reports %}<a class="sidebar-link" href="{% url 'report_list' %}"><span class="sidebar-icon">▥</span><span>گزارش‌های مدیریتی</span></a>{% endif %}
         <span class="sidebar-section-label">اسناد و ارتباطات</span>
         <a class="sidebar-link" href="{% url 'announcement_list' %}"><span class="sidebar-icon">▧</span><span>اطلاعیه‌ها</span></a>
         {% if access.correspondence %}<a class="sidebar-link" href="{% url 'correspondence_list' %}"><span class="sidebar-icon">✉</span><span>مکاتبات</span>{% endif %}

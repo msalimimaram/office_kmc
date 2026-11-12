@@ -82,5 +82,6 @@ def access_flags(request):
             "leadership_titles": has_global_access(user) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
             "tasks": staff or unit_manager,
             "imports": staff or has_role(user, RoleAssignment.Role.INSURER_REP),
+            "reports": staff or unit_manager,
         },
     }
