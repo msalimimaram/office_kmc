@@ -201,6 +201,12 @@ class AssetOperationalWorkflowTests(TestCase):
             password="StrongPass!2026",
         )
         RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=timezone.localdate(),
+            reason="مدیر سامانه برای آزمون گردش دارایی",
+        )
+        RoleAssignment.objects.create(
             user=self.head,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای آزمون تأیید دارایی",
