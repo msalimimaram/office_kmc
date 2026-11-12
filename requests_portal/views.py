@@ -60,8 +60,16 @@ def _first_company_representative(company_id):
 def request_list(request):
     qs = scoped_requests_for(request.user).order_by("-created_at", "-pk")
     page_obj = Paginator(qs, 25).get_page(request.GET.get("page"))
+    rows = list(page_obj.object_list)
+    reveal_confidential = has_global_access(request.user)
+    for item in rows:
+        item.display_title = (
+            item.title
+            if reveal_confidential or not item.is_confidential
+            else item.get_kind_display()
+        )
     return render(request, "requests_portal/request_list.html", {
-        "requests_list": page_obj.object_list,
+        "requests_list": rows,
         "page_obj": page_obj,
     })
 

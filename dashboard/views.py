@@ -170,13 +170,20 @@ def home(request):
         if is_management else 0
     )
 
+    recent_requests = list(requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8])
+    for item in recent_requests:
+        item.display_title = (
+            item.title if is_management or not item.is_confidential
+            else item.get_kind_display()
+        )
+
     context = {
         "claim_count": claims.count(),
         "request_count": requests.count(),
         "open_request_count": requests.exclude(status__in=["closed", "completed", "rejected"]).count(),
         "task_count": tasks.exclude(status__in=["done", "cancelled"]).count(),
         "recent_claims": claims.select_related("person").order_by("-registered_date", "-pk")[:8],
-        "recent_requests": requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8],
+        "recent_requests": recent_requests,
         "recent_tasks": tasks.select_related("created_by").order_by("due_at", "-pk")[:8],
         "is_unit_manager": is_unit_manager(user),
         "is_system_admin": is_system_admin,
