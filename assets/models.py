@@ -382,7 +382,7 @@ class AssetPolicyPeriod(models.Model):
             finally:
                 self._workflow_sync = False
             if self.status == self.Status.ACTIVE:
-                self._apply_to_asset_snapshot()
+                self._apply_to_asset_snapshot(on_date=today)
             return
         if step_code in {self.Status.PENDING_APPROVAL, self.Status.REJECTED}:
             if self.status != step_code:
@@ -393,11 +393,13 @@ class AssetPolicyPeriod(models.Model):
                 finally:
                     self._workflow_sync = False
 
-    def _apply_to_asset_snapshot(self):
+    def _apply_to_asset_snapshot(self, *, on_date=None):
         # The legacy snapshot stores one policy only. Preserve a different
         # policy while its recorded coverage is still current, but permit a
         # due replacement to take over after the old snapshot expires.
-        today = timezone.localdate()
+        # Honour the caller's effective processing date so backfills and
+        # deterministic lifecycle runs behave exactly like the daily command.
+        today = on_date or timezone.localdate()
         if (
             not self.contract_id
             or self.status != self.Status.ACTIVE
@@ -487,7 +489,7 @@ class AssetPolicyPeriod(models.Model):
             period._workflow_sync = False
         self.status = period.status
         if period.status == self.Status.ACTIVE:
-            period._apply_to_asset_snapshot()
+            period._apply_to_asset_snapshot(on_date=today)
         return True
 
     def delete(self, *args, **kwargs):
