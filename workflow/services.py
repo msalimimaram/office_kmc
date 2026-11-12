@@ -830,6 +830,7 @@ def _notify_workflow_owners(case, actor, *, started=False, closed=False):
 
 
 @transaction.atomic
+@transaction.atomic
 def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delegation=None):
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied("شروع گردش کار فقط توسط حساب فعال مجاز است.")
@@ -926,6 +927,7 @@ def _notify_assignee(case, actor, assignee, *, delegated=False):
     )
 
 
+@transaction.atomic
 @transaction.atomic
 def mark_case_opened(*, case_id, actor):
     case = WorkflowCase.objects.select_for_update().get(pk=case_id)
@@ -1082,6 +1084,7 @@ def _workflow_initiator(case):
     return event.actor if event else None
 
 
+@transaction.atomic
 def transition_case(*, case_id, actor, action_code, recipient=None, note="", calendar=None):
     case = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "delegation"
