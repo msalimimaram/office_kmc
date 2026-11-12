@@ -56,7 +56,7 @@
         <span class="sidebar-section-label">اسناد و ارتباطات</span>
         <a class="sidebar-link" href="{% url 'announcement_list' %}"><span class="sidebar-icon">▧</span><span>اطلاعیه‌ها</span></a>
         {% if access.correspondence %}<a class="sidebar-link" href="{% url 'correspondence_list' %}"><span class="sidebar-icon">✉</span><span>مکاتبات</span>{% endif %}
-        <a class="sidebar-link" href="{% url 'document_list' %}"><span class="sidebar-icon">▤</span><span>اسناد و بخشنامه‌ها</span></a>
+        {% if access.documents %}<a class="sidebar-link" href="{% url 'document_list' %}"><span class="sidebar-icon">▤</span><span>اسناد و بخشنامه‌ها</span></a>{% endif %}
         {% if access.leadership_titles %}<a class="sidebar-link" href="{% url 'company_leadership_titles' %}"><span class="sidebar-icon">♜</span><span>سمت‌های مدیریتی</span></a>{% endif %}
       </nav>
       <div class="sidebar-footer"><span class="sidebar-status-dot"></span><span>سامانه عملیاتی اداره بیمه</span></div>
