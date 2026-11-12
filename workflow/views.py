@@ -12,6 +12,7 @@ from .models import WorkflowCase, WorkflowTransition
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
     set_final_lock, transition_case, is_delegated_assignee,
+    active_position_assignments_for_level,
 )
 
 
@@ -34,39 +35,59 @@ def _eligible_recipients(case, transition):
     roles = transition.recipient_roles or (
         transition.target_step.allowed_roles if transition.target_step_id else []
     )
-    if not roles:
+    position_levels = transition.recipient_position_levels or (
+        transition.target_step.allowed_position_levels if transition.target_step_id else []
+    )
+    if not roles and not position_levels:
         return User.objects.none()
 
     scope = _scope_for_object(case.content_object)
-    today = timezone.localdate()
-    assignments = RoleAssignment.objects.filter(
-        role__in=roles,
-        is_active=True,
-        valid_from__lte=today,
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    role_user_ids = set()
+    if roles:
+        today = timezone.localdate()
+        assignments = RoleAssignment.objects.filter(
+            role__in=roles,
+            is_active=True,
+            valid_from__lte=today,
+        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
 
-    scoped_roles = Q()
-    for role in roles:
-        role_filter = Q(role=role)
-        if role == RoleAssignment.Role.SUBSIDIARY_REP:
-            if not scope["company_id"]:
-                continue
-            role_filter &= Q(company_id=scope["company_id"])
-            if scope["line_code"]:
+        scoped_roles = Q()
+        for role in roles:
+            role_filter = Q(role=role)
+            if role == RoleAssignment.Role.SUBSIDIARY_REP:
+                if not scope["company_id"]:
+                    continue
+                role_filter &= Q(company_id=scope["company_id"])
+                if scope["line_code"]:
+                    role_filter &= Q(line_code__in=[scope["line_code"], "*"])
+            elif role == RoleAssignment.Role.INSURER_REP:
+                if not scope["insurer_id"]:
+                    continue
+                role_filter &= Q(insurer_id=scope["insurer_id"])
+            elif role == RoleAssignment.Role.INSURANCE_SPECIALIST:
+                if not scope["line_code"]:
+                    continue
                 role_filter &= Q(line_code__in=[scope["line_code"], "*"])
-        elif role == RoleAssignment.Role.INSURER_REP:
-            if not scope["insurer_id"]:
-                continue
-            role_filter &= Q(insurer_id=scope["insurer_id"])
-        elif role == RoleAssignment.Role.INSURANCE_SPECIALIST and scope["line_code"]:
-            role_filter &= Q(line_code__in=[scope["line_code"], "*"])
-        scoped_roles |= role_filter
+            scoped_roles |= role_filter
 
-    if not scoped_roles.children:
+        if scoped_roles.children:
+            role_user_ids.update(
+                assignments.filter(scoped_roles).values_list("user_id", flat=True)
+            )
+
+    position_user_ids = set()
+    for level in position_levels:
+        position_user_ids.update(
+            active_position_assignments_for_level(
+                level, line_code=scope["line_code"]
+            ).values_list("user_id", flat=True)
+        )
+
+    eligible_ids = role_user_ids | position_user_ids
+    if not eligible_ids:
         return User.objects.none()
-    assignments = assignments.filter(scoped_roles)
     return User.objects.filter(
-        is_active=True, role_assignments__in=assignments
+        is_active=True, pk__in=eligible_ids
     ).distinct().order_by("last_name", "first_name", "username")
 
 
