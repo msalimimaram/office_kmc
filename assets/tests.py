@@ -362,7 +362,25 @@ class AssetOperationalWorkflowTests(TestCase):
             ).exists()
         )
 
-    def test_specialist_can_update_asset_and_vehicle_details_through_scoped_route(self):
+    def test_specialist_can_update_asset_master_without_changing_policy_or_valuation_snapshot(self):
+        from django.core.exceptions import ValidationError
+        from assets.forms import InsuredAssetForm
+
+        form = InsuredAssetForm(user=self.specialist, instance=self.asset)
+        protected = {
+            "insured_value", "insurer", "contract", "policy_number",
+            "policy_start", "policy_end",
+        }
+        self.assertFalse(protected.intersection(form.fields))
+        original = {
+            "insured_value": self.asset.insured_value,
+            "insurer_id": self.asset.insurer_id,
+            "contract_id": self.asset.contract_id,
+            "policy_number": self.asset.policy_number,
+            "policy_start": self.asset.policy_start,
+            "policy_end": self.asset.policy_end,
+        }
+
         client = Client()
         client.force_login(self.specialist)
         response = client.post(reverse("asset_update", args=[self.asset.pk]), {
@@ -374,9 +392,9 @@ class AssetOperationalWorkflowTests(TestCase):
             "identifier": "FLEET-01",
             "location": "سایت مرکزی",
             "insured_value": "1750000000",
-            "insurer": str(self.insurer.pk),
-            "contract": str(self.contract.pk),
-            "policy_number": "BASE-POLICY-1",
+            "insurer": "",
+            "contract": "",
+            "policy_number": "ATTACK-POLICY",
             "policy_start": "2026-01-01",
             "policy_end": "2027-01-01",
             "is_active": "on",
@@ -388,13 +406,25 @@ class AssetOperationalWorkflowTests(TestCase):
             "model_name": "مدل جدید",
             "model_year": "2025",
         })
-        self.assertEqual(response.status_code, 302, response.context["form"].errors.as_json() if response.context else response.content[:1500])
+        self.assertEqual(response.status_code, 302)
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.name, "خودروی عملیاتی ویرایش‌شده")
-        self.assertEqual(self.asset.insured_value, 1750000000)
+        for field, expected in original.items():
+            self.assertEqual(getattr(self.asset, field), expected)
         self.asset.vehicle_details.refresh_from_db()
         self.assertEqual(self.asset.vehicle_details.vin, "VIN-AS-OPS-UPDATED")
         self.assertEqual(self.asset.vehicle_details.model_year, 2025)
+
+        self.asset.insured_value = 1750000000
+        with self.assertRaises(ValidationError):
+            self.asset.save()
+
+    def test_existing_policy_snapshot_cannot_be_changed_outside_approval(self):
+        from django.core.exceptions import ValidationError
+
+        self.asset.policy_number = "UNAPPROVED-POLICY"
+        with self.assertRaises(ValidationError):
+            self.asset.save()
 
     def test_policy_snapshot_queryset_updates_are_rejected(self):
         from django.core.exceptions import ValidationError
