@@ -540,3 +540,129 @@ class AssetOperationalWorkflowTests(TestCase):
         self.asset.refresh_from_db()
         self.assertEqual(period.status, AssetPolicyPeriod.Status.ACTIVE)
         self.assertEqual(self.asset.policy_number, period.policy_number)
+
+
+@override_settings(DEBUG=True, CLAMD_HOST="")
+class AssetPolicyLifecycleTests(TestCase):
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from insurance.models import Contract, Insurer, InsuranceLine
+
+        self.today = timezone.localdate()
+        self.company = Company.objects.create(code="AS-LIFECYCLE", name="شرکت چرخه بیمه‌نامه")
+        self.insurer = Insurer.objects.create(name="بیمه‌گر چرخه بیمه‌نامه")
+        self.user = User.objects.create_user(
+            username="asset-lifecycle-user",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.old_contract = Contract.objects.create(
+            code="AS-LIFE-OLD",
+            title="قرارداد قبلی",
+            insurer=self.insurer,
+            line=InsuranceLine.FIRE,
+            start_date=self.today - timedelta(days=365),
+            end_date=self.today - timedelta(days=1),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.new_contract = Contract.objects.create(
+            code="AS-LIFE-NEW",
+            title="قرارداد جایگزین",
+            insurer=self.insurer,
+            line=InsuranceLine.FIRE,
+            start_date=self.today,
+            end_date=self.today + timedelta(days=365),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        self.old_contract.companies.add(self.company)
+        self.new_contract.companies.add(self.company)
+
+    def test_daily_command_expires_old_policy_and_activates_due_replacement(self):
+        from datetime import timedelta
+        from assets.models import AssetPolicyPeriod
+        from django.core.management import call_command
+
+        asset = InsuredAsset.objects.create(
+            asset_code="AS-LIFE-ASSET",
+            name="ساختمان اداری",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            company=self.company,
+            insurer=self.insurer,
+            contract=self.old_contract,
+            policy_number="OLD-POLICY",
+            policy_start=self.today - timedelta(days=365),
+            policy_end=self.today - timedelta(days=1),
+            created_by=self.user,
+        )
+        old_period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=self.insurer,
+            contract=self.old_contract,
+            policy_number="OLD-POLICY",
+            policy_start=self.today - timedelta(days=365),
+            policy_end=self.today - timedelta(days=1),
+            status=AssetPolicyPeriod.Status.ACTIVE,
+            created_by=self.user,
+        )
+        new_period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=self.insurer,
+            contract=self.new_contract,
+            policy_number="NEW-POLICY",
+            policy_start=self.today,
+            policy_end=self.today + timedelta(days=365),
+            status=AssetPolicyPeriod.Status.APPROVED,
+            created_by=self.user,
+        )
+
+        call_command("apply_due_asset_policy_periods")
+
+        old_period.refresh_from_db()
+        new_period.refresh_from_db()
+        asset.refresh_from_db()
+        self.assertEqual(old_period.status, AssetPolicyPeriod.Status.EXPIRED)
+        self.assertEqual(new_period.status, AssetPolicyPeriod.Status.ACTIVE)
+        self.assertEqual(asset.contract_id, self.new_contract.pk)
+        self.assertEqual(asset.policy_number, "NEW-POLICY")
+
+    def test_person_asset_contract_scope_uses_current_employment_not_legacy_company(self):
+        from datetime import timedelta
+        from organizations.models import Person, PersonEmployment
+        from assets.models import AssetPolicyPeriod
+
+        former_company = Company.objects.create(code="AS-LIFE-FORMER", name="شرکت قبلی مالک")
+        person = Person.objects.create(
+            company=former_company,
+            national_id="1234567890",
+            first_name="مالک",
+            last_name="آزمایشی",
+            birth_date=self.today - timedelta(days=12000),
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=self.company,
+            personnel_code="NEW-EMP-01",
+            valid_from=self.today - timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        asset = InsuredAsset.objects.create(
+            asset_code="AS-LIFE-PERSON",
+            name="دارایی شخصی کارمند",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            person=person,
+            created_by=self.user,
+        )
+        period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=self.insurer,
+            contract=self.new_contract,
+            policy_number="PERSON-POLICY",
+            policy_start=self.today,
+            policy_end=self.today + timedelta(days=365),
+            status=AssetPolicyPeriod.Status.PENDING_APPROVAL,
+            created_by=self.user,
+        )
+        self.assertEqual(period.contract_id, self.new_contract.pk)

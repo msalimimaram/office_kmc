@@ -1,6 +1,36 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
+
+
+def asset_owner_company_id(asset, *, on_date=None):
+    """Resolve current employer without trusting a stale legacy company pointer."""
+    if asset.company_id:
+        return asset.company_id
+    if not asset.person_id:
+        return None
+    from organizations.models import PersonEmployment
+    person = asset.person.employee if asset.person.employee_id else asset.person
+    today = on_date or timezone.localdate()
+    history = PersonEmployment.objects.filter(person_id=person.pk)
+    active = history.filter(status=PersonEmployment.Status.ACTIVE).filter(
+        models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+    ).filter(
+        models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
+    ).order_by("-valid_from", "-pk").first()
+    if active:
+        return active.company_id
+    return person.company_id if not history.exists() else None
+
+
+def allowed_asset_lines(asset_type):
+    return {
+        "vehicle": {"third_party", "body", "vehicle"},
+        "property": {"fire", "property", "liability"},
+        "equipment": {"fire", "equipment", "liability"},
+        "other": {"other"},
+    }.get(asset_type, set())
 
 
 class InsuredAssetQuerySet(models.QuerySet):
@@ -114,8 +144,14 @@ class InsuredAsset(models.Model):
                 errors["insurer"] = "بیمه‌گر دارایی باید با بیمه‌گر قرارداد یکسان باشد."
             if self.company_id and not contract.companies.filter(pk=self.company_id).exists():
                 errors["contract"] = "قرارداد انتخاب‌شده برای شرکت این دارایی تعریف نشده است."
-            if self.person_id and self.person.company_id and not contract.companies.filter(pk=self.person.company_id).exists():
-                errors["contract"] = "قرارداد انتخاب‌شده برای شرکت محل اشتغال شخص تعریف نشده است."
+            if self.person_id:
+                owner_company_id = asset_owner_company_id(self)
+                if not owner_company_id:
+                    errors["contract"] = "شرکت محل اشتغال معتبر برای مالک شخصی دارایی پیدا نشد؛ قرارداد قابل اتصال نیست."
+                elif not contract.companies.filter(pk=owner_company_id).exists():
+                    errors["contract"] = "قرارداد انتخاب‌شده برای شرکت محل اشتغال فعلی مالک شخصی تعریف نشده است."
+            if contract.line not in allowed_asset_lines(self.asset_type):
+                errors["contract"] = "رشته قرارداد با نوع دارایی انتخاب‌شده سازگار نیست."
         if errors:
             raise ValidationError(errors)
 
@@ -293,12 +329,23 @@ class AssetPolicyPeriod(models.Model):
         super().clean()
         if self.policy_start and self.policy_end and self.policy_end < self.policy_start:
             raise ValidationError({"policy_end": "پایان پوشش نمی‌تواند قبل از شروع باشد."})
-        if self.contract_id and self.contract.insurer_id != self.insurer_id:
-            raise ValidationError({"insurer": "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد."})
-        if self.contract_id and self.asset.company_id and not self.contract.companies.filter(pk=self.asset.company_id).exists():
-            raise ValidationError({"contract": "قرارداد برای شرکت مالک این دارایی تعریف نشده است."})
-        if self.contract_id and self.asset.person_id and self.asset.person.company_id and not self.contract.companies.filter(pk=self.asset.person.company_id).exists():
-            raise ValidationError({"contract": "قرارداد برای شرکت محل اشتغال مالک شخصی تعریف نشده است."})
+        if self.contract_id:
+            contract = self.contract
+            if contract.insurer_id != self.insurer_id:
+                raise ValidationError({"insurer": "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد."})
+            if self._state.adding and (contract.status != "active" or not contract.is_active):
+                raise ValidationError({"contract": "فقط قرارداد فعال و تأییدشده برای ایجاد دوره بیمه‌نامه قابل انتخاب است."})
+            if self.policy_start and self.policy_start < contract.start_date:
+                raise ValidationError({"policy_start": "شروع پوشش نمی‌تواند قبل از شروع اعتبار قرارداد باشد."})
+            if self.policy_end and self.policy_end > contract.end_date:
+                raise ValidationError({"policy_end": "پایان پوشش نمی‌تواند بعد از پایان اعتبار قرارداد باشد."})
+            if contract.line not in allowed_asset_lines(self.asset.asset_type):
+                raise ValidationError({"contract": "رشته قرارداد با نوع دارایی انتخاب‌شده سازگار نیست."})
+            owner_company_id = asset_owner_company_id(self.asset)
+            if not owner_company_id:
+                raise ValidationError({"contract": "شرکت محل اشتغال معتبر برای مالک دارایی پیدا نشد."})
+            if not contract.companies.filter(pk=owner_company_id).exists():
+                raise ValidationError({"contract": "قرارداد برای شرکت مالک/محل اشتغال فعلی دارایی تعریف نشده است."})
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -313,9 +360,17 @@ class AssetPolicyPeriod(models.Model):
             from django.utils import timezone
 
             today = timezone.localdate()
-            if self.policy_end and self.policy_end < today:
+            if self.contract_id and self.contract.status == "terminated":
+                self.status = self.Status.TERMINATED
+            elif self.contract_id and self.contract.status == "expired":
+                self.status = self.Status.EXPIRED
+            elif self.policy_end and self.policy_end < today:
                 self.status = self.Status.EXPIRED
             elif self.policy_start and self.policy_start > today:
+                self.status = self.Status.APPROVED
+            elif self.contract_id and (
+                self.contract.status != "active" or not self.contract.is_active
+            ):
                 self.status = self.Status.APPROVED
             else:
                 self.status = self.Status.ACTIVE
@@ -338,13 +393,27 @@ class AssetPolicyPeriod(models.Model):
                     self._workflow_sync = False
 
     def _apply_to_asset_snapshot(self):
-        # The legacy InsuredAsset snapshot stores one current policy only.
-        # Do not overwrite a different still-active contract/insurance line.
-        if not self.contract_id:
-            return
+        # The legacy snapshot stores one policy only. Preserve a different
+        # policy while its recorded coverage is still current, but permit a
+        # due replacement to take over after the old snapshot expires.
+        today = timezone.localdate()
+        if (
+            not self.contract_id
+            or self.status != self.Status.ACTIVE
+            or (self.policy_start and self.policy_start > today)
+            or (self.policy_end and self.policy_end < today)
+            or self.contract.status != "active"
+            or not self.contract.is_active
+        ):
+            return False
         asset = self.asset
-        if asset.contract_id and asset.contract_id != self.contract_id and asset.is_active:
-            return
+        if (
+            asset.contract_id
+            and asset.contract_id != self.contract_id
+            and asset.is_active
+            and (asset.policy_end is None or asset.policy_end >= today)
+        ):
+            return False
         asset.insurer = self.insurer
         asset.contract = self.contract
         asset.policy_number = self.policy_number
@@ -360,29 +429,55 @@ class AssetPolicyPeriod(models.Model):
         finally:
             asset._workflow_sync = False
 
-    def activate_if_due(self, *, on_date=None):
-        from django.utils import timezone
-
+    @transaction.atomic
+    def expire_if_due(self, *, on_date=None):
+        """Expire an active policy after its final covered calendar day."""
         today = on_date or timezone.localdate()
-        if self.status != self.Status.APPROVED:
+        period = type(self).objects.select_for_update().get(pk=self.pk)
+        if period.status != self.Status.ACTIVE or not period.policy_end or period.policy_end >= today:
+            self.status = period.status
             return False
-        if self.policy_start and self.policy_start > today:
-            return False
-        if self.policy_end and self.policy_end < today:
-            self.status = self.Status.EXPIRED
-            self._workflow_sync = True
-            try:
-                self.save(update_fields=["status"])
-            finally:
-                self._workflow_sync = False
-            return True
-        self.status = self.Status.ACTIVE
-        self._workflow_sync = True
+        period.status = self.Status.EXPIRED
+        period._workflow_sync = True
         try:
-            self.save(update_fields=["status"])
+            period.save(update_fields=["status"])
         finally:
-            self._workflow_sync = False
-        self._apply_to_asset_snapshot()
+            period._workflow_sync = False
+        self.status = period.status
+        return True
+
+    @transaction.atomic
+    def activate_if_due(self, *, on_date=None):
+        today = on_date or timezone.localdate()
+        period = type(self).objects.select_for_update().select_related(
+            "asset", "insurer", "contract"
+        ).get(pk=self.pk)
+        if period.status != self.Status.APPROVED:
+            self.status = period.status
+            return False
+        if period.policy_start and period.policy_start > today:
+            self.status = period.status
+            return False
+        if period.contract_id:
+            if period.contract.status == "terminated":
+                period.status = self.Status.TERMINATED
+            elif period.contract.status == "expired":
+                period.status = self.Status.EXPIRED
+            elif period.contract.status != "active" or not period.contract.is_active:
+                self.status = period.status
+                return False
+        if period.policy_end and period.policy_end < today:
+            period.status = self.Status.EXPIRED
+        elif period.status != self.Status.TERMINATED:
+            period.status = self.Status.ACTIVE
+        period._workflow_sync = True
+        try:
+            period.save(update_fields=["status"])
+        finally:
+            period._workflow_sync = False
+        self.status = period.status
+        if period.status == self.Status.ACTIVE:
+            period._apply_to_asset_snapshot()
         return True
 
     def delete(self, *args, **kwargs):

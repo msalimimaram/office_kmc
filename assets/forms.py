@@ -1,9 +1,11 @@
 from django import forms
 from organizations.models import Company, Person
+from insurance.models import Contract, Insurer
 from accounts.access import line_codes_for
 from accounts.models import RoleAssignment
 from .models import (
     AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle,
+    asset_owner_company_id, allowed_asset_lines,
 )
 
 
@@ -108,11 +110,18 @@ class AssetPolicyPeriodForm(forms.ModelForm):
     def __init__(self, *args, asset, **kwargs):
         super().__init__(*args, **kwargs)
         self.asset = asset
-        self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
-        contracts = Contract.objects.filter(is_active=True).select_related("insurer")
-        company_id = asset.company_id or (asset.person.company_id if asset.person_id else None)
+        self.fields["insurer"].queryset = Insurer.objects.filter(
+            is_active=True
+        )
+        contracts = Contract.objects.filter(
+            status=Contract.Status.ACTIVE, is_active=True
+        ).select_related("insurer")
+        company_id = asset_owner_company_id(asset)
         if company_id:
             contracts = contracts.filter(companies__pk=company_id)
+        else:
+            contracts = contracts.none()
+        contracts = contracts.filter(line__in=allowed_asset_lines(asset.asset_type))
         self.fields["contract"].queryset = contracts.distinct()
 
     def clean(self):
@@ -123,6 +132,13 @@ class AssetPolicyPeriodForm(forms.ModelForm):
             cleaned["insurer"] = contract.insurer
         elif contract and insurer and contract.insurer_id != insurer.pk:
             self.add_error("insurer", "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد.")
+        if contract:
+            policy_start = cleaned.get("policy_start")
+            policy_end = cleaned.get("policy_end")
+            if policy_start and policy_start < contract.start_date:
+                self.add_error("policy_start", "شروع پوشش نمی‌تواند قبل از شروع اعتبار قرارداد باشد.")
+            if policy_end and policy_end > contract.end_date:
+                self.add_error("policy_end", "پایان پوشش نمی‌تواند بعد از پایان اعتبار قرارداد باشد.")
         return cleaned
 
 
