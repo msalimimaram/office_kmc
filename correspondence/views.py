@@ -17,6 +17,7 @@ from accounts.access import (
     has_role,
     insurer_ids_for,
     line_codes_for,
+    is_unit_manager,
 )
 from accounts.models import RoleAssignment
 from claims.models import Claim
@@ -28,6 +29,8 @@ from auditlog.services import record_event
 from .forms import CorrespondenceForm, CorrespondenceFollowUpForm, CorrespondenceLinkForm
 from .models import Correspondence, CorrespondenceEvent, CorrespondenceLink
 from .services import create_correspondence, add_correspondence_event
+from tasks.forms import _manager_scope
+from accounts.models import User
 
 
 def _scope(user):
@@ -39,7 +42,13 @@ def _scope(user):
 
     # Explicit current assignment grants access to the assigned item even for a
     # supervisor/responsible position that is not represented by an app role.
-    allowed = models.Q(assigned_to=user, is_confidential=False)
+    allowed = models.Q(assigned_to=user, is_confidential=False) | models.Q(
+        created_by=user, is_confidential=False
+    )
+    if is_unit_manager(user):
+        subordinate_ids = User.objects.filter(_manager_scope(user)).values("pk")
+        allowed |= models.Q(assigned_to__in=subordinate_ids, is_confidential=False)
+        allowed |= models.Q(created_by__in=subordinate_ids, is_confidential=False)
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
         lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
@@ -165,7 +174,7 @@ def correspondence_list(request):
     page_obj = Paginator(
         items.distinct().order_by("-occurred_at", "-pk"), 25
     ).get_page(request.GET.get("page"))
-    allowed_create = has_global_access(request.user) or any(
+    allowed_create = has_global_access(request.user) or is_unit_manager(request.user) or any(
         has_role(request.user, role)
         for role in (
             RoleAssignment.Role.INSURANCE_SPECIALIST,
@@ -186,7 +195,7 @@ def correspondence_list(request):
 @login_required
 def correspondence_create(request):
     user = request.user
-    allowed = has_global_access(user) or any(
+    allowed = has_global_access(user) or is_unit_manager(user) or any(
         has_role(user, role)
         for role in (
             RoleAssignment.Role.INSURANCE_SPECIALIST,
