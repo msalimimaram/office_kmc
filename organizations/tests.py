@@ -853,6 +853,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertContains(response, "091••••00")
         self.assertContains(response, "091••••11")
         self.assertNotContains(response, "09121111111")
+        self.assertNotContains(response, "اطلاعات ثبت‌شده نیازمند اصلاح و تطبیق با مدرک معتبر است.")
 
     def test_rejection_does_not_change_person_data(self):
         item, case = self._create_request()

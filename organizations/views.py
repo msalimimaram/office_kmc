@@ -410,6 +410,9 @@ def person_change_detail(request, pk):
     )
     current_value_display = item.current_value
     requested_value_display = item.requested_value
+    reason_display = item.reason if can_view_full_values else (
+        "شرح درخواست فقط برای درخواست‌کننده، مسئول جاری و مدیران مجاز قابل مشاهده است."
+    )
     if not can_view_full_values:
         current_text = str(item.current_value or "")
         requested_text = str(item.requested_value or "")
@@ -432,4 +435,5 @@ def person_change_detail(request, pk):
         "can_view_full_values": can_view_full_values,
         "current_value_display": current_value_display,
         "requested_value_display": requested_value_display,
+        "reason_display": reason_display,
     })

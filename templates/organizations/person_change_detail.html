@@ -20,7 +20,7 @@
   </div>
   {% if not can_view_full_values %}<p class="muted">مقادیر حساس برای نماینده غیرمسئول به‌صورت ماسک‌شده نمایش داده می‌شوند.</p>{% endif %}
   <h3>دلیل درخواست</h3>
-  <p class="long-text">{{ item.reason|linebreaksbr }}</p>
+  <p class="long-text">{{ reason_display|linebreaksbr }}</p>
   {% if item.approved_at %}<p>زمان اعمال نهایی: {{ item.approved_at|date:"Y/m/d H:i" }}</p>{% endif %}
   {% if item.rejected_at %}<p>زمان رد: {{ item.rejected_at|date:"Y/m/d H:i" }}</p>{% endif %}
   {% if workflow_case and can_open_workflow %}
