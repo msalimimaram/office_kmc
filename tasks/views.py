@@ -8,7 +8,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, is_unit_manager
 from accounts.models import PositionAssignment, UserNotification, User
 from auditlog.models import AuditEvent
 from .forms import InternalTaskForm, _manager_scope
@@ -32,14 +32,7 @@ def _active_positions(user):
 
 
 def _can_manage_tasks(user):
-    if has_global_access(user):
-        return True
-    return _active_positions(user).filter(
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ]
-    ).exists()
+    return has_global_access(user) or is_unit_manager(user)
 
 
 def _visible_tasks(user):
