@@ -448,6 +448,8 @@ def active_position_assignments_for_level(level, *, line_code=None):
     today = timezone.localdate()
     qs = PositionAssignment.objects.filter(
         position__level=level,
+        position__is_active=True,
+        unit__is_active=True,
         unit__company__isnull=True,
         is_active=True,
         valid_from__lte=today,
@@ -788,6 +790,8 @@ def mark_case_opened(*, case_id, actor):
         to_step=case.current_step,
         from_assignee=case.current_assignee,
         to_assignee=case.current_assignee,
+        from_position_assignment=case.current_position_assignment,
+        to_position_assignment=case.current_position_assignment,
         opened_at=now,
         sent_at=now,
     )
@@ -825,6 +829,8 @@ def acknowledge_case(*, case_id, actor, note=""):
         to_step=case.current_step,
         from_assignee=case.current_assignee,
         to_assignee=case.current_assignee,
+        from_position_assignment=case.current_position_assignment,
+        to_position_assignment=case.current_position_assignment,
         acknowledged_at=now,
         sent_at=now,
         note=note,
@@ -1019,6 +1025,8 @@ def set_final_lock(*, case_id, actor, reason):
         to_step=case.current_step,
         from_assignee=case.current_assignee,
         to_assignee=case.current_assignee,
+        from_position_assignment=case.current_position_assignment,
+        to_position_assignment=case.current_position_assignment,
         note=reason,
         sent_at=now,
     )
