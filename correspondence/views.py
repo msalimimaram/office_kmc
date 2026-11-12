@@ -42,9 +42,11 @@ def _scope(user):
 
     # Explicit current assignment grants access to the assigned item even for a
     # supervisor/responsible position that is not represented by an app role.
-    allowed = models.Q(assigned_to=user, is_confidential=False) | models.Q(
-        created_by=user, is_confidential=False
-    )
+    allowed = models.Q(assigned_to=user, is_confidential=False)
+    # Creator identity is not a cross-company visibility grant. Subsidiary
+    # representatives are limited to the company scope applied below.
+    if not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        allowed |= models.Q(created_by=user, is_confidential=False)
     if is_unit_manager(user):
         subordinate_ids = User.objects.filter(_manager_scope(user)).values("pk")
         allowed |= models.Q(assigned_to__in=subordinate_ids, is_confidential=False)

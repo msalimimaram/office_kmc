@@ -115,6 +115,9 @@ def _legacy_fallback_allowed(user) -> bool:
         getattr(user, "is_authenticated", False)
         and getattr(user, "is_active", False)
         and not assignment_history(user).exists()
+        # Position-only appointments are authorization history too; a stale
+        # legacy employee role must not restore access after deactivation.
+        and not PositionAssignment.objects.filter(user_id=user.pk).exists()
     )
 
 

@@ -94,11 +94,14 @@ def scoped_claims_for(user):
             ).values_list("pk", flat=True)
         )
         company_scope = (
+            # A real employment history lets the current employer see the
+            # employee's prior claims. A legacy company pointer alone must not
+            # override a conflicting company snapshot on a claim.
             Q(company_snapshot_id__in=company_ids)
             | Q(person_id__in=current_employment_people)
             | Q(primary_insured_id__in=current_employment_people)
-            | Q(person_id__in=legacy_people)
-            | Q(primary_insured_id__in=legacy_people)
+            | Q(company_snapshot__isnull=True, person_id__in=legacy_people)
+            | Q(company_snapshot__isnull=True, primary_insured_id__in=legacy_people)
         )
         representative_lines = line_codes_for(
             user, role=RoleAssignment.Role.SUBSIDIARY_REP
@@ -212,12 +215,11 @@ def scoped_requests_for(user):
             specialist_lines = line_codes_for(
                 user, role=RoleAssignment.Role.INSURANCE_SPECIALIST
             )
-            if "*" in specialist_lines:
+            if specialist_lines:
+                # Explicit assignment is the work grant for a request whose
+                # kind has no intrinsic insurance-line mapping. Confidential
+                # requests remain excluded by assigned_scope.
                 role_scoped_ids |= Q(pk__in=assigned_scope.values("pk"))
-            elif "health" in specialist_lines:
-                role_scoped_ids |= Q(pk__in=assigned_scope.filter(
-                    kind__in=health_request_kinds
-                ).values("pk"))
 
         insurer_ids = insurer_ids_for(user)
         if insurer_ids:
@@ -286,11 +288,15 @@ def can_process_request(user, item):
         return False
     from workflow.services import _scope_for_object
     scope = _scope_for_object(item)
-    specialist_allowed = has_role(
-        user,
-        RoleAssignment.Role.INSURANCE_SPECIALIST,
-        # Unknown-line legacy requests require an explicit all-line assignment.
-        line_code=scope.get("line_code") or "*",
+    specialist_allowed = (
+        has_role(
+            user, RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=scope["line_code"],
+        )
+        if scope.get("line_code")
+        # For an unclassified legacy request, explicit assignment_to is the
+        # grant; an unrelated all-lines role is not required.
+        else has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
     )
     insurer_allowed = bool(scope.get("insurer_id")) and has_role(
         user,
