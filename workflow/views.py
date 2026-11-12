@@ -13,6 +13,7 @@ from .presentation import build_workflow_presentation
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
     set_final_lock, transition_case, is_delegated_assignee,
+    _case_actor_authorized,
     active_position_assignments_for_level,
 )
 
@@ -117,11 +118,12 @@ def workflow_case_detail(request, pk):
         and case.status in {WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING}
         and (
             is_delegated_assignee(case, request.user)
-            or _has_any_role(
+            or _case_actor_authorized(
+                case,
                 request.user,
                 current_step.allowed_roles,
                 position_levels=current_step.allowed_position_levels,
-                **scope,
+                scope=scope,
             )
         )
     )
@@ -168,11 +170,12 @@ def workflow_case_detail(request, pk):
                 item.allowed_position_levels
                 or case.current_step.allowed_position_levels
             )
-            if is_delegated_assignee(case, request.user) or _has_any_role(
+            if is_delegated_assignee(case, request.user) or _case_actor_authorized(
+                case,
                 request.user,
                 roles,
                 position_levels=position_levels,
-                **scope,
+                scope=scope,
             ):
                 transitions.append((item, _eligible_recipients(case, item)))
     return render(request, "workflow/workflow_case_detail.html", {
