@@ -12,7 +12,7 @@ from accounts.access import (
     active_assignments, active_position_assignments,
     has_global_access, has_role,
 )
-from accounts.models import PositionAssignment, RoleAssignment
+from accounts.models import OrganizationalUnit, PositionAssignment, RoleAssignment
 from .models import (
     BusinessCalendar, WorkflowCase, WorkflowDefinition, WorkflowEvent,
     WorkflowStep, WorkflowTransition,
@@ -173,8 +173,79 @@ def _has_any_role(
     return _has_any_position(user, position_levels, line_code=line_code)
 
 
-def _position_assignment_queryset(user, position_levels, *, line_code=None):
-    """Active, internal, line-matched assignments that can authorize a workflow step."""
+def _route_unit_ids(source_user, *, line_code=None, route_scope="related_units"):
+    """Resolve the organizational branch from which the current owner may route."""
+    if route_scope == "line_wide":
+        return None
+    source_assignments = active_position_assignments(source_user).filter(
+        position__is_active=True,
+        unit__is_active=True,
+        unit__company__isnull=True,
+    )
+    if line_code:
+        source_assignments = source_assignments.filter(
+            Q(line_code=line_code) | Q(line_code="*")
+        )
+    else:
+        source_assignments = source_assignments.filter(line_code="*")
+    source_units = set(source_assignments.values_list("unit_id", flat=True))
+    if not source_units:
+        return set()
+
+    same_units = set(source_units)
+    ancestors = set()
+    frontier = set(source_units)
+    while frontier:
+        parents = set(
+            OrganizationalUnit.objects.filter(
+                pk__in=frontier,
+                is_active=True,
+                company__isnull=True,
+                parent__isnull=False,
+                parent__is_active=True,
+                parent__company__isnull=True,
+            ).values_list("parent_id", flat=True)
+        )
+        parents -= same_units | ancestors
+        if not parents:
+            break
+        ancestors.update(parents)
+        frontier = parents
+
+    descendants = set()
+    frontier = set(source_units)
+    while frontier:
+        children = set(
+            OrganizationalUnit.objects.filter(
+                parent_id__in=frontier,
+                is_active=True,
+                company__isnull=True,
+            ).values_list("pk", flat=True)
+        )
+        children -= same_units | descendants
+        if not children:
+            break
+        descendants.update(children)
+        frontier = children
+
+    if route_scope == "same_unit":
+        return same_units
+    if route_scope == "ancestors":
+        return same_units | ancestors
+    if route_scope == "descendants":
+        return same_units | descendants
+    return same_units | ancestors | descendants
+
+
+def _position_assignment_queryset(
+    user,
+    position_levels,
+    *,
+    line_code=None,
+    source_user=None,
+    route_scope="related_units",
+):
+    """Active internal assignments matching line and configured org branch."""
     if not position_levels or not user or not user.is_authenticated or not user.is_active:
         return PositionAssignment.objects.none()
     qs = active_position_assignments(user).filter(
@@ -187,12 +258,31 @@ def _position_assignment_queryset(user, position_levels, *, line_code=None):
         qs = qs.filter(Q(line_code=line_code) | Q(line_code="*"))
     else:
         qs = qs.filter(line_code="*")
+    if source_user is not None:
+        unit_ids = _route_unit_ids(
+            source_user, line_code=line_code, route_scope=route_scope
+        )
+        if unit_ids is not None:
+            if not unit_ids:
+                return PositionAssignment.objects.none()
+            qs = qs.filter(unit_id__in=unit_ids)
     return qs.order_by("position__level", "unit_id", "pk")
 
 
-def _resolve_position_assignment(user, position_levels, *, line_code=None):
+def _resolve_position_assignment(
+    user,
+    position_levels,
+    *,
+    line_code=None,
+    source_user=None,
+    route_scope="related_units",
+):
     return _position_assignment_queryset(
-        user, position_levels, line_code=line_code
+        user,
+        position_levels,
+        line_code=line_code,
+        source_user=source_user,
+        route_scope=route_scope,
     ).first()
 
 
@@ -447,8 +537,14 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
     raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر در محدوده پرونده پیدا نشد.")
 
 
-def active_position_assignments_for_level(level, *, line_code=None):
-    """Query active internal position assignments eligible for one workflow level."""
+def active_position_assignments_for_level(
+    level,
+    *,
+    line_code=None,
+    source_user=None,
+    route_scope="related_units",
+):
+    """Query active internal position assignees within a workflow route scope."""
     today = timezone.localdate()
     qs = PositionAssignment.objects.filter(
         position__level=level,
@@ -459,17 +555,37 @@ def active_position_assignments_for_level(level, *, line_code=None):
         valid_from__lte=today,
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
     if line_code:
-        return qs.filter(Q(line_code=line_code) | Q(line_code="*"))
-    return qs.filter(line_code="*")
+        qs = qs.filter(Q(line_code=line_code) | Q(line_code="*"))
+    else:
+        qs = qs.filter(line_code="*")
+    if source_user is not None:
+        unit_ids = _route_unit_ids(
+            source_user, line_code=line_code, route_scope=route_scope
+        )
+        if unit_ids is not None:
+            if not unit_ids:
+                return PositionAssignment.objects.none()
+            qs = qs.filter(unit_id__in=unit_ids)
+    return qs
 
 
-def _validate_recipient(user, roles, *, scope, position_levels=()):
+def _validate_recipient(
+    user,
+    roles,
+    *,
+    scope,
+    position_levels=(),
+    source_user=None,
+    position_route_scope="related_units",
+):
     if _has_operational_role(user, roles, scope=scope):
         return None
     position_assignment = _resolve_position_assignment(
         user,
         position_levels,
         line_code=scope.get("line_code"),
+        source_user=source_user,
+        route_scope=position_route_scope,
     )
     if position_assignment:
         return position_assignment
@@ -949,12 +1065,16 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             allowed_recipients,
             position_levels=allowed_position_recipients,
             scope=scope,
+            source_user=actor,
+            position_route_scope=transition.position_route_scope,
         )
         target_step_position_assignment = _validate_recipient(
             target,
             transition.target_step.allowed_roles,
             position_levels=transition.target_step.allowed_position_levels,
             scope=scope,
+            source_user=actor,
+            position_route_scope=transition.position_route_scope,
         )
         if (
             target_position_assignment
