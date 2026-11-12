@@ -1438,12 +1438,35 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
         ).values_list("workflow_code", "line_code")
     )
+    # A specialist may receive only one presentation grant per workflow/line.
+    # Repeated cycles must use another valid scoped recipient instead of
+    # attempting to rewrite an immutable delegation with a different reason.
+    existing_specialist_grants = set(
+        WorkDelegation.objects.filter(
+            workflow_code="claim_review",
+            item_type="",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            granted_by=admin,
+            company__isnull=True,
+            insurer__isnull=True,
+        ).values_list("delegate_to_id", "line_code")
+    )
     while WorkDelegation.objects.count() < MINIMUM_PER_MODEL:
         index = WorkDelegation.objects.count() + 1
         role = delegation_roles[(index - 1) % len(delegation_roles)]
         status = delegation_statuses[(index - 1) % len(delegation_statuses)]
         company = companies[(index - 1) % len(companies)]
         insurer_row = insurers[(index - 1) % len(insurers)]
+        if role == RoleAssignment.Role.INSURANCE_SPECIALIST:
+            candidate_line = delegatable_lines[(index // 3) % len(delegatable_lines)]
+            candidate_delegate = specialist_by_delegation_line[candidate_line]
+            specialist_key = (candidate_delegate.pk, candidate_line)
+            if specialist_key in existing_specialist_grants:
+                # The remaining rows are represented by distinct company
+                # representatives; their company scope makes each grant unique.
+                role = RoleAssignment.Role.SUBSIDIARY_REP
+            else:
+                existing_specialist_grants.add(specialist_key)
         if role == RoleAssignment.Role.SUBSIDIARY_REP:
             delegate = company_representatives[company.pk]
             workflow_code = delegation_workflows[0]
