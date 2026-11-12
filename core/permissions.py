@@ -149,9 +149,29 @@ def scoped_requests_for(user):
 
     allowed = Q(pk__in=[])
 
+    health_request_kinds = {
+        ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+        ServiceRequest.Kind.ANONYMOUS_PLAN,
+        ServiceRequest.Kind.EXCESS_COVERAGE,
+        ServiceRequest.Kind.IDENTITY_CHANGE,
+        ServiceRequest.Kind.IBAN_CHANGE,
+        ServiceRequest.Kind.ADD_COVERAGE,
+        ServiceRequest.Kind.REMOVE_COVERAGE,
+        ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
+    }
+
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        allowed |= Q(company_id__in=company_ids, is_confidential=False)
+        company_scope = Q(company_id__in=company_ids, is_confidential=False)
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= company_scope
+        elif "health" in representative_lines:
+            # This model has no direct contract/line link yet. Only request
+            # kinds with an unambiguous health line are visible to this rep.
+            allowed |= company_scope & Q(kind__in=health_request_kinds)
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) or has_role(
         user, RoleAssignment.Role.INSURER_REP
@@ -180,11 +200,44 @@ def scoped_requests_for(user):
         legacy_ids = qs.filter(assigned_to_id=user.pk).exclude(
             pk__in=workflow_cases.values("domain_pk")
         ).values("pk")
-        allowed |= (
+        assigned_scope = ServiceRequest.objects.filter(
             Q(pk__in=current_object_ids)
             | Q(pk__in=historical_object_ids)
-            | Q(pk__in=legacy_ids)
-        ) & Q(is_confidential=False)
+            | Q(pk__in=legacy_ids),
+            is_confidential=False,
+        )
+        role_scoped_ids = Q(pk__in=[])
+
+        if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+            specialist_lines = line_codes_for(
+                user, role=RoleAssignment.Role.INSURANCE_SPECIALIST
+            )
+            if "*" in specialist_lines:
+                role_scoped_ids |= Q(pk__in=assigned_scope.values("pk"))
+            elif "health" in specialist_lines:
+                role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                    kind__in=health_request_kinds
+                ).values("pk"))
+
+        insurer_ids = insurer_ids_for(user)
+        if insurer_ids:
+            from insurance.models import Contract, InsuranceLine
+            from django.utils import timezone as django_timezone
+
+            today = django_timezone.localdate()
+            insured_company_ids = Contract.objects.filter(
+                insurer_id__in=insurer_ids,
+                line=InsuranceLine.HEALTH,
+                is_active=True,
+                start_date__lte=today,
+                end_date__gte=today,
+            ).values("companies__pk")
+            role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                kind__in=health_request_kinds,
+                company_id__in=insured_company_ids,
+            ).values("pk"))
+
+        allowed |= role_scoped_ids
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         # Employees must still see their own requests when a company
@@ -231,9 +284,20 @@ def can_process_request(user, item):
         return True
     if item.is_confidential:
         return False
+    from workflow.services import _scope_for_object
+    scope = _scope_for_object(item)
+    specialist_allowed = bool(scope.get("line_code")) and has_role(
+        user,
+        RoleAssignment.Role.INSURANCE_SPECIALIST,
+        line_code=scope["line_code"],
+    )
+    insurer_allowed = bool(scope.get("insurer_id")) and has_role(
+        user,
+        RoleAssignment.Role.INSURER_REP,
+        insurer_id=scope["insurer_id"],
+    )
     return (
-        has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
-        or has_role(user, RoleAssignment.Role.INSURER_REP)
+        specialist_allowed or insurer_allowed
     ) and item.assigned_to_id == user.pk
 
 
