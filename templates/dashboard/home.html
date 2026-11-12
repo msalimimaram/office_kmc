@@ -2,8 +2,8 @@
 {% block title %}داشبورد | اداره بیمه{% endblock %}
 {% block content %}
 <section class="hero">
-  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% elif is_management %}نمای مدیریتی عملیات، خسارت‌ها، درخواست‌ها و عملکرد سامانه.{% elif is_unit_manager %}مدیریت وظایف و مکاتبات در محدودهٔ سمت و واحد سازمانی شما.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
-  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% elif is_management %}مرکز کنترل مدیریتی{% elif is_unit_manager %}پنل مدیریت واحد{% else %}پنل سازمانی{% endif %}</div>
+  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% elif is_system_admin %}مدیریت فنی سامانه، تنظیمات، حساب‌ها و نظارت بر صحت داده‌ها.{% elif is_department_head %}راهبری عملیات اداره بیمه، نظارت بر رسیدگی‌ها و تصمیم‌های مدیریتی.{% elif is_unit_manager %}مدیریت وظایف و مکاتبات در محدودهٔ سمت و واحد سازمانی شما.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
+  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% elif is_system_admin %}مدیریت فنی سامانه{% elif is_department_head %}مرکز راهبری اداره بیمه{% elif is_unit_manager %}پنل مدیریت واحد{% else %}پنل سازمانی{% endif %}</div>
 </section>
 
 {% if is_unit_manager and not is_management %}
