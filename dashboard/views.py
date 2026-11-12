@@ -86,6 +86,14 @@ def home(request):
         "recent_requests": requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8],
         "recent_tasks": tasks.select_related("created_by").order_by("due_at", "-pk")[:8],
         "is_unit_manager": is_unit_manager(user),
+        "position_titles": list(
+            user.position_assignments.filter(
+                is_active=True,
+                valid_from__lte=timezone.localdate(),
+            ).filter(
+                Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())
+            ).values_list("position__title", flat=True).distinct()
+        ),
         "capabilities": capabilities,
         "show_claims": "claims" in capabilities,
         "show_requests": "requests" in capabilities,
