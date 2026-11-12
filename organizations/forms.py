@@ -1,5 +1,5 @@
 from django import forms
-from .models import Company, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest, normalize_national_id
+from .models import Company, CompanyLeadershipPosition, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest, normalize_national_id
 from insurance.models import Contract
 from accounts.access import company_ids_for, has_global_access
 from accounts.models import RoleAssignment
@@ -100,7 +100,7 @@ class PersonChangeRequestForm(forms.Form):
 class CompanyLeadershipTitleForm(forms.ModelForm):
     class Meta:
         model = CompanyLeadershipTitle
-        fields = ["company", "person", "title", "valid_from", "valid_until"]
+        fields = ["company", "person", "position", "valid_from", "valid_until"]
         widgets = {
             "valid_from": forms.DateInput(attrs={"type": "date"}),
             "valid_until": forms.DateInput(attrs={"type": "date"}),
@@ -121,3 +121,21 @@ class CompanyLeadershipTitleForm(forms.ModelForm):
             Q(company_id__in=company_ids) | Q(pk__in=employed_ids),
             is_active=True,
         ).distinct()
+        self.fields["position"].queryset = CompanyLeadershipPosition.objects.filter(
+            company_id__in=company_ids, is_active=True,
+        ).select_related("company").order_by("company__name", "title")
+
+    def clean(self):
+        cleaned = super().clean()
+        company = cleaned.get("company")
+        position = cleaned.get("position")
+        if company and position and position.company_id != company.pk:
+            self.add_error("position", "عنوان انتخاب‌شده متعلق به شرکت دیگری است.")
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.title = self.cleaned_data["position"].title
+        if commit:
+            obj.save()
+        return obj

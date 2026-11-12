@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
-from .models import Company, Person, PersonChangeRequest
+from .models import Company, CompanyLeadershipPosition, Person, PersonChangeRequest
 
 
 @admin.register(Company)
@@ -53,6 +53,44 @@ class CompanyAdmin(admin.ModelAdmin):
                 "parent_id": obj.parent_id, "is_parent": obj.is_parent,
                 "is_active": obj.is_active,
             },
+            request=request,
+        )
+
+
+@admin.register(CompanyLeadershipPosition)
+class CompanyLeadershipPositionAdmin(admin.ModelAdmin):
+    list_display = ("title", "company", "code", "is_active", "updated_at")
+    list_filter = ("company", "is_active")
+    search_fields = ("title", "code", "company__name")
+    ordering = ("company__name", "title")
+
+    def has_module_permission(self, request):
+        return has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
+
+    def has_view_permission(self, request, obj=None):
+        return has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
+
+    def has_add_permission(self, request):
+        return has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
+
+    def has_change_permission(self, request, obj=None):
+        return has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        before = {}
+        if change:
+            previous = CompanyLeadershipPosition.objects.get(pk=obj.pk)
+            before = {"company_id": previous.company_id, "code": previous.code, "title": previous.title, "is_active": previous.is_active}
+        super().save_model(request, obj, form, change)
+        record_event(
+            actor=request.user,
+            action="company_leadership_position_updated" if change else "company_leadership_position_created",
+            obj=obj, summary="ثبت یا تغییر فهرست سمت‌های مدیریتی شرکت",
+            before_data=before,
+            after_data={"company_id": obj.company_id, "code": obj.code, "title": obj.title, "is_active": obj.is_active},
             request=request,
         )
 

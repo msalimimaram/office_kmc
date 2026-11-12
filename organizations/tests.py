@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import RoleAssignment, User
-from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest
+from organizations.models import Company, CompanyLeadershipPosition, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest
 from insurance.models import Contract, Insurer, InsuranceLine
 from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
 from workflow.services import transition_case
@@ -183,7 +183,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         response = client.post(reverse("company_leadership_titles"), {
             "company": str(self.company_a.pk),
             "person": str(self.person_a.pk),
-            "title": "معاون مدیرعامل",
+            "position": str(CompanyLeadershipPosition.objects.get(company=self.company_a, code="assistant_ceo").pk),
             "valid_from": "2026-01-01",
             "valid_until": "2026-12-31",
         })
@@ -230,7 +230,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         response = client.post(reverse("company_leadership_titles"), {
             "company": str(self.company_b.pk),
             "person": str(self.person_b.pk),
-            "title": "عنوان جعلی",
+            "position": str(CompanyLeadershipPosition.objects.get(company=self.company_b, code="ceo").pk),
             "valid_from": "2026-01-01",
             "valid_until": "2026-12-31",
         })

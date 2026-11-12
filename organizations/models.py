@@ -167,11 +167,49 @@ class PersonEmployment(models.Model):
         return f"{self.person} — {self.company}"
 
 
+class CompanyLeadershipPosition(models.Model):
+    """Company-scoped catalog of executive titles selectable by representatives."""
+
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="leadership_position_options")
+    code = models.SlugField("کد سمت", max_length=50)
+    title = models.CharField("عنوان سمت", max_length=150)
+    is_active = models.BooleanField("فعال", default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("company__name", "title")
+        constraints = [
+            models.UniqueConstraint(fields=("company", "code"), name="company_leadership_position_code_uniq"),
+            models.UniqueConstraint(fields=("company", "title"), name="company_leadership_position_title_uniq"),
+        ]
+        verbose_name = "عنوان سمت مدیریتی شرکت"
+        verbose_name_plural = "فهرست سمت‌های مدیریتی شرکت‌ها"
+
+    def clean(self):
+        super().clean()
+        if self.company_id and not self.company.is_active:
+            raise ValidationError({"company": "برای شرکت غیرفعال نمی‌توان عنوان سمت فعال تعریف کرد."})
+        if not self.title.strip():
+            raise ValidationError({"title": "عنوان سمت الزامی است."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} — {self.company}"
+
+
 class CompanyLeadershipTitle(models.Model):
     """Company-declared executive titles shown in the person's profile."""
 
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="leadership_titles")
     person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="leadership_titles")
+    position = models.ForeignKey(
+        CompanyLeadershipPosition, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="appointments", verbose_name="عنوان سمت از فهرست شرکت",
+    )
     title = models.CharField("عنوان سمت", max_length=150)
     valid_from = models.DateField("اعتبار از", null=True, blank=True)
     valid_until = models.DateField("اعتبار تا", null=True, blank=True)
@@ -193,6 +231,10 @@ class CompanyLeadershipTitle(models.Model):
     def clean(self):
         super().clean()
         errors = {}
+        if self.position_id:
+            if self.position.company_id != self.company_id:
+                errors["position"] = "عنوان سمت باید متعلق به همان شرکت باشد."
+            self.title = self.position.title
         if not self.title.strip():
             errors["title"] = "عنوان سمت الزامی است."
         if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
@@ -206,6 +248,8 @@ class CompanyLeadershipTitle(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self.position_id:
+            self.title = self.position.title
         self.full_clean()
         return super().save(*args, **kwargs)
 
