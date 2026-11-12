@@ -14,7 +14,10 @@ def access_flags(request):
     active_position_assignment = active_position_assignments(user)
     unit_manager = is_unit_manager(user)
     position_titles = list(
-        active_position_assignment.values_list("position__title", flat=True).distinct()
+        active_position_assignment.filter(
+            unit__company__isnull=True,
+            line_code__gt="",
+        ).values_list("position__title", flat=True).distinct()
     )
     notification_access = (
         staff
