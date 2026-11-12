@@ -31,7 +31,7 @@ from .forms import (
 )
 from .models import (
     AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle,
-    allowed_asset_lines,
+    allowed_asset_lines, asset_owner_company_id,
 )
 
 
@@ -201,9 +201,7 @@ def _start_asset_approval(*, obj, asset, actor, code, note=""):
             f"گردش‌کار فعال {code} برای تأیید این عملیات دارایی پیکربندی نشده است."
         )
     contract = asset.contract if asset.contract_id else None
-    company_id = asset.company_id or (
-        asset.person.company_id if asset.person_id else None
-    )
+    company_id = asset_owner_company_id(asset)
     insurer_id = asset.insurer_id or (
         contract.insurer_id if contract else None
     )

@@ -355,7 +355,8 @@ class AssetOperationalWorkflowTests(TestCase):
             "contract": str(self.contract.pk),
             "policy_number": "OPS-POLICY-2",
             "policy_start": "2026-11-01",
-            "policy_end": "2027-10-31",
+            # The policy period must remain inside the linked contract term.
+            "policy_end": "2026-12-31",
             "source_reference": "INSURER-POLICY-2",
             "note": "دوره جدید؛ منتظر تأیید",
         })
@@ -595,7 +596,8 @@ class AssetOperationalWorkflowTests(TestCase):
             contract=self.contract,
             policy_number="FUTURE-APPROVED-POLICY",
             policy_start=effective_date,
-            policy_end=effective_date + timedelta(days=180),
+            # Keep the test policy within the fixture contract's end date.
+            policy_end=effective_date + timedelta(days=30),
             status=AssetPolicyPeriod.Status.APPROVED,
             created_by=self.specialist,
             approved_by=self.head,
