@@ -30,24 +30,52 @@ def _active_staff_ids():
 
 
 def _manager_scope(user):
+    """Build the assignable-user scope for each active supervisor/responsible.
+
+    Responsibles manage lower positions in their own unit. Supervisors also
+    cover every descendant unit, matching the organizational tree rather than
+    assuming that all subordinates share one unit_id.
+    """
     if has_global_access(user):
         return None
+
     today = timezone.localdate()
+    level_model = PositionAssignment.position.field.related_model.Level
     assignments = list(PositionAssignment.objects.filter(
-        user=user, is_active=True, valid_from__lte=today,
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ],
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).select_related("position"))
+        user=user,
+        is_active=True,
+        valid_from__lte=today,
+        position__level__in=[level_model.SUPERVISOR, level_model.RESPONSIBLE],
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    ).select_related("position", "unit"))
+
     allowed = Q(pk__in=[])
     for assignment in assignments:
+        unit_ids = {assignment.unit_id}
+        if assignment.position.level == level_model.SUPERVISOR:
+            frontier = {assignment.unit_id}
+            while frontier:
+                children = set(
+                    PositionAssignment.unit.field.related_model.objects.filter(
+                        parent_id__in=frontier,
+                        is_active=True,
+                    ).values_list("pk", flat=True)
+                )
+                children -= unit_ids
+                if not children:
+                    break
+                unit_ids.update(children)
+                frontier = children
+
         subordinate_ids = PositionAssignment.objects.filter(
-            unit_id=assignment.unit_id,
+            unit_id__in=unit_ids,
             is_active=True,
             valid_from__lte=today,
             position__level__gt=assignment.position.level,
-        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
+        ).filter(
+            Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+        ).exclude(user_id=user.pk).values("user_id")
         allowed |= Q(pk__in=subordinate_ids)
     return allowed
 
