@@ -147,14 +147,29 @@ class Command(BaseCommand):
 
             if code in set(ServiceRequest.Kind.values):
                 by_action = {item.action_code: item for item in transitions}
-                required_roles = {
-                    "accept_for_review": (RoleAssignment.Role.SUBSIDIARY_REP, specialist_role),
-                    "request_information": (specialist_role,),
-                    "refer_to_insurer": (specialist_role, insurer_role),
-                    "submit_information": (RoleAssignment.Role.INSURED_PERSON, specialist_role),
-                    "return_from_insurer": (insurer_role, specialist_role),
+                required_routes = {
+                    "accept_for_review": (
+                        {RoleAssignment.Role.SUBSIDIARY_REP} | global_roles,
+                        {specialist_role} | global_roles,
+                    ),
+                    "request_information": (
+                        {specialist_role} | global_roles,
+                        {RoleAssignment.Role.INSURED_PERSON},
+                    ),
+                    "refer_to_insurer": (
+                        {specialist_role} | global_roles,
+                        {insurer_role},
+                    ),
+                    "submit_information": (
+                        {RoleAssignment.Role.INSURED_PERSON},
+                        {specialist_role} | global_roles,
+                    ),
+                    "return_from_insurer": (
+                        {insurer_role},
+                        {specialist_role} | global_roles,
+                    ),
                 }
-                for action_code, roles in required_roles.items():
+                for action_code, (actor_roles, recipient_roles) in required_routes.items():
                     transition = by_action.get(action_code)
                     if transition is None:
                         errors.append(f"{code}: اقدام ضروری {action_code} تعریف نشده است.")
@@ -164,9 +179,9 @@ class Command(BaseCommand):
                         transition.recipient_roles
                         or (transition.target_step.allowed_roles if transition.target_step else [])
                     )
-                    if not set(roles).issubset(allowed):
+                    if not actor_roles.issubset(allowed):
                         errors.append(f"{code}/{action_code}: نقش اقدام با مسیر کسب‌وکار سازگار نیست.")
-                    if not set(roles).issubset(recipients):
+                    if not recipient_roles.issubset(recipients):
                         errors.append(f"{code}/{action_code}: گیرنده مرحله بعد با مسیر کسب‌وکار سازگار نیست.")
                 submitted = next((step for step in steps if step.code == ServiceRequest.Status.SUBMITTED), None)
                 if not submitted or RoleAssignment.Role.SUBSIDIARY_REP not in (submitted.allowed_roles or []):
