@@ -73,6 +73,9 @@ def active_position_assignments(user, *, on_date: date | None = None):
         user_id=user.pk,
         is_active=True,
         valid_from__lte=today,
+        unit__is_active=True,
+        position__is_active=True,
+        unit__company__isnull=True,
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=today)
     ).select_related("unit", "position")
