@@ -231,12 +231,12 @@ class Command(BaseCommand):
                 is_initial=initial, allow_return=True,
             )
 
-        def add(source, target, action, title, roles, recipient_roles=(), *, levels=(), recipient_levels=(), note=False, returned=False, closes=False):
+        def add(source, target, action, title, roles, recipient_roles=None, *, levels=(), recipient_levels=(), note=False, returned=False, closes=False):
             WorkflowTransition.objects.create(
                 definition=definition, source_step=steps[source],
                 target_step=None if closes else steps[target], action_code=action,
                 title=title, allowed_roles=roles, allowed_position_levels=levels,
-                recipient_roles=recipient_roles, recipient_position_levels=recipient_levels,
+                recipient_roles=list(recipient_roles or []), recipient_position_levels=recipient_levels,
                 requires_note=note, is_return=returned, closes_case=closes,
             )
 
