@@ -151,7 +151,8 @@ def build_workflow_presentation(case, *, user=None):
 
     # Former assignees retain a read-only timeline. Do not keep exposing
     # personal-change payloads or internal assessment narratives after handoff.
-    if not is_current_owner and not (user and user.is_superuser):
+    from accounts.access import has_global_access
+    if not is_current_owner and not has_global_access(user):
         description = ""
         if label == "organizations.personchangerequest":
             fields = [
