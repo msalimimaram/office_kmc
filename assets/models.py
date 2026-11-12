@@ -475,10 +475,11 @@ class AssetPolicyPeriod(models.Model):
             elif period.contract.status != "active" or not period.contract.is_active:
                 self.status = period.status
                 return False
-        if period.policy_end and period.policy_end < today:
-            period.status = self.Status.EXPIRED
-        elif period.status != self.Status.TERMINATED:
-            period.status = self.Status.ACTIVE
+        if period.status not in {self.Status.TERMINATED, self.Status.EXPIRED}:
+            if period.policy_end and period.policy_end < today:
+                period.status = self.Status.EXPIRED
+            else:
+                period.status = self.Status.ACTIVE
         period._workflow_sync = True
         try:
             period.save(update_fields=["status"])
