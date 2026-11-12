@@ -8,6 +8,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.core.paginator import Paginator
 from django.db import models, transaction
+from django.db.models import Exists, OuterRef, Q
 from django.contrib.contenttypes.models import ContentType
 from django.utils.text import get_valid_filename
 
@@ -26,6 +27,25 @@ from organizations.models import Company, Person, PersonEmployment
 from .models import DocumentRecord, DocumentVersion, DocumentLink
 from .forms import DocumentLifecycleActionForm, DocumentVersionForm, DocumentLinkForm
 from auditlog.services import record_event
+
+
+def records_in_company_employment_period(queryset, company_ids, *, person_field, timestamp_field):
+    """Limit person-linked records to the company employing that person when recorded."""
+    company_ids = tuple(company_ids or ())
+    if not company_ids:
+        return queryset.none()
+    employment_at_record_time = PersonEmployment.objects.filter(
+        person_id=OuterRef(f"{person_field}_id"),
+        company_id__in=company_ids,
+    ).filter(
+        Q(valid_from__isnull=True)
+        | Q(valid_from__lte=OuterRef(f"{timestamp_field}__date"))
+    ).filter(
+        Q(valid_until__isnull=True)
+        | Q(valid_until__gte=OuterRef(f"{timestamp_field}__date"))
+    )
+    return queryset.filter(Exists(employment_at_record_time))
+
 from .services import (
     add_document_version, archive_document, create_document,
     record_document_access, void_document,
