@@ -144,7 +144,7 @@ class InactiveOrganizationAuthorizationTests(TestCase):
         company = Company.objects.create(code="INACTIVE-ROLE-COMP", name="شرکت غیرفعال")
         representative = User.objects.create_user(
             username="inactive-company-role-user", password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=company,
         )
         RoleAssignment.objects.create(
             user=representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
