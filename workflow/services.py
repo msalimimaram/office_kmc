@@ -171,6 +171,61 @@ def _has_any_role(
     return _has_any_position(user, position_levels, line_code=line_code)
 
 
+def _position_assignment_queryset(user, position_levels, *, line_code=None):
+    """Active, internal, line-matched assignments that can authorize a workflow step."""
+    if not position_levels or not user or not user.is_authenticated or not user.is_active:
+        return PositionAssignment.objects.none()
+    qs = active_position_assignments(user).filter(
+        position__level__in=position_levels,
+        position__is_active=True,
+        unit__is_active=True,
+        unit__company__isnull=True,
+    )
+    if line_code:
+        qs = qs.filter(Q(line_code=line_code) | Q(line_code="*"))
+    else:
+        qs = qs.filter(line_code="*")
+    return qs.order_by("position__level", "unit_id", "pk")
+
+
+def _resolve_position_assignment(user, position_levels, *, line_code=None):
+    return _position_assignment_queryset(
+        user, position_levels, line_code=line_code
+    ).first()
+
+
+def _position_assignment_is_current(
+    assignment_id, user, position_levels, *, line_code=None
+):
+    if not assignment_id:
+        return False
+    return _position_assignment_queryset(
+        user, position_levels, line_code=line_code
+    ).filter(pk=assignment_id).exists()
+
+
+def _has_operational_role(user, roles, *, scope):
+    """Check only role grants; do not mix a position grant into this result."""
+    return _has_any_role(user, roles, **scope)
+
+
+def _case_actor_authorized(case, actor, roles, *, position_levels=(), scope):
+    """Validate the exact grant recorded when this user became current owner."""
+    if case.current_position_assignment_id:
+        return _position_assignment_is_current(
+            case.current_position_assignment_id,
+            actor,
+            position_levels or (
+                case.current_step.allowed_position_levels
+                if case.current_step_id else []
+            ),
+            line_code=scope.get("line_code"),
+        )
+    return _has_any_role(
+        actor, roles, position_levels=position_levels, **scope
+    )
+
+
 def _sync_domain_assignee(obj, assignee):
     """Synchronize an opted-in domain adapter with WorkflowCase ownership."""
     if obj is None:
@@ -388,8 +443,16 @@ def active_position_assignments_for_level(level, *, line_code=None):
 
 
 def _validate_recipient(user, roles, *, scope, position_levels=()):
-    if not _has_any_role(user, roles, position_levels=position_levels, **scope):
-        raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش یا سمت مجاز این مرحله ندارد.")
+    if _has_operational_role(user, roles, scope=scope):
+        return None
+    position_assignment = _resolve_position_assignment(
+        user,
+        position_levels,
+        line_code=scope.get("line_code"),
+    )
+    if position_assignment:
+        return position_assignment
+    raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش یا سمت مجاز این مرحله ندارد.")
 
 
 def is_delegated_assignee(case, user):
