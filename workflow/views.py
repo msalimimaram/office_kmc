@@ -83,6 +83,13 @@ def workflow_case_list(request):
 @login_required
 def workflow_case_detail(request, pk):
     case = get_object_or_404(_visible_cases(request.user), pk=pk)
+    can_act = (
+        case.current_assignee_id == request.user.pk
+        and not case.is_locked
+        and case.status in {WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING}
+    )
+    can_lock = _has_any_role(request.user, [RoleAssignment.Role.SYSTEM_ADMIN])
+
     if request.method == "POST":
         action = request.POST.get("action", "")
         try:
@@ -109,12 +116,12 @@ def workflow_case_detail(request, pk):
             messages.error(request, str(exc))
         return redirect("workflow_case_detail", pk=case.pk)
 
-    if case.current_assignee_id == request.user.pk:
+    if can_act:
         mark_case_opened(case_id=case.pk, actor=request.user)
         case.refresh_from_db()
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
     transitions = []
-    if has_global_access(request.user) or case.current_assignee_id == request.user.pk:
+    if can_act:
         scope = _scope_for_object(case.content_object)
         for item in WorkflowTransition.objects.filter(
             definition=case.definition, source_step=case.current_step
@@ -126,4 +133,6 @@ def workflow_case_detail(request, pk):
         "case": case,
         "events": events,
         "transitions": transitions,
+        "can_act": can_act,
+        "can_lock": can_lock,
     })
