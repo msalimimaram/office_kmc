@@ -18,7 +18,7 @@ from core.permissions import can_process_request, scoped_requests_for
 from .models import (
     BusinessCalendar, WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
-from .services import _has_any_role, _scope_for_object, add_business_minutes, resolve_initial_assignee, start_workflow, transition_case
+from .services import _has_any_role, _scope_for_object, add_business_minutes, resolve_initial_assignee, start_workflow, transition_case, set_final_lock, unlock_final_lock
 from .presentation import build_workflow_presentation
 
 
@@ -164,6 +164,35 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "09120000000")
         self.assertNotContains(response, "09121111111")
+
+    def test_system_admin_can_unlock_final_lock_and_restore_previous_case_status(self):
+        case = start_workflow(
+            obj=self.request, code=self.definition.code,
+            actor=self.specialist, assignee=self.specialist,
+        )
+        self.assertEqual(case.status, WorkflowCase.Status.OPEN)
+        set_final_lock(case_id=case.pk, actor=self.admin, reason="توقف موقت برای بررسی امنیتی")
+        case.refresh_from_db()
+        self.assertTrue(case.is_locked)
+        self.assertEqual(case.status, WorkflowCase.Status.LOCKED)
+
+        unlock_final_lock(case_id=case.pk, actor=self.admin, reason="بررسی امنیتی پایان یافت")
+        case.refresh_from_db()
+        self.assertFalse(case.is_locked)
+        self.assertEqual(case.status, WorkflowCase.Status.OPEN)
+        self.assertTrue(case.events.filter(
+            event_type=WorkflowEvent.EventType.UNLOCKED,
+            actor=self.admin,
+            note="بررسی امنیتی پایان یافت",
+        ).exists())
+
+    def test_department_head_cannot_lock_final_case(self):
+        case = start_workflow(
+            obj=self.request, code=self.definition.code,
+            actor=self.specialist, assignee=self.specialist,
+        )
+        with self.assertRaises(PermissionDenied):
+            set_final_lock(case_id=case.pk, actor=self.department_head, reason="قفل غیرمجاز")
 
     def test_confidential_medical_request_summary_never_exposes_free_text_or_description(self):
         from types import SimpleNamespace

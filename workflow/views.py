@@ -14,7 +14,7 @@ from .forms import WorkflowSatisfactionForm
 from .presentation import build_workflow_presentation
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
-    set_final_lock, transition_case, is_delegated_assignee,
+    set_final_lock, unlock_final_lock, transition_case, is_delegated_assignee,
     _case_actor_authorized,
     active_position_assignments_for_level,
     _workflow_owner_candidates,
@@ -203,6 +203,7 @@ def workflow_case_detail(request, pk):
         )
     )
     can_lock = _has_any_role(request.user, [RoleAssignment.Role.SYSTEM_ADMIN])
+    can_unlock = can_lock and case.is_locked
 
     if request.method == "POST":
         action = request.POST.get("action", "")
@@ -213,6 +214,12 @@ def workflow_case_detail(request, pk):
             elif action == "final_lock":
                 set_final_lock(case_id=case.pk, actor=request.user, reason=request.POST.get("note", "").strip())
                 messages.success(request, "قفل نهایی پرونده ثبت شد.")
+            elif action == "unlock_final_lock":
+                unlock_final_lock(
+                    case_id=case.pk, actor=request.user,
+                    reason=request.POST.get("note", "").strip(),
+                )
+                messages.success(request, "قفل پرونده با ثبت دلیل و رویداد ممیزی برداشته شد.")
             else:
                 recipient_id = request.POST.get("recipient") or None
                 recipient = User.objects.filter(pk=recipient_id, is_active=True).first() if recipient_id else None
@@ -276,6 +283,7 @@ def workflow_case_detail(request, pk):
         "transitions": transitions,
         "can_act": can_act,
         "can_lock": can_lock,
+        "can_unlock": can_unlock,
     })
 
 

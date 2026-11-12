@@ -1284,6 +1284,7 @@ def set_final_lock(*, case_id, actor, reason):
     if case.is_locked:
         return case
     now = timezone.now()
+    previous_status = case.status
     case.is_locked = True
     case.status = WorkflowCase.Status.LOCKED
     case.locked_by = actor
@@ -1292,6 +1293,7 @@ def set_final_lock(*, case_id, actor, reason):
         workflow_case=case,
         actor=actor,
         event_type=WorkflowEvent.EventType.LOCKED,
+        metadata={"previous_status": previous_status},
         from_step=case.current_step,
         to_step=case.current_step,
         from_assignee=case.current_assignee,
@@ -1301,4 +1303,78 @@ def set_final_lock(*, case_id, actor, reason):
         note=reason,
         sent_at=now,
     )
+    return case
+
+
+@transaction.atomic
+def unlock_final_lock(*, case_id, actor, reason):
+    """Reopen a system-locked case while preserving the complete lock history."""
+    if not _has_any_role(actor, [RoleAssignment.Role.SYSTEM_ADMIN]):
+        raise PermissionDenied("رفع قفل نهایی فقط در اختیار مدیر سامانه است.")
+    if not (reason or "").strip():
+        raise ValidationError({"reason": "ثبت دلیل رفع قفل نهایی الزامی است."})
+    case = WorkflowCase.objects.select_for_update().select_related(
+        "current_step", "current_assignee", "current_position_assignment", "delegation"
+    ).get(pk=case_id)
+    if not case.is_locked or case.status != WorkflowCase.Status.LOCKED:
+        raise ValidationError("پرونده در وضعیت قفل نهایی قرار ندارد.")
+
+    lock_event = case.events.filter(
+        event_type=WorkflowEvent.EventType.LOCKED
+    ).order_by("-sent_at", "-pk").first()
+    previous_status = (lock_event.metadata or {}).get("previous_status") if lock_event else None
+    valid_statuses = {
+        WorkflowCase.Status.OPEN,
+        WorkflowCase.Status.WAITING,
+        WorkflowCase.Status.CLOSED,
+        WorkflowCase.Status.COMPLETED,
+    }
+    if previous_status not in valid_statuses:
+        if case.closed_at:
+            previous_status = WorkflowCase.Status.CLOSED
+        else:
+            last_assignment = case.events.filter(
+                event_type__in=[
+                    WorkflowEvent.EventType.STARTED,
+                    WorkflowEvent.EventType.REFERRED,
+                    WorkflowEvent.EventType.RETURNED,
+                ]
+            ).exclude(pk=getattr(lock_event, "pk", None)).order_by(
+                "-sent_at", "-pk"
+            ).first()
+            previous_status = (
+                WorkflowCase.Status.WAITING
+                if last_assignment and last_assignment.event_type in {
+                    WorkflowEvent.EventType.REFERRED,
+                    WorkflowEvent.EventType.RETURNED,
+                }
+                else WorkflowCase.Status.OPEN
+            )
+
+    case.is_locked = False
+    case.status = previous_status
+    case.save(update_fields=["is_locked", "status"])
+    now = timezone.now()
+    WorkflowEvent.objects.create(
+        workflow_case=case,
+        actor=actor,
+        event_type=WorkflowEvent.EventType.UNLOCKED,
+        from_step=case.current_step,
+        to_step=case.current_step,
+        from_assignee=case.current_assignee,
+        to_assignee=case.current_assignee,
+        from_position_assignment=case.current_position_assignment,
+        to_position_assignment=case.current_position_assignment,
+        note=reason.strip()[:4000],
+        sent_at=now,
+        metadata={
+            "lock_event_id": getattr(lock_event, "pk", None),
+            "restored_status": previous_status,
+        },
+    )
+    if previous_status in {WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING} and case.current_assignee_id:
+        _notify_assignee(
+            case, actor, case.current_assignee,
+            delegated=is_delegated_assignee(case, case.current_assignee),
+        )
     return case
