@@ -84,6 +84,80 @@ class DocumentUploadAuthorizationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         response.close()
 
+    def test_company_representative_document_scope_respects_employment_period(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from organizations.models import Person, PersonEmployment
+
+        today = timezone.localdate()
+        new_company = Company.objects.create(code="DOC-B", name="شرکت مقصد اسناد")
+        former_company_rep = User.objects.create_user(
+            username="document-former-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=self.company,
+        )
+        new_company_rep = User.objects.create_user(
+            username="document-new-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=new_company,
+        )
+        RoleAssignment.objects.create(
+            user=former_company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            reason="نماینده شرکت قبلی برای آزمون دوره اشتغال",
+        )
+        RoleAssignment.objects.create(
+            user=new_company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=new_company,
+            line_code="*",
+            reason="نماینده شرکت مقصد برای آزمون دوره اشتغال",
+        )
+        person = Person.objects.create(
+            company=self.company,
+            national_id="1234567890",
+            first_name="کارمند",
+            last_name="منتقل‌شده",
+            birth_date=timezone.datetime(1990, 1, 1).date(),
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=self.company,
+            valid_from=today - timedelta(days=60),
+            valid_until=today,
+            status=PersonEmployment.Status.TRANSFERRED,
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=new_company,
+            valid_from=today + timedelta(days=1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        document = create_document(
+            title="سند دوره اشتغال شرکت قبلی",
+            category="employment-period",
+            upload=SimpleUploadedFile(
+                "employment-period.pdf",
+                b"%PDF-1.7\\nemployment period document",
+                content_type="application/pdf",
+            ),
+            uploaded_by=self.specialist,
+            person=person,
+        )
+
+        client = Client()
+        client.force_login(former_company_rep)
+        former_response = client.get(reverse("document_list"))
+        self.assertContains(former_response, document.title)
+
+        client.force_login(new_company_rep)
+        new_response = client.get(reverse("document_list"))
+        self.assertNotContains(new_response, document.title)
+
     def test_document_records_and_versions_are_append_only(self):
         document = create_document(
             title="سند نسخه‌دار",

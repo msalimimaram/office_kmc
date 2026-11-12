@@ -76,22 +76,29 @@ def _visible_documents(user):
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        people_ids = PersonEmployment.objects.filter(
-            company_id__in=company_ids
-        ).values_list("person_id", flat=True)
+        company_document_scope = qs.filter(
+            is_medical=False,
+            security_level__in=[
+                DocumentRecord.SecurityLevel.NORMAL,
+                DocumentRecord.SecurityLevel.INTERNAL,
+                DocumentRecord.SecurityLevel.CONFIDENTIAL,
+            ],
+        )
         allowed_ids.update(
-            qs.filter(
-                is_medical=False,
-                security_level__in=[
-                    DocumentRecord.SecurityLevel.NORMAL,
-                    DocumentRecord.SecurityLevel.INTERNAL,
-                    DocumentRecord.SecurityLevel.CONFIDENTIAL,
-                ],
-            ).filter(
-                models.Q(company_id__in=company_ids)
-                | models.Q(person_id__in=people_ids)
+            company_document_scope.filter(
+                company_id__in=company_ids
             ).values_list("pk", flat=True)
         )
+        # Person-owned documents follow the employment period at the time the
+        # document was created. A former employer must not inherit access to
+        # documents uploaded after the employee transferred elsewhere.
+        person_document_scope = records_in_company_employment_period(
+            company_document_scope.filter(person__isnull=False),
+            company_ids,
+            person_field="person",
+            timestamp_field="created_at",
+        )
+        allowed_ids.update(person_document_scope.values_list("pk", flat=True))
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
