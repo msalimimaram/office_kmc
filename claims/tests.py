@@ -423,6 +423,13 @@ class ManualClaimWorkflowTests(TestCase):
             iban="IR111111111111111111111111",
             is_insured=True,
         )
+        self.insured_user = User.objects.create_user(
+            username="claim-review-insured",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.person.user = self.insured_user
+        self.person.save(update_fields=["user"])
         self.specialist = User.objects.create_user(
             username="claim-review-specialist",
             password="StrongPass!2026",
@@ -538,6 +545,11 @@ class ManualClaimWorkflowTests(TestCase):
         claim.refresh_from_db()
         self.assertIsNotNone(claim.result_sent_at)
         self.assertEqual(claim.result_sent_by_id, self.head.pk)
+        from accounts.models import UserNotification
+        self.assertTrue(UserNotification.objects.filter(
+            recipient=self.insured_user,
+            title="نتیجه رسیدگی به خسارت اعلام شد",
+        ).exists())
         self.assertEqual(
             claim.objection_deadline,
             claim.result_sent_at + timedelta(days=60),
