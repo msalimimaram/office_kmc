@@ -864,10 +864,15 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         ),
         scope=scope,
     )
+    is_global_business_decider = _has_operational_role(
+        actor,
+        [RoleAssignment.Role.SYSTEM_ADMIN, RoleAssignment.Role.DEPARTMENT_HEAD],
+        scope=scope,
+    )
     if (
         transition.closes_case
         and case.definition.code in {"claim_objection", "contract_approval", "contract_termination"}
-        and not has_global_access(actor)
+        and not is_global_business_decider
     ):
         raise PermissionDenied(
             "تصمیم نهایی این فرایند فقط برای رئیس اداره بیمه یا مدیر سامانه مجاز است."
@@ -876,11 +881,11 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         transition.closes_case
         and case.definition.code == "person_change"
         and not (
-            has_global_access(actor)
-            or has_role(
+            is_global_business_decider
+            or _has_operational_role(
                 actor,
-                RoleAssignment.Role.SUBSIDIARY_REP,
-                company_id=scope.get("company_id"),
+                [RoleAssignment.Role.SUBSIDIARY_REP],
+                scope=scope,
             )
         )
     ):
@@ -889,12 +894,12 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         )
     if (
         transition.closes_case
-        and not has_global_access(actor)
+        and not is_global_business_decider
         and scope.get("insurer_id")
-        and has_role(
+        and _has_operational_role(
             actor,
-            RoleAssignment.Role.INSURER_REP,
-            insurer_id=scope["insurer_id"],
+            [RoleAssignment.Role.INSURER_REP],
+            scope=scope,
         )
     ):
         raise PermissionDenied(
