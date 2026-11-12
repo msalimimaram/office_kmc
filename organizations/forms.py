@@ -100,7 +100,7 @@ class PersonChangeRequestForm(forms.Form):
 class CompanyLeadershipTitleForm(forms.ModelForm):
     class Meta:
         model = CompanyLeadershipTitle
-        fields = ["company", "person", "position", "valid_from", "valid_until"]
+        fields = ["company", "person", "position", "title", "valid_from", "valid_until"]
         widgets = {
             "valid_from": forms.DateInput(attrs={"type": "date"}),
             "valid_until": forms.DateInput(attrs={"type": "date"}),
@@ -108,6 +108,11 @@ class CompanyLeadershipTitleForm(forms.ModelForm):
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
+        # The title is a snapshot derived from the selected company position.
+        # Keep it in the ModelForm so model validation errors map to a field
+        # instead of raising ValueError for an unknown "title" field.
+        self.fields["title"].required = False
+        self.fields["title"].disabled = True
         if has_global_access(user):
             company_ids = set(Company.objects.filter(is_active=True).values_list("pk", flat=True))
         else:
