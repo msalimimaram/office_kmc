@@ -1,10 +1,12 @@
 from django import forms
 from django.core.exceptions import ValidationError
 from django.db.models import Q
+from django.utils import timezone
 
 from accounts.access import company_ids_for, has_role
 from accounts.models import RoleAssignment
 from organizations.models import Person, PersonEmployment
+from organizations.forms import current_company_id_for_person
 from .models import ServiceRequest
 
 LEGACY_PERSON_CHANGE_KINDS = {
@@ -26,9 +28,10 @@ class ServiceRequestForm(forms.ModelForm):
         fields = ["kind", "person", "title", "description", "attachment"]
         widgets = {"description": forms.Textarea(attrs={"rows": 5})}
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, active_company_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.active_company_id = active_company_id
         self.fields["kind"].choices = [
             choice for choice in self.fields["kind"].choices
             if choice[0] not in LEGACY_PERSON_CHANGE_KINDS
@@ -48,13 +51,38 @@ class ServiceRequestForm(forms.ModelForm):
                 ).distinct().order_by("relationship", "last_name", "first_name")
         elif has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
             company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-            person_ids = PersonEmployment.objects.filter(
-                company_id__in=company_ids
-            ).values_list("person_id", flat=True)
-            self.fields["person"].queryset = Person.objects.filter(
-                Q(company_id__in=company_ids) | Q(pk__in=person_ids)
-            ).distinct().order_by("last_name", "first_name")
-        else:
+            if self.active_company_id not in company_ids:
+                self.active_company_id = (
+                    next(iter(company_ids)) if len(company_ids) == 1 else None
+                )
+            if self.active_company_id:
+                today = timezone.localdate()
+                active_employee_ids = PersonEmployment.objects.filter(
+                    company_id=self.active_company_id,
+                    status=PersonEmployment.Status.ACTIVE,
+                ).filter(
+                    Q(valid_from__isnull=True) | Q(valid_from__lte=today)
+                ).filter(
+                    Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+                ).values_list("person_id", flat=True)
+                any_employment_ids = PersonEmployment.objects.values_list(
+                    "person_id", flat=True
+                )
+                legacy_person_ids = Person.objects.filter(
+                    company_id=self.active_company_id
+                ).exclude(
+                    pk__in=any_employment_ids
+                ).exclude(
+                    employee_id__in=any_employment_ids
+                ).values_list("pk", flat=True)
+                self.fields["person"].queryset = Person.objects.filter(
+                    Q(pk__in=active_employee_ids)
+                    | Q(employee_id__in=active_employee_ids)
+                    | Q(pk__in=legacy_person_ids)
+                ).distinct().order_by("last_name", "first_name")
+            else:
+                self.fields["person"].queryset = Person.objects.none()
+        elif not has_role(user, RoleAssignment.Role.INSURED_PERSON):
             self.fields.pop("person")
 
     def clean(self):
@@ -71,13 +99,27 @@ class ServiceRequestForm(forms.ModelForm):
                 own_person = getattr(self.user, "person_record", None)
                 if own_person and person.pk != own_person.pk and person.employee_id != own_person.pk:
                     self.add_error("person", "فقط خود بیمه‌شده یا افراد تحت تکفل او مجاز هستند.")
-            elif has_role(self.user, RoleAssignment.Role.SUBSIDIARY_REP):
-                company_ids = company_ids_for(self.user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-                valid = PersonEmployment.objects.filter(
-                    person_id=person.pk, company_id__in=company_ids
-                ).exists() or person.company_id in company_ids
-                if not valid:
-                    self.add_error("person", "شخص انتخاب‌شده در محدوده شرکت شما نیست.")
+            if has_role(self.user, RoleAssignment.Role.SUBSIDIARY_REP):
+                company_ids = company_ids_for(
+                    self.user, role=RoleAssignment.Role.SUBSIDIARY_REP
+                )
+                current_company_id = current_company_id_for_person(person)
+                if (
+                    self.active_company_id not in company_ids
+                    or current_company_id != self.active_company_id
+                ):
+                    self.add_error(
+                        "person",
+                        "شخص انتخاب‌شده در اشتغال جاری شرکت فعال شما قرار ندارد.",
+                    )
+            elif (
+                has_role(self.user, RoleAssignment.Role.INSURED_PERSON)
+                and current_company_id_for_person(person) is None
+            ):
+                self.add_error(
+                    "person",
+                    "برای شخص انتخاب‌شده اشتغال جاری معتبر ثبت نشده است.",
+                )
         if (
             self.user
             and has_role(self.user, RoleAssignment.Role.INSURED_PERSON)

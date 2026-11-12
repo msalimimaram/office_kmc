@@ -9,7 +9,7 @@ from django.db import models, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from accounts.access import company_ids_for, has_global_access, has_role
+from accounts.access import active_company_id_for_user, company_ids_for, has_global_access, has_role
 from accounts.models import RoleAssignment, User
 from auditlog.services import record_event
 from core.permissions import can_process_request, can_transition_request, scoped_requests_for
@@ -20,15 +20,23 @@ from workflow.models import WorkflowCase, WorkflowDefinition
 from workflow.services import resolve_initial_assignee, start_workflow
 
 
-def _initial_company_id(user):
+def _initial_company_id(user, request=None):
     if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
-        ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-        return next(iter(ids)) if len(ids) == 1 else None
+        return active_company_id_for_user(
+            user, session=getattr(request, "session", None)
+        )
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         person = getattr(user, "person_record", None)
-        if person and person.company_id:
-            return person.company_id
-        return getattr(user, "company_id", None)
+        if person:
+            # Employment history is authoritative. Never fall back to the
+            # legacy Person.company/User.company pointer when history exists
+            # but has no currently valid employment row.
+            return current_company_id_for_person(person)
+        legacy_company_id = getattr(user, "company_id", None)
+        if legacy_company_id and Company.objects.filter(
+            pk=legacy_company_id, is_active=True
+        ).exists():
+            return legacy_company_id
     return None
 
 
@@ -71,12 +79,20 @@ def request_create(request):
     if not allowed:
         raise PermissionDenied
 
-    company_id = _initial_company_id(user)
+    company_id = _initial_company_id(user, request)
     if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) and not company_id:
-        raise PermissionDenied("ابتدا شرکت فعال را انتخاب کنید.")
+        raise PermissionDenied("ابتدا شرکت فعال را از نوار بالای سامانه انتخاب کنید.")
+    if (
+        has_role(user, RoleAssignment.Role.INSURED_PERSON)
+        and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+        and not company_id
+    ):
+        raise PermissionDenied("برای ثبت درخواست، اشتغال جاری معتبر بیمه‌شده مشخص نیست.")
 
     if request.method == "POST":
-        form = ServiceRequestForm(request.POST, request.FILES, user=user)
+        form = ServiceRequestForm(
+            request.POST, request.FILES, user=user, active_company_id=company_id
+        )
         if form.is_valid():
             try:
                 with transaction.atomic():
@@ -141,7 +157,7 @@ def request_create(request):
                         },
                         request=request,
                     )
-            except ValidationError as exc:
+            except (ValidationError, PermissionDenied) as exc:
                 # A broken workflow definition/recipient assignment must never
                 # produce a half-created request or an unhandled server error.
                 form.add_error(None, exc)

@@ -343,3 +343,29 @@ def is_portal_login_eligible(user, *, on_date: date | None = None) -> bool:
     return Claim.objects.filter(
         Q(person_id=person.pk) | Q(primary_insured_id=person.pk)
     ).exists()
+
+
+
+def active_company_id_for_user(user, *, session=None):
+    """Return the selected company only when it is in the user's live rep scope.
+
+    A single-company representative gets an implicit selection. Multi-company
+    representatives must explicitly choose one of their currently authorized
+    companies; stale session values never restore an expired assignment.
+    """
+    company_ids = company_ids_for(
+        user, role=RoleAssignment.Role.SUBSIDIARY_REP
+    )
+    if not company_ids:
+        return None
+    selected = None
+    if session is not None:
+        try:
+            selected = int(session.get("active_company_id"))
+        except (TypeError, ValueError):
+            selected = None
+    if selected in company_ids:
+        return selected
+    if len(company_ids) == 1:
+        return next(iter(company_ids))
+    return None

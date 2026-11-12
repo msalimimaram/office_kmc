@@ -473,6 +473,160 @@ class ServiceRequestTests(TestCase):
 
 
 
+    def test_multi_company_representative_must_select_a_scoped_active_company(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        admin = self.workflow_admin
+        RoleAssignment.objects.create(
+            user=admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="تأییدکننده استثنای چندشرکتی",
+        )
+        representative = User.objects.create_user(
+            username="multi-company-request-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=self.company,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            valid_from=today,
+            reason="نماینده شرکت اول",
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.other_company,
+            line_code="*",
+            valid_from=today,
+            reason="استثنای نمایندگی هم‌زمان شرکت دوم با تأیید مدیر سامانه",
+            approved_by=admin,
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="گردش درخواست نماینده چندشرکتی",
+            created_by=admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.approved_by = admin
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(representative)
+        missing_context = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست بدون انتخاب شرکت",
+            "description": "نباید با محدوده مبهم ثبت شود.",
+        })
+        self.assertEqual(missing_context.status_code, 403)
+        self.assertEqual(ServiceRequest.objects.count(), 0)
+
+        dashboard = client.get(reverse("dashboard"))
+        self.assertContains(dashboard, "انتخاب شرکت فعال")
+        self.assertContains(dashboard, self.company.name)
+        self.assertContains(dashboard, self.other_company.name)
+
+        session = client.session
+        session["active_company_id"] = self.other_company.pk
+        session.save()
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست شرکت دوم",
+            "description": "محدوده شرکت از نشست معتبر انتخاب شده است.",
+        })
+        self.assertEqual(response.status_code, 302)
+        item = ServiceRequest.objects.get()
+        self.assertEqual(item.company_id, self.other_company.pk)
+
+        invalid_selection = client.post(
+            reverse("select_active_company"),
+            {"company_id": 999999, "next": "/"},
+        )
+        self.assertEqual(invalid_selection.status_code, 403)
+
+    def test_insured_request_uses_current_employment_not_legacy_company_pointer(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from organizations.models import Person, PersonEmployment
+
+        today = timezone.localdate()
+        person = Person.objects.create(
+            company=self.company,
+            user=self.user,
+            national_id=NATIONAL_ID_A,
+            first_name="کارمند",
+            last_name="منتقل‌شده",
+            birth_date=date(1990, 1, 1),
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=self.company,
+            valid_from=today - timedelta(days=365),
+            valid_until=today - timedelta(days=1),
+            status=PersonEmployment.Status.TRANSFERRED,
+        )
+        PersonEmployment.objects.create(
+            person=person,
+            company=self.other_company,
+            valid_from=today,
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        new_company_rep = User.objects.create_user(
+            username="request-current-company-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=self.other_company,
+        )
+        RoleAssignment.objects.create(
+            user=new_company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.other_company,
+            line_code="*",
+            reason="نماینده شرکت محل اشتغال جاری",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="گردش درخواست پس از انتقال شرکت",
+            created_by=self.workflow_admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.approved_by = self.workflow_admin
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست پس از انتقال",
+            "description": "باید به شرکت محل اشتغال جاری متصل شود.",
+        })
+        self.assertEqual(response.status_code, 302)
+        item = ServiceRequest.objects.get()
+        case = WorkflowCase.objects.get(object_id=str(item.pk))
+        self.assertEqual(item.company_id, self.other_company.pk)
+        self.assertEqual(case.current_assignee_id, new_company_rep.pk)
+
+
 class LegacyRequestTransitionPermissionTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(code="TRANSITION", name="شرکت گردش کار")

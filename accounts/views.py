@@ -3,10 +3,12 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .models import UserNotification, RoleAssignment
-from .access import active_internal_position_assignments, has_role, is_insurance_staff
+from .access import active_internal_position_assignments, company_ids_for, has_role, is_insurance_staff
 
 
 def _can_access_notifications(user):
@@ -60,3 +62,32 @@ def notification_mark_read(request, pk):
     if target.startswith("/") and not target.startswith("//"):
         return redirect(target)
     return redirect("notification_list")
+
+
+
+@login_required
+@require_POST
+def select_active_company(request):
+    """Change the active subsidiary context without expanding authorization."""
+    allowed_company_ids = company_ids_for(
+        request.user, role=RoleAssignment.Role.SUBSIDIARY_REP
+    )
+    if not allowed_company_ids:
+        raise PermissionDenied("برای این حساب محدوده نمایندگی شرکت فعالی تعریف نشده است.")
+    try:
+        selected_company_id = int(request.POST.get("company_id", ""))
+    except (TypeError, ValueError):
+        raise PermissionDenied("شرکت انتخاب‌شده معتبر نیست.")
+    if selected_company_id not in allowed_company_ids:
+        raise PermissionDenied("انتخاب شرکت خارج از محدوده انتصاب معتبر شماست.")
+
+    request.session["active_company_id"] = selected_company_id
+    request.session.modified = True
+    target = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(
+        target,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        target = reverse("dashboard")
+    return redirect(target)

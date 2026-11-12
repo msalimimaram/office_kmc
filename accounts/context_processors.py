@@ -1,5 +1,7 @@
 from accounts.access import (
     active_internal_position_assignments,
+    active_company_id_for_user,
+    company_ids_for,
     has_global_access,
     has_role,
     is_insurance_staff,
@@ -44,7 +46,27 @@ def access_flags(request):
         delegation_inbox_access = WorkDelegation.objects.filter(
             delegate_to=user
         ).exists()
+    company_context_options = []
+    active_company_id = None
+    if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
+        from organizations.models import Company
+
+        company_ids = company_ids_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if company_ids:
+            company_context_options = list(
+                Company.objects.filter(
+                    pk__in=company_ids, is_active=True
+                ).order_by("name", "pk")
+            )
+            active_company_id = active_company_id_for_user(
+                user, session=request.session
+            )
+
     return {
+        "company_context_options": company_context_options,
+        "active_company_id": active_company_id,
         "unread_notification_count": UserNotification.objects.filter(
             recipient=user, read_at__isnull=True
         ).count() if notification_access else 0,

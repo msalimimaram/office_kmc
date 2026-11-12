@@ -17,6 +17,7 @@ urlpatterns = [
     path("accounts/password-change/", RequiredPasswordChangeView.as_view(
         template_name="registration/password_change.html", success_url="/"
     ), name="password_change"),
+    path("accounts/company-context/", account_views.select_active_company, name="select_active_company"),
     path("accounts/notifications/", account_views.notification_list, name="notification_list"),
     path("accounts/notifications/<int:pk>/read/", account_views.notification_mark_read, name="notification_mark_read"),
     path("", dashboard_views.home, name="home"),

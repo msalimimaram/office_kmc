@@ -12,6 +12,7 @@ from django.db import transaction
 from django.core.paginator import Paginator
 
 from accounts.access import (
+    active_company_id_for_user,
     company_ids_for,
     has_global_access,
     has_role,
@@ -72,17 +73,7 @@ def _scope(user):
 
 
 def _active_company_id(request, user):
-    ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
-    selected = request.session.get("active_company_id")
-    try:
-        selected_id = int(selected) if selected is not None else None
-    except (TypeError, ValueError):
-        selected_id = None
-    if selected_id and selected_id in ids:
-        return selected_id
-    if len(ids) == 1:
-        return next(iter(ids))
-    return None
+    return active_company_id_for_user(user, session=request.session)
 
 
 

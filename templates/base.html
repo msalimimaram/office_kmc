@@ -70,6 +70,20 @@
           <div class="topbar-heading"><span class="topbar-kicker">پرتال سازمانی</span><strong>{% block page_heading %}مدیریت عملیات بیمه{% endblock %}</strong></div>
         </div>
         <div class="topbar-actions">
+          {% if company_context_options|length > 1 %}
+          <form method="post" action="{% url 'select_active_company' %}" class="company-context-form">
+            {% csrf_token %}
+            <label for="active-company-select">شرکت فعال</label>
+            <select id="active-company-select" name="company_id" aria-label="انتخاب شرکت فعال" required>
+              <option value="" {% if not active_company_id %}selected{% endif %} disabled>انتخاب شرکت</option>
+              {% for company in company_context_options %}
+              <option value="{{ company.pk }}" {% if company.pk == active_company_id %}selected{% endif %}>{{ company.name }}</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit">اعمال</button>
+          </form>
+          {% endif %}
           <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="تغییر حالت نمایش" title="تغییر حالت روشن و تاریک"><span data-theme-icon aria-hidden="true">☾</span><span class="theme-toggle-label">حالت نمایش</span></button>
           <a class="topbar-account" href="{% url 'password_change' %}" title="تغییر رمز عبور"><span class="account-avatar">{{ request.user.get_full_name|default:request.user.username|slice:":1" }}</span><span class="account-name">{{ request.user.get_full_name|default:request.user.username }}</span></a>
           <form method="post" action="{% url 'logout' %}" class="logout-form">{% csrf_token %}<button class="icon-button logout-button" type="submit" aria-label="خروج از سامانه" title="خروج">↪</button></form>
