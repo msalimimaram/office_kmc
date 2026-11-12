@@ -637,3 +637,125 @@ class AdminBusinessRoleBoundaryTests(TestCase):
         client = Client()
         client.force_login(user)
         self.assertEqual(client.get("/admin/").status_code, 403)
+
+class LegacyRoleAssignmentMigrationCommandTests(TestCase):
+    def test_command_is_dry_run_by_default(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        user = User.objects.create_user(
+            username="legacy-admin-dry-run",
+            password="StrongPass!2026",
+            role="system_admin",
+            must_change_password=False,
+        )
+        output = StringIO()
+
+        call_command("migrate_legacy_role_assignments", stdout=output)
+
+        self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
+        user.refresh_from_db()
+        self.assertFalse(user.is_staff)
+        self.assertIn("DRY RUN", output.getvalue())
+
+    def test_apply_creates_global_assignment_and_is_idempotent(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        user = User.objects.create_user(
+            username="legacy-admin-apply",
+            password="StrongPass!2026",
+            role="system_admin",
+            must_change_password=False,
+        )
+
+        call_command(
+            "migrate_legacy_role_assignments",
+            apply=True,
+            stdout=StringIO(),
+        )
+        call_command(
+            "migrate_legacy_role_assignments",
+            apply=True,
+            stdout=StringIO(),
+        )
+
+        self.assertEqual(
+            RoleAssignment.objects.filter(
+                user=user,
+                role=RoleAssignment.Role.SYSTEM_ADMIN,
+            ).count(),
+            1,
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+
+    def test_company_representative_migration_requires_proven_employment_scope(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from datetime import timedelta
+        from organizations.models import PersonEmployment
+
+        today = timezone.localdate()
+        company = Company.objects.create(
+            code="LEGACY-REP-COMP",
+            name="شرکت نماینده قدیمی",
+        )
+        user = User.objects.create_user(
+            username="legacy-company-rep",
+            password="StrongPass!2026",
+            role="subsidiary_rep",
+            company=company,
+            must_change_password=False,
+        )
+        person = Person.objects.create(
+            company=company,
+            user=user,
+            national_id="7777777777",
+            first_name="نماینده",
+            last_name="قدیمی",
+            birth_date=date(1988, 1, 1),
+        )
+        employment = PersonEmployment.objects.create(
+            person=person,
+            company=company,
+            valid_from=today - timedelta(days=365),
+            valid_until=today + timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+
+        call_command(
+            "migrate_legacy_role_assignments",
+            apply=True,
+            user_id=user.pk,
+            stdout=StringIO(),
+        )
+
+        assignment = RoleAssignment.objects.get(user=user)
+        self.assertEqual(assignment.role, RoleAssignment.Role.SUBSIDIARY_REP)
+        self.assertEqual(assignment.company_id, company.pk)
+        self.assertEqual(assignment.line_code, "*")
+        self.assertEqual(assignment.valid_until, employment.valid_until)
+
+    def test_specialist_without_line_scope_is_not_granted_broad_access(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        user = User.objects.create_user(
+            username="legacy-specialist-ambiguous",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        output = StringIO()
+
+        call_command(
+            "migrate_legacy_role_assignments",
+            apply=True,
+            user_id=user.pk,
+            stdout=output,
+        )
+
+        self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
+        self.assertIn("line_code", output.getvalue())
+
