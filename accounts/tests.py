@@ -1,11 +1,128 @@
+from datetime import timedelta
+
+from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import (
-    User, UserNotification, OrganizationalUnit, OrganizationalPosition, PositionAssignment,
+    User, UserNotification, RoleAssignment,
+    OrganizationalUnit, OrganizationalPosition, PositionAssignment,
 )
 from organizations.models import Company
+
+
+class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.company_a = Company.objects.create(
+            code="REP-LIMIT-A",
+            name="شرکت سقف نمایندگی",
+        )
+        self.company_b = Company.objects.create(
+            code="REP-LIMIT-B",
+            name="شرکت دوم نمایندگی",
+        )
+
+    def _user(self, username):
+        return User.objects.create_user(
+            username=username,
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+
+    def _assignment(self, user, company, **kwargs):
+        defaults = {
+            "user": user,
+            "role": RoleAssignment.Role.SUBSIDIARY_REP,
+            "company": company,
+            "line_code": "health",
+            "valid_from": self.today,
+            "reason": "انتصاب نماینده برای آزمون محدودیت دامنه",
+        }
+        defaults.update(kwargs)
+        return RoleAssignment.objects.create(**defaults)
+
+    def test_company_limit_counts_distinct_users_not_line_assignments(self):
+        first = self._user("rep-limit-first")
+        second = self._user("rep-limit-second")
+        third = self._user("rep-limit-third")
+        fourth = self._user("rep-limit-fourth")
+
+        self._assignment(first, self.company_a, line_code="health")
+        self._assignment(first, self.company_a, line_code="motor")
+        self._assignment(second, self.company_a)
+        self._assignment(third, self.company_a)
+
+        with self.assertRaises(ValidationError) as raised:
+            self._assignment(fourth, self.company_a)
+
+        self.assertIn("company", raised.exception.message_dict)
+
+    def test_overlapping_multi_company_assignment_requires_system_admin_approval(self):
+        representative = self._user("rep-multi-company")
+        self._assignment(
+            representative,
+            self.company_a,
+            valid_from=self.today,
+            valid_until=self.today + timedelta(days=10),
+        )
+
+        with self.assertRaises(ValidationError) as missing_approval:
+            self._assignment(
+                representative,
+                self.company_b,
+                line_code="motor",
+                valid_from=self.today + timedelta(days=5),
+                valid_until=self.today + timedelta(days=20),
+            )
+        self.assertIn("approved_by", missing_approval.exception.message_dict)
+
+        non_admin = self._user("rep-multi-company-non-admin")
+        with self.assertRaises(ValidationError) as invalid_approval:
+            self._assignment(
+                representative,
+                self.company_b,
+                line_code="motor",
+                valid_from=self.today + timedelta(days=5),
+                valid_until=self.today + timedelta(days=20),
+                approved_by=non_admin,
+            )
+        self.assertIn("approved_by", invalid_approval.exception.message_dict)
+
+        administrator = self._user("rep-multi-company-admin")
+        RoleAssignment.objects.create(
+            user=administrator,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=self.today,
+            reason="مدیر سامانه برای تأیید استثنای چندشرکتی",
+        )
+        approved = self._assignment(
+            representative,
+            self.company_b,
+            line_code="motor",
+            valid_from=self.today + timedelta(days=5),
+            valid_until=self.today + timedelta(days=20),
+            approved_by=administrator,
+            reason="استثنای موردی با تأیید مدیر سامانه؛ شرکت و رشته محدود و زمان‌دار",
+        )
+        self.assertEqual(approved.approved_by_id, administrator.pk)
+
+    def test_sequential_company_appointments_do_not_require_multi_company_exception(self):
+        representative = self._user("rep-sequential-company")
+        self._assignment(
+            representative,
+            self.company_a,
+            valid_from=self.today - timedelta(days=10),
+            valid_until=self.today,
+        )
+        next_assignment = self._assignment(
+            representative,
+            self.company_b,
+            valid_from=self.today + timedelta(days=1),
+            valid_until=self.today + timedelta(days=30),
+        )
+        self.assertEqual(next_assignment.company_id, self.company_b.pk)
 
 
 class InitialPasswordChangeTests(TestCase):

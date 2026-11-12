@@ -1,7 +1,9 @@
+from datetime import date, timedelta
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -206,6 +208,102 @@ class RoleAssignment(models.Model):
                 errors["company"] = "نماینده شرکت باید به یک شرکت مشخص متصل باشد."
             if self.insurer_id:
                 errors["insurer"] = "انتصاب نماینده شرکت نمی‌تواند بیمه‌گر داشته باشد."
+
+            if (
+                self.is_active
+                and self.user_id
+                and self.company_id
+                and self.valid_from
+                and (self.valid_until is None or self.valid_until >= self.valid_from)
+            ):
+                previous = None
+                if self.pk:
+                    previous = type(self)._base_manager.filter(pk=self.pk).values(
+                        "role", "user_id", "company_id", "line_code",
+                        "valid_from", "valid_until", "is_active",
+                        "reason", "approved_by_id",
+                    ).first()
+
+                scope_fields = (
+                    "role", "user_id", "company_id", "valid_from",
+                    "valid_until", "is_active",
+                )
+                approval_fields = scope_fields + (
+                    "line_code", "reason", "approved_by_id",
+                )
+                scope_changed = previous is None or any(
+                    previous[field] != getattr(self, field)
+                    for field in scope_fields
+                )
+                approval_changed = previous is None or any(
+                    previous[field] != getattr(self, field)
+                    for field in approval_fields
+                )
+
+                overlapping = type(self)._base_manager.filter(
+                    role=self.Role.SUBSIDIARY_REP,
+                    is_active=True,
+                    valid_from__lte=self.valid_until or date.max,
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=self.valid_from)
+                ).exclude(pk=self.pk)
+
+                if scope_changed:
+                    company_rows = list(
+                        overlapping.filter(company_id=self.company_id).values(
+                            "user_id", "valid_from", "valid_until",
+                        )
+                    )
+                    change_points = {self.valid_from}
+                    period_end = self.valid_until or date.max
+                    for row in company_rows:
+                        if self.valid_from < row["valid_from"] <= period_end:
+                            change_points.add(row["valid_from"])
+                        row_end = row["valid_until"]
+                        if (
+                            row_end is not None
+                            and self.valid_from <= row_end < period_end
+                        ):
+                            change_points.add(row_end + timedelta(days=1))
+
+                    exceeds_company_limit = False
+                    for day in change_points:
+                        active_users = {
+                            row["user_id"]
+                            for row in company_rows
+                            if row["valid_from"] <= day
+                            and (row["valid_until"] is None or row["valid_until"] >= day)
+                        }
+                        if self.user_id not in active_users and len(active_users) >= 3:
+                            exceeds_company_limit = True
+                            break
+                    if exceeds_company_limit:
+                        errors["company"] = (
+                            "هر شرکت حداکثر سه نماینده فعال هم‌زمان می‌تواند داشته باشد."
+                        )
+
+                has_other_company_overlap = overlapping.filter(
+                    user_id=self.user_id
+                ).exclude(company_id=self.company_id).exists()
+                if has_other_company_overlap and approval_changed:
+                    if not self.reason.strip():
+                        errors["reason"] = (
+                            "برای نمایندگی هم‌زمان چند شرکت، ثبت دلیل استثنا الزامی است."
+                        )
+                    if not self.approved_by_id:
+                        errors["approved_by"] = (
+                            "نمایندگی هم‌زمان چند شرکت نیازمند تأیید مدیر سامانه است."
+                        )
+                    else:
+                        from accounts.access import has_role
+                        if not has_role(
+                            self.approved_by,
+                            self.Role.SYSTEM_ADMIN,
+                        ):
+                            errors["approved_by"] = (
+                                "تأیید استثنای چندشرکتی فقط توسط مدیر سامانه فعال مجاز است."
+                            )
         elif self.role == self.Role.INSURER_REP:
             if not self.insurer_id:
                 errors["insurer"] = "نماینده بیمه‌گر باید به یک شرکت بیمه مشخص متصل باشد."
@@ -217,14 +315,31 @@ class RoleAssignment(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        result = super().save(*args, **kwargs)
-        if self.role in {self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}:
-            today = timezone.localdate()
-            active_global = RoleAssignment.objects.filter(user_id=self.user_id, role__in={self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}, is_active=True, valid_from__lte=today).filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)).exists()
-            if active_global:
-                User.objects.filter(pk=self.user_id, is_staff=False).update(is_staff=True)
-        return result
+        with transaction.atomic():
+            if self.role == self.Role.SUBSIDIARY_REP:
+                User.objects.select_for_update().filter(pk=self.user_id).only("pk").first()
+                if self.company_id:
+                    company_model = self._meta.get_field("company").remote_field.model
+                    company_model.objects.select_for_update().filter(
+                        pk=self.company_id
+                    ).only("pk").first()
+
+            self.full_clean()
+            result = super().save(*args, **kwargs)
+            if self.role in {self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}:
+                today = timezone.localdate()
+                active_global = RoleAssignment.objects.filter(
+                    user_id=self.user_id,
+                    role__in={self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD},
+                    is_active=True,
+                    valid_from__lte=today,
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=today)
+                ).exists()
+                if active_global:
+                    User.objects.filter(pk=self.user_id, is_staff=False).update(is_staff=True)
+            return result
 
     def is_valid_on(self, on_date=None):
         on_date = on_date or timezone.localdate()
