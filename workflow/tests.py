@@ -139,13 +139,15 @@ class WorkflowEngineTests(TestCase):
         )
         definition = WorkflowDefinition.objects.create(
             code="person_change", title="گردش اصلاح اطلاعات", version=91,
-            created_by=self.admin, approved_by=self.admin, is_active=True,
+            created_by=self.admin, approved_by=self.admin,
         )
         step = WorkflowStep.objects.create(
             definition=definition, code="company_final_review",
             title="بازبینی نماینده شرکت", order=1,
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP], is_initial=True,
         )
+        definition.is_active = True
+        definition.save()
         case = WorkflowCase.objects.create(
             definition=definition,
             content_type=ContentType.objects.get_for_model(change, for_concrete_model=False),
