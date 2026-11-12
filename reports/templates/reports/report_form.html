@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>{{ page_title }}</h1>
+  <p>گزارش پس از ثبت، برای بررسی به سرپرست همان شاخه سازمانی ارجاع می‌شود. تصمیم نهایی با رئیس اداره بیمه یا مدیر سامانه است.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">ثبت و ارسال برای بررسی</button>
+  </form>
+</section>
+{% endblock %}

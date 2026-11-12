@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }}{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>{{ report.title }}</h1>
+  <p>وضعیت: {{ report.get_status_display }}</p>
+  <p>رشته: {{ report.line_code }} | دوره: {{ report.period_start }} تا {{ report.period_end }}</p>
+  <h2>نسخه‌های ثبت‌شده</h2>
+  {% for version in versions %}
+    <article class="card">
+      <h3>نسخه {{ version.version_number }}</h3>
+      <p>{{ version.summary }}</p>
+      <p>{{ version.body|linebreaksbr }}</p>
+      <small>{{ version.created_at }} — {{ version.created_by }}</small>
+    </article>
+  {% endfor %}
+  {% if can_resubmit %}
+    <h2>اصلاح و ارسال نسخه جدید</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit">ثبت نسخه جدید و ارسال مجدد</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}
