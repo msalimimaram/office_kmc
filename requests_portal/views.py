@@ -65,7 +65,7 @@ def request_list(request):
     for item in rows:
         item.display_title = (
             item.title
-            if reveal_confidential or not item.is_confidential
+            if reveal_confidential or item.is_owned_by(request.user) or not item.is_confidential
             else item.get_kind_display()
         )
     return render(request, "requests_portal/request_list.html", {

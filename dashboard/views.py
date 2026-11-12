@@ -186,7 +186,7 @@ def home(request):
     recent_requests = list(requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8])
     for item in recent_requests:
         item.display_title = (
-            item.title if is_management or not item.is_confidential
+            item.title if is_management or item.is_owned_by(user) or not item.is_confidential
             else item.get_kind_display()
         )
 

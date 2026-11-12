@@ -73,5 +73,17 @@ class ServiceRequest(models.Model):
             self.is_confidential = True
         return super().save(*args, **kwargs)
 
+    def is_owned_by(self, user):
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if self.submitted_by_id == user.pk:
+            return True
+        person = self.person
+        if not person:
+            return False
+        if person.user_id == user.pk:
+            return True
+        return bool(person.employee_id and person.employee.user_id == user.pk)
+
     def __str__(self):
         return f"{self.reference} — {self.title}"

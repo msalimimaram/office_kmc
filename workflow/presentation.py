@@ -54,7 +54,12 @@ def build_workflow_presentation(case, *, user=None):
         )
     )
     from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
-    can_view_confidential_content = bool(user and has_global_access(user))
+    can_view_confidential_content = bool(
+        user and (
+            has_global_access(user)
+            or (label == "requests_portal.servicerequest" and obj.is_owned_by(user))
+        )
+    )
 
     if label == "reports.report":
         latest = obj.latest_version
