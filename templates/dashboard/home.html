@@ -2,9 +2,34 @@
 {% block title %}داشبورد | اداره بیمه{% endblock %}
 {% block content %}
 <section class="hero">
-  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% elif is_management %}نمای مدیریتی عملیات، خسارت‌ها، درخواست‌ها و عملکرد سامانه.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
-  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% elif is_management %}مرکز کنترل مدیریتی{% else %}پنل سازمانی{% endif %}</div>
+  <div><p class="eyebrow">نمای کلی سامانه</p><h1>سلام، {{ request.user.first_name|default:request.user.username }}</h1><p>{% if is_employee_dashboard %}درخواست‌ها و اطلاعات بیمه‌ای مربوط به شما و افراد تحت تکفلتان.{% elif is_management %}نمای مدیریتی عملیات، خسارت‌ها، درخواست‌ها و عملکرد سامانه.{% elif is_unit_manager %}مدیریت وظایف و مکاتبات در محدودهٔ سمت و واحد سازمانی شما.{% else %}خلاصه‌ای از اطلاعات و پیگیری‌های مجاز برای نقش شما.{% endif %}</p></div>
+  <div class="hero-badge"><span class="pulse"></span>{% if is_employee_dashboard %}پنل بیمه‌شده{% elif is_management %}مرکز کنترل مدیریتی{% elif is_unit_manager %}پنل مدیریت واحد{% else %}پنل سازمانی{% endif %}</div>
 </section>
+
+{% if is_unit_manager and not is_management %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">نظارت در محدوده سازمانی</p><h2>کارهای واحد و زیرمجموعه</h2></div>
+    <span class="status">{{ position_titles|join:"، " }}</span>
+  </div>
+  <p class="muted">وظایف ایجادشده یا واگذارشده در واحد شما و واحدهای فرزند قابل مشاهده است. امکان ایجاد وظیفه و مکاتبه فقط برای افراد زیرمجموعه مجاز فراهم می‌شود.</p>
+  <div class="activity-list">
+    {% for task in recent_tasks %}
+      <a class="activity" href="{% url 'task_update' task.pk %}">
+        <span class="activity-dot"></span>
+        <span><strong>{{ task.title }}</strong><small>{{ task.get_status_display }} · مهلت {{ task.due_at|date:"Y/m/d H:i"|default:"تعریف‌نشده" }} · ایجادکننده: {{ task.created_by.get_full_name|default:task.created_by.username }}</small></span>
+        <span class="arrow">←</span>
+      </a>
+    {% empty %}
+      <p class="empty">در حال حاضر وظیفه‌ای در محدودهٔ واحد شما ثبت نشده است.</p>
+    {% endfor %}
+  </div>
+  <div class="quick-grid">
+    <a class="quick-card" href="{% url 'task_create' %}"><strong>ایجاد وظیفه برای زیرمجموعه</strong><p>تخصیص کار با رعایت ساختار واحدها</p><span class="arrow">←</span></a>
+    <a class="quick-card" href="{% url 'correspondence_create' %}"><strong>ثبت و ارجاع مکاتبه</strong><p>ارسال مکاتبه به فرد مجاز در زیرمجموعه</p><span class="arrow">←</span></a>
+  </div>
+</section>
+{% endif %}
 
 {% if is_management %}
 <section class="quick-grid">
