@@ -161,8 +161,7 @@ class RoleAssignmentAdmin(admin.ModelAdmin):
         before = _role_assignment_snapshot(RoleAssignment.objects.get(pk=obj.pk)) if change else {}
         if not change and not obj.granted_by_id:
             obj.granted_by = request.user
-        if not obj.approved_by_id:
-            obj.approved_by = request.user
+        # Approval is a separate business act; never silently approve by the grantor.
         super().save_model(request, obj, form, change)
         record_event(
             actor=request.user,
@@ -266,8 +265,7 @@ class PositionAssignmentAdmin(admin.ModelAdmin):
         before = _position_assignment_snapshot(PositionAssignment.objects.get(pk=obj.pk)) if change else {}
         if not change and not obj.granted_by_id:
             obj.granted_by = request.user
-        if not obj.approved_by_id:
-            obj.approved_by = request.user
+        # Do not manufacture an approval record from the grantor's identity.
         super().save_model(request, obj, form, change)
         record_event(
             actor=request.user,
