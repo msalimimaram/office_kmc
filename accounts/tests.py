@@ -199,6 +199,46 @@ class UserNotificationTests(TestCase):
         self.assertContains(response, "وظیفه جدید")
         self.assertEqual(response.context["unread_notification_count"], 1)
 
+    def test_inactive_position_does_not_grant_notification_access_or_menu_link(self):
+        for disabled_target in ("position", "unit"):
+            with self.subTest(disabled_target=disabled_target):
+                user = User.objects.create_user(
+                    username=f"notification-inactive-{disabled_target}",
+                    password="StrongPass!2026",
+                    must_change_password=False,
+                )
+                unit = OrganizationalUnit.objects.create(
+                    code=f"NOTICE-INACTIVE-{disabled_target.upper()}",
+                    name="واحد غیرفعال",
+                )
+                position = OrganizationalPosition.objects.create(
+                    unit=unit,
+                    code=f"NOTICE-INACTIVE-POS-{disabled_target.upper()}",
+                    title="سمت غیرفعال",
+                    level=OrganizationalPosition.Level.SPECIALIST,
+                )
+                PositionAssignment.objects.create(
+                    user=user,
+                    unit=unit,
+                    position=position,
+                    valid_from=timezone.localdate(),
+                    is_active=True,
+                    reason="آزمون رد دسترسی سمت غیرفعال",
+                )
+                if disabled_target == "position":
+                    position.is_active = False
+                    position.save(update_fields=["is_active"])
+                else:
+                    unit.is_active = False
+                    unit.save(update_fields=["is_active"])
+
+                client = Client()
+                client.force_login(user)
+                response = client.get(reverse("notification_list"))
+                self.assertEqual(response.status_code, 403)
+                dashboard = client.get(reverse("dashboard"))
+                self.assertNotContains(dashboard, reverse("notification_list"))
+
     def test_user_without_operational_role_cannot_access_notification_inbox_or_see_menu_link(self):
         unauthorized = User.objects.create_user(
             username="notification-no-role", password="StrongPass!2026", role="",

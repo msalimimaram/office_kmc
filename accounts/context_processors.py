@@ -1,7 +1,10 @@
-from django.db.models import Q
-from django.utils import timezone
-
-from accounts.access import has_global_access, has_role, is_insurance_staff, is_unit_manager, active_position_assignments
+from accounts.access import (
+    active_internal_position_assignments,
+    has_global_access,
+    has_role,
+    is_insurance_staff,
+    is_unit_manager,
+)
 from accounts.models import RoleAssignment, UserNotification
 
 
@@ -10,8 +13,7 @@ def access_flags(request):
     if not user or not user.is_authenticated:
         return {"access": {}, "unread_notification_count": 0}
     staff = is_insurance_staff(user)
-    today = timezone.localdate()
-    active_position_assignment = active_position_assignments(user)
+    active_position_assignment = active_internal_position_assignments(user)
     unit_manager = is_unit_manager(user)
     position_titles = list(
         active_position_assignment.filter(

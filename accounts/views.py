@@ -1,23 +1,16 @@
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
-from django.utils import timezone
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import UserNotification, RoleAssignment, PositionAssignment
-from .access import has_role, is_insurance_staff
+from .models import UserNotification, RoleAssignment
+from .access import active_internal_position_assignments, has_role, is_insurance_staff
 
 
 def _can_access_notifications(user):
-    today = timezone.localdate()
-    has_active_position = PositionAssignment.objects.filter(
-        user=user, is_active=True, valid_from__lte=today,
-    ).filter(
-        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
-    ).exists()
+    has_active_position = active_internal_position_assignments(user).exists()
     return (
         is_insurance_staff(user)
         or has_role(user, RoleAssignment.Role.INSURED_PERSON)

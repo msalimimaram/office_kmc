@@ -74,15 +74,23 @@ def active_position_assignments(user, *, on_date: date | None = None):
     ).select_related("unit", "position")
 
 
+def active_internal_position_assignments(user, *, on_date: date | None = None):
+    """Return only currently valid assignments to active internal positions."""
+    return active_position_assignments(user, on_date=on_date).filter(
+        position__is_active=True,
+        unit__is_active=True,
+        unit__company__isnull=True,
+    )
+
+
 def has_position_level(
     user, *levels: int, unit_id: int | None = None, on_date: date | None = None
 ) -> bool:
     """Check a valid organizational position without granting domain roles."""
     if not levels:
         return False
-    qs = active_position_assignments(user, on_date=on_date).filter(
+    qs = active_internal_position_assignments(user, on_date=on_date).filter(
         position__level__in=levels,
-        unit__company__isnull=True,
         line_code__gt="",
     )
     if unit_id is not None:
