@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for
+from accounts.access import company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for, is_unit_manager
 from accounts.models import RoleAssignment, PositionAssignment
 from insurance.models import Contract, Insurer
 from organizations.models import Company
@@ -64,6 +64,12 @@ class CorrespondenceForm(forms.ModelForm):
         self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
         self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
         self.fields["assigned_to"].queryset = _eligible_internal_assignees()
+        if is_unit_manager(user) and not has_global_access(user):
+            from tasks.forms import _manager_scope
+            subordinate_ids = User.objects.filter(_manager_scope(user)).values("pk")
+            self.fields["assigned_to"].queryset = self.fields["assigned_to"].queryset.filter(
+                pk__in=subordinate_ids
+            )
 
         if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(user):
             self.fields.pop("is_confidential")
