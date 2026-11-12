@@ -410,6 +410,7 @@ class DelegationRoutingTests(TestCase):
             username="delegation.form.all-lines",
             password="TestPass!23456",
             must_change_password=False,
+            company=self.company,
         )
         RoleAssignment.objects.create(
             user=all_lines_rep,
