@@ -225,6 +225,17 @@ def line_codes_for(user, *, role: str | None = None, on_date: date | None = None
     if role:
         qs = qs.filter(role=role)
     values = set(qs.exclude(line_code="").values_list("line_code", flat=True))
+    if (
+        not values
+        and _legacy_fallback_allowed(user)
+        and _legacy_role(user) == RoleAssignment.Role.SUBSIDIARY_REP
+        and role in (None, RoleAssignment.Role.SUBSIDIARY_REP)
+    ):
+        # Compatibility for pre-assignment accounts: their old single-role
+        # record had company scope but no line dimension. Treat only this
+        # legacy-only case as an overall company representative; once any
+        # assignment history exists, an explicit '*' or line is required.
+        return {"*"}
     return values
 
 
