@@ -132,7 +132,7 @@ class OrganizationalTaskScopeTests(TestCase):
         )
         PositionAssignment.objects.create(
             user=self.manager, unit=self.parent, position=self.supervisor_position,
-            valid_from=timezone.localdate(), reason="سرپرست واحد بالادست",
+            line_code="*", valid_from=timezone.localdate(), reason="سرپرست واحد بالادست",
         )
         PositionAssignment.objects.create(
             user=self.subordinate, unit=self.child, position=self.specialist_position,
