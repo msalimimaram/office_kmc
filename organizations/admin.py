@@ -1,7 +1,9 @@
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
 
 from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
+from auditlog.services import record_event
 from .models import Company, Person, PersonChangeRequest
 
 
@@ -31,6 +33,29 @@ class CompanyAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def save_model(self, request, obj, form, change):
+        before = {}
+        if change:
+            previous = Company.objects.get(pk=obj.pk)
+            before = {
+                "code": previous.code, "name": previous.name,
+                "parent_id": previous.parent_id, "is_parent": previous.is_parent,
+                "is_active": previous.is_active,
+            }
+        super().save_model(request, obj, form, change)
+        record_event(
+            actor=request.user,
+            action="company_updated" if change else "company_created",
+            obj=obj, summary="ثبت یا تغییر اطلاعات پایه شرکت",
+            before_data=before,
+            after_data={
+                "code": obj.code, "name": obj.name,
+                "parent_id": obj.parent_id, "is_parent": obj.is_parent,
+                "is_active": obj.is_active,
+            },
+            request=request,
+        )
+
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
@@ -56,6 +81,25 @@ class PersonAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def save_model(self, request, obj, form, change):
+        if change:
+            raise PermissionDenied("اطلاعات هویتی فقط از مسیر گردش اصلاح اطلاعات تغییر می‌کند.")
+        super().save_model(request, obj, form, change)
+        record_event(
+            actor=request.user,
+            action="insured_person_created",
+            obj=obj,
+            summary="ایجاد پرونده پایه بیمه‌شده",
+            after_data={
+                "company_id": obj.company_id,
+                "national_id_masked": f"***{(obj.national_id or '')[-3:]}",
+                "personnel_code": obj.personnel_code,
+                "relationship": obj.relationship,
+                "is_insured": obj.is_insured,
+                "is_active": obj.is_active,
+            },
+            request=request,
+        )
 
 
 @admin.register(PersonChangeRequest)

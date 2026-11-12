@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from accounts.access import has_global_access, has_role
 from accounts.models import RoleAssignment
+from auditlog.services import record_event
 from .models import Insurer, Contract, ContractRevision
 
 
@@ -49,6 +50,29 @@ class InsurerAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Insurer references may already be used by contracts, claims and payments.
         return False
+
+    def save_model(self, request, obj, form, change):
+        before = {}
+        if change:
+            previous = Insurer.objects.get(pk=obj.pk)
+            before = {
+                "name": previous.name, "contact_name": previous.contact_name,
+                "contact_phone": previous.contact_phone,
+                "contact_email": previous.contact_email, "is_active": previous.is_active,
+            }
+        super().save_model(request, obj, form, change)
+        record_event(
+            actor=request.user,
+            action="insurer_updated" if change else "insurer_created",
+            obj=obj, summary="ثبت یا تغییر اطلاعات مرجع بیمه‌گر",
+            before_data=before,
+            after_data={
+                "name": obj.name, "contact_name": obj.contact_name,
+                "contact_phone": obj.contact_phone,
+                "contact_email": obj.contact_email, "is_active": obj.is_active,
+            },
+            request=request,
+        )
 
 
 @admin.register(Contract)
