@@ -122,7 +122,10 @@ def _has_any_role(
     user, roles, *, company_id=None, insurer_id=None, line_code=None,
     owner_user_id=None, position_levels=(),
 ):
-    if not user or not user.is_authenticated or not user.is_active or not roles:
+    if (
+        not user or not user.is_authenticated or not user.is_active
+        or (not roles and not position_levels)
+    ):
         return False
 
     assignments = active_assignments(user)
@@ -252,6 +255,7 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
     if not initial:
         raise ValidationError("گردش کار مرحله آغازین ندارد.")
     roles = initial.allowed_roles or []
+    position_levels = initial.allowed_position_levels or []
     if item_type is None:
         item_type = str(
             getattr(obj, "change_type", None)
@@ -306,8 +310,8 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
                 continue
             role_scope &= Q(user_id=owner_user_id)
         scope |= role_scope
-    if not scope.children:
-        raise ValidationError("برای محدوده این پرونده، نقش گیرنده قابل تخصیص نیست.")
+    if not scope.children and not position_levels:
+        raise ValidationError("برای محدوده این پرونده، نقش یا سمت گیرنده قابل تخصیص نیست.")
     # The order of roles in the published initial step is the routing
     # priority (for example, specialist before head/system admin). Only after
     # selecting the highest-priority role do we balance between its eligible
