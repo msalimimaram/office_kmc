@@ -514,8 +514,13 @@ def _validate_actor(case, actor, roles, *, scope, position_levels=()):
         raise PermissionDenied
     if case.current_assignee_id != actor.pk:
         raise PermissionDenied("مسئولیت اقدام این مرحله به حساب شما واگذار نشده است.")
-    if case.delegation_id and not is_delegated_assignee(case, actor):
-        raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
+    if case.delegation_id:
+        if not is_delegated_assignee(case, actor):
+            raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
+        # A valid, explicitly scoped delegation is itself the authorization
+        # grant. It may intentionally bridge to a role not listed on the
+        # original step (for example, a specialist covering an absent owner).
+        return
     if not _case_actor_authorized(
         case, actor, roles, position_levels=position_levels, scope=scope
     ):
