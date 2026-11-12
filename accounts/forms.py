@@ -10,6 +10,8 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 
+from .access import is_portal_login_eligible
+
 
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60
@@ -47,6 +49,13 @@ class ThrottledAuthenticationForm(AuthenticationForm):
         except ValidationError:
             self._record_failure(key)
             raise
+
+        authenticated_user = self.get_user()
+        if not is_portal_login_eligible(authenticated_user):
+            raise ValidationError(
+                "این حساب کاربری انتصاب عملیاتی معتبر یا سابقه بیمه‌ای مجاز برای ورود به پرتال ندارد.",
+                code="account_not_eligible",
+            )
 
         cache.delete(key)
         return cleaned_data

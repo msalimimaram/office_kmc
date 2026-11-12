@@ -302,3 +302,44 @@ def is_insurer_representative(user, insurer_id: int) -> bool:
 
 def has_assignment_history(user) -> bool:
     return assignment_history(user).exists()
+
+
+def is_portal_login_eligible(user, *, on_date: date | None = None) -> bool:
+    """Require a valid operational appointment or real insured-person history."""
+    if not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
+        return False
+
+    operational_roles = {
+        RoleAssignment.Role.SYSTEM_ADMIN,
+        RoleAssignment.Role.DEPARTMENT_HEAD,
+        RoleAssignment.Role.INSURANCE_SPECIALIST,
+        RoleAssignment.Role.SUBSIDIARY_REP,
+        RoleAssignment.Role.INSURER_REP,
+    }
+    if active_assignments(user, on_date=on_date).filter(role__in=operational_roles).exists():
+        return True
+    if active_position_assignments(user, on_date=on_date).filter(
+        position__is_active=True,
+        unit__is_active=True,
+        unit__company__isnull=True,
+        line_code__gt="",
+    ).exists():
+        return True
+
+    # Dependents use the primary insured person's account; a dependent record
+    # must not become a second independent login identity.
+    from organizations.models import Person
+    person = Person.objects.filter(user_id=user.pk).first()
+    if not person or person.relationship != Person.Relationship.EMPLOYEE:
+        return False
+    if not has_role(user, RoleAssignment.Role.INSURED_PERSON, on_date=on_date):
+        return False
+    if person.is_active and person.is_insured:
+        return True
+
+    # Former insured people retain portal eligibility only when a real claim
+    # proves prior insured activity; a bare HR/person record is insufficient.
+    from claims.models import Claim
+    return Claim.objects.filter(
+        Q(person_id=person.pk) | Q(primary_insured_id=person.pk)
+    ).exists()

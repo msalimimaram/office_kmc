@@ -9,7 +9,8 @@ from accounts.models import (
     User, UserNotification, RoleAssignment,
     OrganizationalUnit, OrganizationalPosition, PositionAssignment,
 )
-from organizations.models import Company
+from organizations.models import Company, Person
+from claims.models import Claim
 
 
 class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
@@ -174,6 +175,62 @@ class AdminAccessIsolationTests(TestCase):
 
 
 from django.core.cache import cache
+
+
+class LoginEligibilityTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(code="LOGIN-ELIGIBLE", name="شرکت ورود آزمایشی")
+
+    def _insured_user(self, username, *, is_insured=True):
+        user = User.objects.create_user(
+            username=username, password="StrongPass!2026",
+            role="employee", company=self.company,
+            must_change_password=False,
+        )
+        person = Person.objects.create(
+            company=self.company, user=user, national_id=f"{user.pk:010d}",
+            first_name="بیمه‌شده", last_name="آزمایشی",
+            birth_date=timezone.localdate() - timedelta(days=12000),
+            is_insured=is_insured,
+        )
+        RoleAssignment.objects.create(
+            user=user, role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company, line_code="*",
+            reason="انتصاب بیمه‌شده برای آزمون احراز صلاحیت ورود",
+        )
+        return user, person
+
+    def test_person_record_without_active_or_historical_insurance_is_not_login_eligible(self):
+        user, _person = self._insured_user("login-no-policy", is_insured=False)
+        client = Client()
+        response = client.post(reverse("login"), {
+            "username": user.username, "password": "StrongPass!2026",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "سابقه بیمه‌ای مجاز")
+        self.assertNotIn("_auth_user_id", client.session)
+
+    def test_currently_insured_person_can_login(self):
+        user, _person = self._insured_user("login-current-insured", is_insured=True)
+        client = Client()
+        response = client.post(reverse("login"), {
+            "username": user.username, "password": "StrongPass!2026",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(int(client.session["_auth_user_id"]), user.pk)
+
+    def test_former_insured_person_with_claim_history_can_login(self):
+        user, person = self._insured_user("login-former-insured", is_insured=False)
+        Claim.objects.create(
+            claim_number="LOGIN-HISTORY-001", person=person,
+            service_type="سابقه خسارت درمان",
+        )
+        client = Client()
+        response = client.post(reverse("login"), {
+            "username": user.username, "password": "StrongPass!2026",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(int(client.session["_auth_user_id"]), user.pk)
 
 
 class LoginThrottlingTests(TestCase):
