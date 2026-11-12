@@ -201,6 +201,40 @@ class OrganizationalTaskScopeTests(TestCase):
         self.assertNotIn(self.outsider.pk, choices)
         self.assertNotIn(self.manager.pk, choices)
 
+    def test_inactive_manager_position_or_unit_does_not_grant_task_scope(self):
+        from accounts.access import is_unit_manager
+        from tasks.views import _visible_tasks
+
+        subordinate_task = InternalTask.objects.create(
+            title="وظیفه زیرمجموعه برای آزمون سمت غیرفعال",
+            description="پس از غیرفعال شدن سمت مدیر نباید در دسترس باشد",
+            created_by=self.subordinate,
+        )
+        subordinate_task.assignees.add(self.subordinate)
+        client = Client()
+        client.force_login(self.manager)
+
+        for target in ("position", "unit"):
+            with self.subTest(target=target):
+                self.supervisor_position.is_active = True
+                self.supervisor_position.save(update_fields=["is_active"])
+                self.parent.is_active = True
+                self.parent.save(update_fields=["is_active"])
+                if target == "position":
+                    self.supervisor_position.is_active = False
+                    self.supervisor_position.save(update_fields=["is_active"])
+                else:
+                    self.parent.is_active = False
+                    self.parent.save(update_fields=["is_active"])
+
+                self.assertFalse(is_unit_manager(self.manager))
+                self.assertFalse(
+                    _visible_tasks(self.manager).filter(pk=subordinate_task.pk).exists()
+                )
+                form = InternalTaskForm(user=self.manager)
+                self.assertFalse(form.fields["assignees"].queryset.exists())
+                self.assertEqual(client.get(reverse("task_create")).status_code, 403)
+
     def test_supervisor_sees_subordinate_tasks_but_not_independent_unit_tasks(self):
         from tasks.views import _visible_tasks
 

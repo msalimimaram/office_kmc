@@ -26,6 +26,8 @@ def _active_staff_ids():
     positions = PositionAssignment.objects.filter(
         is_active=True,
         valid_from__lte=today,
+        position__is_active=True,
+        unit__is_active=True,
         unit__company__isnull=True,
         line_code__gt="",
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
@@ -49,6 +51,8 @@ def _manager_scope(user):
         is_active=True,
         valid_from__lte=today,
         position__level__in=[level_model.SUPERVISOR, level_model.RESPONSIBLE],
+        position__is_active=True,
+        unit__is_active=True,
         unit__company__isnull=True,
         line_code__gt="",
     ).filter(
@@ -65,6 +69,7 @@ def _manager_scope(user):
                     PositionAssignment.unit.field.related_model.objects.filter(
                         parent_id__in=frontier,
                         is_active=True,
+                        company__isnull=True,
                     ).values_list("pk", flat=True)
                 )
                 children -= unit_ids
@@ -75,9 +80,11 @@ def _manager_scope(user):
 
         subordinate_scope = PositionAssignment.objects.filter(
             unit_id__in=unit_ids,
+            unit__is_active=True,
             unit__company__isnull=True,
             is_active=True,
             valid_from__lte=today,
+            position__is_active=True,
             position__level__gt=assignment.position.level,
             line_code__gt="",
         ).filter(
