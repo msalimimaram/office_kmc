@@ -244,14 +244,22 @@ def scoped_requests_for(user):
             specialist_lines = line_codes_for(
                 user, role=RoleAssignment.Role.INSURANCE_SPECIALIST
             )
-            if specialist_lines:
-                # Explicit assignment is the work grant for a request whose
-                # kind has no intrinsic insurance-line mapping.
-                role_scoped_ids |= Q(pk__in=assigned_scope.values("pk"))
-                if "*" in specialist_lines or "health" in specialist_lines:
-                    role_scoped_ids |= Q(pk__in=confidential_assigned_scope.filter(
-                        kind__in=health_request_kinds,
-                    ).values("pk"))
+            # A direct assignment to a non-confidential request is itself the
+            # explicit work grant, including legacy specialists whose old role
+            # has no reliable line dimension. This does not create a shared
+            # queue and does not expose confidential requests.
+            role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                is_confidential=False,
+            ).values("pk"))
+            if specialist_lines and (
+                "*" in specialist_lines or "health" in specialist_lines
+            ):
+                role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                    is_confidential=True,
+                ).values("pk"))
+                role_scoped_ids |= Q(pk__in=confidential_assigned_scope.filter(
+                    kind__in=health_request_kinds,
+                ).values("pk"))
 
         insurer_ids = insurer_ids_for(user)
         if insurer_ids:
