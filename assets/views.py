@@ -54,8 +54,14 @@ def _asset_scope(user):
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
+        today = timezone.localdate()
         employed_person_ids = PersonEmployment.objects.filter(
-            company_id__in=company_ids
+            company_id__in=company_ids,
+            status=PersonEmployment.Status.ACTIVE,
+        ).filter(
+            models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
+        ).filter(
+            models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
         ).values_list("person_id", flat=True)
         rep_lines = line_codes_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
         if "*" in rep_lines:
@@ -82,6 +88,25 @@ def _asset_scope(user):
         allowed |= models.Q(person_id__in=person_ids)
 
     return qs.filter(allowed).distinct()
+
+
+def _can_manage_asset(user, asset):
+    """Check specialist authority against the asset's actual insurance domain."""
+    if has_global_access(user):
+        return True
+    if not has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+        return False
+    lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
+    if "*" in lines:
+        return True
+    required = (
+        {"third_party", "body", "vehicle"}
+        if asset.asset_type == InsuredAsset.Type.VEHICLE
+        else {"fire", "property", "liability", "equipment"}
+        if asset.asset_type in {InsuredAsset.Type.PROPERTY, InsuredAsset.Type.EQUIPMENT}
+        else {"other"}
+    )
+    return bool(lines.intersection(required))
 
 
 @login_required
@@ -197,7 +222,7 @@ def _start_asset_approval(*, obj, asset, actor, code, note=""):
 @login_required
 def asset_detail(request, pk):
     asset = get_object_or_404(_asset_scope(request.user), pk=pk)
-    can_manage = has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    can_manage = _can_manage_asset(request.user, asset)
     if request.method == "POST":
         if not can_manage:
             raise PermissionDenied("ثبت سوابق دارایی فقط برای کارشناس رشته مربوط مجاز است.")
@@ -343,9 +368,9 @@ def asset_detail(request, pk):
 
 @login_required
 def asset_update(request, pk):
-    if not has_role(request.user, RoleAssignment.Role.INSURANCE_SPECIALIST):
-        raise PermissionDenied("ویرایش دارایی فقط برای کارشناس رشته مربوط مجاز است.")
     asset = get_object_or_404(_asset_scope(request.user), pk=pk)
+    if not _can_manage_asset(request.user, asset):
+        raise PermissionDenied("ویرایش دارایی فقط برای کارشناس دارای انتصاب در رشته مرتبط مجاز است.")
     if request.method == "POST":
         form = InsuredAssetForm(request.POST, user=request.user, instance=asset)
         if form.is_valid():
