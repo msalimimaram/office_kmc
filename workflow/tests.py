@@ -1112,6 +1112,52 @@ class WorkflowEngineTests(TestCase):
 
 
 
+    def test_published_workflow_is_versioned_without_mutating_the_published_record(self):
+        original = WorkflowDefinition.objects.get(pk=self.definition.pk)
+        original_title = original.title
+        original_published_at = original.published_at
+
+        original.is_active = False
+        original.save(update_fields=["is_active"])
+
+        next_definition = WorkflowDefinition.objects.create(
+            code=original.code,
+            title="Workflow test - version two",
+            version=original.version + 1,
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=next_definition,
+            code="specialist-v2",
+            title="Specialist version two",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        next_definition.approved_by = self.admin
+        next_definition.is_active = True
+        next_definition.save()
+
+        original.refresh_from_db()
+        self.assertEqual(original.title, original_title)
+        self.assertEqual(original.version, 1)
+        self.assertEqual(original.published_at, original_published_at)
+        self.assertFalse(original.is_active)
+        self.assertEqual(next_definition.version, 2)
+        self.assertIsNotNone(next_definition.published_at)
+        self.assertEqual(
+            WorkflowDefinition.objects.filter(code=original.code, is_active=True).count(),
+            1,
+        )
+        self.assertEqual(
+            WorkflowDefinition.objects.get(code=original.code, is_active=True).pk,
+            next_definition.pk,
+        )
+
+        next_definition.title = "Attempted published workflow edit"
+        with self.assertRaises(ValidationError):
+            next_definition.save()
+
     def test_published_workflow_definition_rejects_queryset_and_bulk_mutation(self):
         with self.assertRaises(ValidationError):
             WorkflowDefinition.objects.filter(pk=self.definition.pk).update(published_at=None)
