@@ -759,3 +759,25 @@ class LegacyRoleAssignmentMigrationCommandTests(TestCase):
         self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
         self.assertIn("line_code", output.getvalue())
 
+    def test_removed_legacy_roles_are_never_mapped_to_a_new_business_role(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        for legacy_role in ("finance", "legal", "auditor"):
+            with self.subTest(legacy_role=legacy_role):
+                user = User.objects.create_user(
+                    username=f"legacy-{legacy_role}",
+                    password="StrongPass!2026",
+                    role=legacy_role,
+                    must_change_password=False,
+                )
+                output = StringIO()
+                call_command(
+                    "migrate_legacy_role_assignments",
+                    apply=True,
+                    user_id=user.pk,
+                    stdout=output,
+                )
+                self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
+                self.assertIn("حذف شده", output.getvalue())
+
