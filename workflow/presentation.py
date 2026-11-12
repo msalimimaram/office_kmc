@@ -4,6 +4,8 @@ This module deliberately exposes presentation fields, not arbitrary model
 serialization. Sensitive records get reduced summaries.
 """
 
+from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
+
 
 def _text(value):
     if value is None:
@@ -53,7 +55,6 @@ def build_workflow_presentation(case, *, user=None):
             or is_unit_manager(user)
         )
     )
-    from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
     can_view_confidential_content = bool(
         user and (
             has_global_access(user)
