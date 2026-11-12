@@ -8,7 +8,8 @@ from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
 
 
 class Command(BaseCommand):
-    help = "Publish baseline approval workflows for contracts, assets, and insured-person changes."
+    help = "Publish versioned operational workflows; preserve historical definitions and cases."
+    BASELINE_SCHEMA_VERSION = "baseline-route-v2"
 
     WORKFLOWS = (
         ("contract_approval", "تأیید قرارداد", "approved"),
@@ -49,9 +50,15 @@ class Command(BaseCommand):
         created = []
         skipped = []
         for code, title, approved_step_code in self.WORKFLOWS:
-            if WorkflowDefinition.objects.filter(code=code, is_active=True).exists():
+            active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
+            if active and self.BASELINE_SCHEMA_VERSION in active.description:
                 skipped.append(code)
                 continue
+            if active:
+                # Published definitions remain immutable; only their active
+                # pointer is retired. Existing cases retain their old version.
+                active.is_active = False
+                active.save(update_fields=["is_active"])
             version = (
                 WorkflowDefinition.objects.filter(code=code)
                 .aggregate(value=Max("version"))["value"] or 0
@@ -62,7 +69,7 @@ class Command(BaseCommand):
                 version=version,
                 created_by=actor,
                 description=(
-                    "گردش پایه نسخه‌دار. تغییر مسیر فقط با ایجاد و انتشار نسخه جدید "
+                    f"{self.BASELINE_SCHEMA_VERSION}: گردش پایه نسخه‌دار. تغییر مسیر فقط با ایجاد و انتشار نسخه جدید "
                     "و تأیید رئیس اداره بیمه یا مدیر سامانه مجاز است."
                 ),
             )
@@ -82,9 +89,13 @@ class Command(BaseCommand):
         # Every ServiceRequest kind is routed through the same audited state
         # contract, while each kind keeps its own immutable workflow definition.
         for code, title in ServiceRequest.Kind.choices:
-            if WorkflowDefinition.objects.filter(code=code, is_active=True).exists():
+            active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
+            if active and self.BASELINE_SCHEMA_VERSION in active.description:
                 skipped.append(code)
                 continue
+            if active:
+                active.is_active = False
+                active.save(update_fields=["is_active"])
             version = (
                 WorkflowDefinition.objects.filter(code=code)
                 .aggregate(value=Max("version"))["value"] or 0
@@ -95,7 +106,7 @@ class Command(BaseCommand):
                 version=version,
                 created_by=actor,
                 description=(
-                    "گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
+                    f"{self.BASELINE_SCHEMA_VERSION}: گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
                     "تأیید رئیس اداره بیمه یا مدیر سامانه تغییر می‌کنند."
                 ),
             )

@@ -1277,6 +1277,48 @@ class WorkflowEngineTests(TestCase):
 
 
 class OperationalWorkflowSeedCommandTests(TestCase):
+    def test_seed_command_publishes_new_version_when_active_baseline_is_outdated(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition, WorkflowStep
+
+        head = User.objects.create_user(
+            username="workflow-seed-upgrade-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای ارتقای گردش‌کار",
+        )
+        old = WorkflowDefinition.objects.create(
+            code="other",
+            title="گردش قدیمی درخواست",
+            version=1,
+            created_by=head,
+            description="تعریف قدیمی بدون نسخه مسیر جدید",
+        )
+        WorkflowStep.objects.create(
+            definition=old,
+            code="submitted",
+            title="ثبت‌شده",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        old.approved_by = head
+        old.is_active = True
+        old.save()
+
+        call_command("seed_operational_workflows")
+        old.refresh_from_db()
+        current = WorkflowDefinition.objects.get(code="other", is_active=True)
+        self.assertFalse(old.is_active)
+        self.assertEqual(current.version, 2)
+        self.assertIn("baseline-route-v2", current.description)
+        self.assertEqual(old.steps.count(), 1)
+
     def test_seed_command_publishes_all_operational_workflows_idempotently(self):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
