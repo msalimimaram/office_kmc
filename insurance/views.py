@@ -34,7 +34,16 @@ def _contract_scope(user):
             allowed |= Q(line__in=lines)
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        allowed |= Q(companies__in=company_ids)
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= Q(companies__in=company_ids)
+        elif representative_lines:
+            allowed |= Q(
+                companies__in=company_ids,
+                line__in=representative_lines,
+            )
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
         allowed |= Q(insurer_id__in=insurer_ids)
