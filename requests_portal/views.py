@@ -18,7 +18,7 @@ from organizations.forms import current_company_id_for_person
 from organizations.models import Company
 from .models import ServiceRequest
 from django.contrib.contenttypes.models import ContentType
-from workflow.models import WorkflowCase, WorkflowDefinition
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent
 from workflow.services import resolve_initial_assignee, start_workflow
 
 
@@ -188,11 +188,19 @@ def request_detail(request, pk):
         content_type=content_type, object_id=str(item.pk)
     ).select_related("current_assignee").first()
 
-    if workflow_case and (
-        has_global_access(request.user)
-        or workflow_case.current_assignee_id == request.user.pk
-    ):
-        return redirect("workflow_case_detail", pk=workflow_case.pk)
+    if workflow_case:
+        is_workflow_participant = (
+            workflow_case.current_assignee_id == request.user.pk
+            or workflow_case.events.filter(
+                models.Q(from_assignee_id=request.user.pk)
+                | models.Q(to_assignee_id=request.user.pk)
+            ).exists()
+        )
+        if has_global_access(request.user) or is_workflow_participant:
+            # Operational participants must use the workflow presentation,
+            # which redacts confidential payloads and internal notes for
+            # former assignees. Never render the unrestricted request detail.
+            return redirect("workflow_case_detail", pk=workflow_case.pk)
 
     if request.method == "POST":
         raise PermissionDenied(
