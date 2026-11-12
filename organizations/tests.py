@@ -7,7 +7,15 @@ from django.urls import reverse
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import RoleAssignment, User
-from organizations.models import Company, CompanyLeadershipPosition, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest
+from organizations.models import (
+    Company,
+    CompanyLeadershipPosition,
+    CompanyLeadershipTitle,
+    Person,
+    PersonEmployment,
+    PersonRelationship,
+    PersonChangeRequest,
+  )
 from insurance.models import Contract, Insurer, InsuranceLine
 from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
 from workflow.services import transition_case
@@ -1014,3 +1022,108 @@ class CompanyAdminAuthorizationTests(TestCase):
         self.assertTrue(company_admin.has_module_permission(admin_request))
         self.assertTrue(company_admin.has_add_permission(admin_request))
         self.assertFalse(company_admin.has_delete_permission(admin_request))
+
+class PersonRelationshipIntegrityTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(
+            code="REL-COMP",
+            name="شرکت روابط اشخاص",
+        )
+        self.primary = Person.objects.create(
+            company=self.company,
+            national_id="1111111111",
+            first_name="بیمه‌شده",
+            last_name="اصلی",
+            birth_date=date(1985, 1, 1),
+        )
+
+    def _dependent(self, national_id, relationship=Person.Relationship.SPOUSE):
+        return Person.objects.create(
+            company=self.company,
+            national_id=national_id,
+            first_name="فرد",
+            last_name="تحت تکفل",
+            birth_date=date(1990, 1, 1),
+            relationship=relationship,
+            employee=self.primary,
+        )
+
+    def test_legacy_dependent_fields_create_a_time_bounded_relationship_record(self):
+        dependent = self._dependent("2222222222")
+
+        relation = PersonRelationship.objects.get(dependent_person=dependent)
+
+        self.assertEqual(relation.primary_person_id, self.primary.pk)
+        self.assertEqual(relation.relationship_type, PersonRelationship.RelationshipType.SPOUSE)
+        self.assertEqual(relation.status, PersonRelationship.Status.ACTIVE)
+        # The source system never stored a relationship start date; do not
+        # manufacture one during synchronization.
+        self.assertIsNone(relation.valid_from)
+        self.assertTrue(relation.is_valid_on())
+
+    def test_dependent_cannot_be_reassigned_without_a_controlled_relationship_change(self):
+        dependent = self._dependent("3333333333")
+        other_primary = Person.objects.create(
+            company=self.company,
+            national_id="4444444444",
+            first_name="بیمه‌شده",
+            last_name="دوم",
+            birth_date=date(1983, 1, 1),
+        )
+        dependent.employee = other_primary
+
+        with self.assertRaises(ValidationError):
+            dependent.save()
+
+        dependent.refresh_from_db()
+        self.assertEqual(dependent.employee_id, self.primary.pk)
+        self.assertEqual(
+            PersonRelationship.objects.get(dependent_person=dependent).primary_person_id,
+            self.primary.pk,
+        )
+
+    def test_another_dependent_cannot_be_used_as_the_primary_person(self):
+        first_dependent = self._dependent(
+            "5555555555",
+            relationship=Person.Relationship.CHILD,
+        )
+        second_dependent = self._dependent(
+            "6666666666",
+            relationship=Person.Relationship.CHILD,
+        )
+        invalid_relation = PersonRelationship(
+            primary_person=first_dependent,
+            dependent_person=second_dependent,
+            relationship_type=PersonRelationship.RelationshipType.CHILD,
+        )
+
+        with self.assertRaises(ValidationError):
+            invalid_relation.save()
+
+    def test_open_ended_employment_supports_open_ended_leadership_appointment(self):
+        today = timezone.localdate()
+        PersonEmployment.objects.create(
+            person=self.primary,
+            company=self.company,
+            valid_from=today - timedelta(days=365),
+            valid_until=None,
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        declarer = User.objects.create_user(
+            username="relationship-title-declarer",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        appointment = CompanyLeadershipTitle(
+            company=self.company,
+            person=self.primary,
+            title="مدیرعامل",
+            valid_from=today,
+            valid_until=None,
+            declared_by=declarer,
+        )
+
+        appointment.save()
+
+        self.assertIsNotNone(appointment.pk)
+
