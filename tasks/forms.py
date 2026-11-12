@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, is_unit_manager
 from accounts.models import PositionAssignment, RoleAssignment
 from core.permissions import scoped_requests_for
 from requests_portal.models import ServiceRequest
@@ -118,17 +118,11 @@ class InternalTaskForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        if not has_global_access(self.user):
-            today = timezone.localdate()
-            levels = PositionAssignment.objects.filter(
-                user=self.user, is_active=True, valid_from__lte=today,
-                position__level__in=[
-                    PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-                    PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-                ],
-            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values_list("position__level", flat=True)
-            if not levels:
-                self.add_error(None, "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول مجاز می‌تواند وظیفه تعریف کند.")
+        if not has_global_access(self.user) and not is_unit_manager(self.user):
+            self.add_error(
+                None,
+                "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول دارای انتصاب معتبر در اداره بیمه مجاز است وظیفه تعریف کند.",
+            )
 
         related_request = cleaned.get("related_request")
         assignees = cleaned.get("assignees")
