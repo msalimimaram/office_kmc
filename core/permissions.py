@@ -160,7 +160,7 @@ def scoped_requests_for(user):
         current_assignee_id=user.pk,
         status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
         is_locked=False,
-    ).values("object_id")
+    ).annotate(domain_pk=Cast("object_id", BigIntegerField())).values("domain_pk")
     confidential_assigned_scope = ServiceRequest.objects.filter(
         pk__in=active_workflow_request_ids,
         is_confidential=True,
