@@ -304,14 +304,10 @@ class ServiceRequestTests(TestCase):
         response = client.post(reverse("request_detail", args=[item.pk]), {
             "status": ServiceRequest.Status.IN_REVIEW, "response": "شروع بررسی"
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         item.refresh_from_db()
         self.assertEqual(item.assigned_to_id, specialist.pk)
-        self.assertEqual(item.status, ServiceRequest.Status.IN_REVIEW)
-        response = client.post(reverse("request_detail", args=[item.pk]), {
-            "status": ServiceRequest.Status.APPROVED, "response": "تأیید"
-        })
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
 
     def test_head_updates_do_not_claim_specialist_queue_and_response_history_is_preserved(self):
         item = ServiceRequest.objects.create(
@@ -328,15 +324,15 @@ class ServiceRequestTests(TestCase):
         response = client.post(reverse("request_detail", args=[item.pk]), {
             "status": ServiceRequest.Status.IN_REVIEW, "response": "بررسی آغاز شد"
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         response = client.post(reverse("request_detail", args=[item.pk]), {
             "status": ServiceRequest.Status.NEEDS_INFO, "response": "لطفاً اطلاعات تکمیلی ارائه شود"
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         item.refresh_from_db()
         self.assertIsNone(item.assigned_to_id)
-        self.assertIn("بررسی آغاز شد", item.response)
-        self.assertIn("لطفاً اطلاعات تکمیلی ارائه شود", item.response)
+        self.assertEqual(item.status, ServiceRequest.Status.SUBMITTED)
+        self.assertEqual(item.response, "")
 
     def test_employee_medical_request_must_select_self_or_insured_dependent(self):
         representative = User.objects.create_user(
@@ -459,7 +455,7 @@ class LegacyRequestTransitionPermissionTests(TestCase):
         )
 
     def test_assigned_specialist_can_start_review_but_cannot_make_decision(self):
-        self.assertTrue(
+        self.assertFalse(
             can_transition_request(
                 self.specialist, self.item, ServiceRequest.Status.IN_REVIEW
             )

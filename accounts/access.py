@@ -139,12 +139,16 @@ def has_role(
     """Check an operational role with optional company, insurer and line scope."""
     if not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
         return False
-    if getattr(user, "is_superuser", False):
-        return True
-
     requested = set(roles)
     if not requested:
         return False
+
+    # Django's superuser flag is a technical account capability, not a grant
+    # to impersonate every business role or tenant. It maps only to the
+    # explicit System Admin role; company/insurer/specialist scopes remain
+    # represented by their own assignments.
+    if getattr(user, "is_superuser", False):
+        return RoleAssignment.Role.SYSTEM_ADMIN in requested
 
     assignments = active_assignments(user, on_date=on_date).filter(role__in=requested)
     if company_id is not None:

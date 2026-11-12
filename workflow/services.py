@@ -1009,6 +1009,25 @@ def record_case_action(*, case_id, actor, action_code, note="", metadata=None):
 
 
 @transaction.atomic
+def _previous_assignee_for_case(case):
+    """Return the immediately preceding owner for a controlled return action."""
+    event = WorkflowEvent.objects.filter(
+        workflow_case=case,
+        to_assignee_id=case.current_assignee_id,
+        from_assignee__isnull=False,
+    ).select_related("from_assignee").order_by("-sent_at", "-pk").first()
+    return event.from_assignee if event else None
+
+
+RETURN_TO_PREVIOUS_ACTIONS = {
+    "submit_information",
+    "return_from_insurer",
+    "return_for_correction",
+    "send_back_to_insurer",
+    "resume_review",
+}
+
+
 def transition_case(*, case_id, actor, action_code, recipient=None, note="", calendar=None):
     case = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "delegation"
@@ -1099,6 +1118,13 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     else:
         if transition.target_step is None:
             raise ValidationError("مرحله مقصد برای این اقدام مشخص نشده است.")
+        if action_code in RETURN_TO_PREVIOUS_ACTIONS:
+            previous_owner = _previous_assignee_for_case(case)
+            if previous_owner is None:
+                raise ValidationError("مسئول قبلی پرونده برای بازگشت معتبر پیدا نشد؛ پرونده باید توسط مدیر بررسی شود.")
+            if recipient is not None and recipient.pk != previous_owner.pk:
+                raise PermissionDenied("این اقدام باید به مسئول قبلی پرونده بازگردد.")
+            recipient = previous_owner
         target = recipient or actor
         allowed_recipients = transition.recipient_roles or transition.target_step.allowed_roles
         allowed_position_recipients = (

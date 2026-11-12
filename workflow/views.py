@@ -8,7 +8,7 @@ from django.db.models import Q
 
 from accounts.access import has_global_access, is_unit_manager
 from accounts.models import RoleAssignment, User
-from .models import WorkflowCase, WorkflowTransition
+from .models import WorkflowCase, WorkflowEvent, WorkflowTransition
 from .presentation import build_workflow_presentation
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
@@ -44,6 +44,21 @@ def _visible_cases(user):
 
 
 def _eligible_recipients(case, transition):
+    if transition.action_code in {
+        "submit_information", "return_from_insurer", "return_for_correction",
+        "send_back_to_insurer", "resume_review",
+    }:
+        previous_event = WorkflowEvent.objects.filter(
+            workflow_case=case,
+            to_assignee_id=case.current_assignee_id,
+            from_assignee__isnull=False,
+        ).order_by("-sent_at", "-pk").first()
+        if previous_event and previous_event.from_assignee_id:
+            return User.objects.filter(
+                pk=previous_event.from_assignee_id, is_active=True
+            )
+        return User.objects.none()
+
     roles = transition.recipient_roles or (
         transition.target_step.allowed_roles if transition.target_step_id else []
     )

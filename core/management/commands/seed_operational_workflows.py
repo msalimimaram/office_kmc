@@ -159,8 +159,8 @@ class Command(BaseCommand):
 
         transition(
             ServiceRequest.Status.SUBMITTED, ServiceRequest.Status.IN_REVIEW,
-            "accept_for_review", "پذیرش و شروع بررسی",
-            company_roles + global_roles, global_roles,
+            "accept_for_review", "پذیرش و ارجاع به کارشناس اداره بیمه",
+            company_roles + global_roles, review_roles,
         )
         transition(
             ServiceRequest.Status.IN_REVIEW, ServiceRequest.Status.NEEDS_INFO,
@@ -184,13 +184,13 @@ class Command(BaseCommand):
         )
         transition(
             ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.IN_REVIEW,
-            "submit_information", "ارسال اطلاعات تکمیلی",
-            employee_roles, global_roles, note=True,
+            "submit_information", "ارسال اطلاعات تکمیلی به مسئول قبلی",
+            employee_roles, review_roles, note=True,
         )
         transition(
             ServiceRequest.Status.REFERRED, ServiceRequest.Status.IN_REVIEW,
-            "return_from_insurer", "دریافت پاسخ بیمه‌گر",
-            insurer_roles, global_roles, note=True,
+            "return_from_insurer", "بازگشت پاسخ بیمه‌گر به مسئول قبلی",
+            insurer_roles, review_roles, note=True,
         )
         transition(
             ServiceRequest.Status.APPROVED, ServiceRequest.Status.COMPLETED,

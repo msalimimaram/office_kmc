@@ -155,68 +155,30 @@ def request_create(request):
 
 @login_required
 def request_detail(request, pk):
+    """Read-only owner view; all operational status changes belong to workflow."""
     item = get_object_or_404(scoped_requests_for(request.user), pk=pk)
-    user = request.user
-    can_process = can_process_request(user, item)
     content_type = ContentType.objects.get_for_model(item, for_concrete_model=False)
-    workflow_case = WorkflowCase.objects.filter(content_type=content_type, object_id=str(item.pk)).select_related("current_assignee").first()
-    if workflow_case and (has_global_access(user) or workflow_case.current_assignee_id == user.pk):
+    workflow_case = WorkflowCase.objects.filter(
+        content_type=content_type, object_id=str(item.pk)
+    ).select_related("current_assignee").first()
+
+    if workflow_case and (
+        has_global_access(request.user)
+        or workflow_case.current_assignee_id == request.user.pk
+    ):
         return redirect("workflow_case_detail", pk=workflow_case.pk)
 
     if request.method == "POST":
-        if not can_process:
-            raise PermissionDenied
-        status = request.POST.get("status")
-        if status not in dict(ServiceRequest.Status.choices):
-            raise PermissionDenied
-        if not can_transition_request(user, item, status):
-            raise PermissionDenied("این اقدام در مرحله فعلی یا برای انتصاب شما مجاز نیست.")
-
-        response_text = request.POST.get("response", "").strip()[:10000]
-        if status in {ServiceRequest.Status.NEEDS_INFO, ServiceRequest.Status.REJECTED} and not response_text:
-            messages.error(request, "برای درخواست اطلاعات تکمیلی یا رد درخواست، درج توضیح الزامی است.")
-            return redirect("request_detail", pk=item.pk)
-
-        with transaction.atomic():
-            item = get_object_or_404(
-                scoped_requests_for(user).select_for_update(), pk=pk
-            )
-            if not can_process_request(user, item) or not can_transition_request(user, item, status):
-                raise PermissionDenied
-            previous_status = item.status
-            previous_assignee = item.assigned_to_id
-            item.status = status
-            if response_text:
-                stamp = timezone.localtime().strftime("%Y-%m-%d %H:%M")
-                actor_name = user.get_full_name() or user.get_username()
-                entry = f"[{stamp} | {actor_name} | {status}]\n{response_text}"
-                item.response = f"{item.response.rstrip()}\n\n{entry}".strip() if item.response else entry
-            item.save(update_fields=["status", "response", "updated_at"])
-            record_event(
-                actor=user,
-                action="service_request_updated",
-                obj=item,
-                summary=f"وضعیت درخواست از {previous_status} به {status} تغییر کرد",
-                before_data={"status": previous_status, "assigned_to_id": previous_assignee},
-                after_data={"status": status, "assigned_to_id": item.assigned_to_id},
-                request=request,
-            )
-        messages.success(request, "درخواست به‌روزرسانی شد.")
-        return redirect("request_detail", pk=item.pk)
-
-    allowed_statuses = [(item.status, item.get_status_display())]
-    if can_process:
-        allowed_statuses.extend(
-            (key, label)
-            for key, label in ServiceRequest.Status.choices
-            if key != item.status and can_transition_request(user, item, key)
+        raise PermissionDenied(
+            "تغییر وضعیت و پاسخ عملیاتی فقط از مسیر گردش‌کار مجاز است."
         )
+
     return render(request, "requests_portal/request_detail.html", {
         "item": item,
-        "statuses": allowed_statuses,
-        "can_process": can_process,
+        "statuses": [(item.status, item.get_status_display())],
+        "can_process": False,
+        "workflow_case": workflow_case,
     })
-
 
 
 @login_required

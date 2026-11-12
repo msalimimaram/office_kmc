@@ -82,6 +82,20 @@ class ScopedRoleAssignmentTests(TestCase):
         )
         self.assertTrue(has_global_access(admin_user))
 
+    def test_superuser_is_system_admin_not_every_business_role(self):
+        admin = User.objects.create_user(
+            username="technical-superuser",
+            password="StrongPass!2026",
+            is_superuser=True,
+            is_staff=True,
+            must_change_password=False,
+        )
+        self.assertTrue(has_global_access(admin))
+        self.assertTrue(has_role(admin, RoleAssignment.Role.SYSTEM_ADMIN))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.SUBSIDIARY_REP))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.INSURER_REP))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.INSURANCE_SPECIALIST))
+
     def test_insurer_assignment_is_bound_to_one_insurer(self):
         insurer_a = Insurer.objects.create(name="بیمه الف")
         insurer_b = Insurer.objects.create(name="بیمه ب")
