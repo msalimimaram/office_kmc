@@ -1,10 +1,12 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.db.models import Q, Max
 from django.utils import timezone
 
 from accounts.models import RoleAssignment
 from requests_portal.models import ServiceRequest
-from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition
+from workflow.services import _scope_for_object, _validate_recipient, is_delegated_assignee
 
 
 class Command(BaseCommand):
@@ -22,6 +24,7 @@ class Command(BaseCommand):
         ("claim_objection", "رسیدگی به اعتراض خسارت", "closed"),
     )
 
+    @transaction.atomic
     def handle(self, *args, **options):
         today = timezone.localdate()
         global_roles = [
@@ -52,6 +55,7 @@ class Command(BaseCommand):
         for code, title, approved_step_code in self.WORKFLOWS:
             active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
             if active and self.BASELINE_SCHEMA_VERSION in active.description:
+                self._rebase_open_cases(code, active, actor)
                 skipped.append(code)
                 continue
             if active:
@@ -84,6 +88,7 @@ class Command(BaseCommand):
             definition.approved_by = actor
             definition.is_active = True
             definition.save()
+            self._rebase_open_cases(code, definition, actor)
             created.append(code)
 
         # Every ServiceRequest kind is routed through the same audited state
@@ -91,6 +96,7 @@ class Command(BaseCommand):
         for code, title in ServiceRequest.Kind.choices:
             active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
             if active and self.BASELINE_SCHEMA_VERSION in active.description:
+                self._rebase_open_cases(code, active, actor)
                 skipped.append(code)
                 continue
             if active:
@@ -114,6 +120,7 @@ class Command(BaseCommand):
             definition.approved_by = actor
             definition.is_active = True
             definition.save()
+            self._rebase_open_cases(code, definition, actor)
             created.append(code)
 
         if created:
@@ -125,6 +132,80 @@ class Command(BaseCommand):
             "Person changes follow Company Representative → Insurer Representative → "
             "Company Representative; insurer representatives cannot close requests."
         )
+
+    def _rebase_open_cases(self, code, definition, actor):
+        """Move open cases to the active version without discarding event history.
+
+        Every case is prevalidated against the new step's scope. If its owner
+        no longer qualifies, the whole seed transaction rolls back instead of
+        silently granting access or orphaning an active case.
+        """
+        cases = WorkflowCase.objects.filter(
+            definition__code=code,
+            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        ).exclude(definition=definition).select_related(
+            "definition", "current_step", "current_assignee",
+            "current_position_assignment", "delegation", "content_type",
+        ).order_by("pk")
+        for case in cases:
+            if not case.current_step_id or not case.current_assignee_id or case.is_locked:
+                raise CommandError(
+                    f"WorkflowCase #{case.pk} cannot be upgraded: current owner/step is missing or locked."
+                )
+            target_step = definition.steps.filter(code=case.current_step.code).first()
+            if target_step is None:
+                raise CommandError(
+                    f"WorkflowCase #{case.pk} cannot be upgraded: step '{case.current_step.code}' is absent in v{definition.version}."
+                )
+            scope = _scope_for_object(case.content_object)
+            try:
+                position_assignment = _validate_recipient(
+                    case.current_assignee,
+                    target_step.allowed_roles,
+                    position_levels=target_step.allowed_position_levels,
+                    scope=scope,
+                    source_user=case.current_assignee,
+                )
+            except (PermissionDenied, ValidationError) as exc:
+                if case.delegation_id and is_delegated_assignee(case, case.current_assignee):
+                    position_assignment = None
+                else:
+                    raise CommandError(
+                        f"WorkflowCase #{case.pk} owner is not eligible for upgraded step '{target_step.code}': {exc}"
+                    ) from exc
+
+            old_definition = case.definition
+            old_step = case.current_step
+            old_assignee = case.current_assignee
+            old_position_assignment = case.current_position_assignment
+            case.definition = definition
+            case.current_step = target_step
+            case.current_position_assignment = position_assignment
+            case.save(update_fields=[
+                "definition", "current_step", "current_position_assignment",
+            ])
+            WorkflowEvent.objects.create(
+                workflow_case=case,
+                actor=actor,
+                event_type=WorkflowEvent.EventType.ACTION,
+                action_code="workflow_version_migrated",
+                from_step=old_step,
+                to_step=target_step,
+                from_assignee=old_assignee,
+                to_assignee=old_assignee,
+                from_position_assignment=old_position_assignment,
+                to_position_assignment=position_assignment,
+                note=(
+                    f"انتقال کنترل‌شده پرونده از نسخه {old_definition.version} "
+                    f"به نسخه {definition.version} گردش‌کار؛ تاریخچه قبلی حفظ شد."
+                ),
+                acted_at=timezone.now(),
+                sent_at=timezone.now(),
+                metadata={
+                    "from_version": old_definition.version,
+                    "to_version": definition.version,
+                },
+            )
 
     def _build_service_request(self, definition, global_roles):
         company_roles = [RoleAssignment.Role.SUBSIDIARY_REP]
