@@ -73,6 +73,11 @@ class InsuredAsset(models.Model):
     created_at = models.DateTimeField("تاریخ ثبت", auto_now_add=True)
     updated_at = models.DateTimeField("آخرین بروزرسانی", auto_now=True)
 
+    POLICY_SNAPSHOT_FIELDS = (
+        "insured_value", "insurer_id", "contract_id",
+        "policy_number", "policy_start", "policy_end",
+    )
+
     class Meta:
         ordering = ["company__name", "asset_type", "name"]
         verbose_name = "دارایی بیمه‌شده"
@@ -115,6 +120,19 @@ class InsuredAsset(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self.pk and not getattr(self, "_workflow_sync", False):
+            previous = type(self).objects.filter(pk=self.pk).values(
+                *self.POLICY_SNAPSHOT_FIELDS
+            ).get()
+            changed = [
+                field for field in self.POLICY_SNAPSHOT_FIELDS
+                if previous[field] != getattr(self, field)
+            ]
+            if changed:
+                raise ValidationError(
+                    "اطلاعات ارزش و بیمه‌نامه دارایی فقط از مسیر سوابق تأییدشده "
+                    "ارزیابی و دوره بیمه‌نامه قابل تغییر است."
+                )
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -219,7 +237,11 @@ class AssetValuation(models.Model):
         if step_code == self.Status.APPROVED:
             asset = self.asset
             asset.insured_value = self.insured_value
-            asset.save(update_fields=["insured_value", "updated_at"])
+            asset._workflow_sync = True
+            try:
+                asset.save(update_fields=["insured_value", "updated_at"])
+            finally:
+                asset._workflow_sync = False
 
     def delete(self, *args, **kwargs):
         raise ValidationError("سابقه ارزیابی حذف نمی‌شود.")
@@ -329,10 +351,14 @@ class AssetPolicyPeriod(models.Model):
         asset.policy_start = self.policy_start
         asset.policy_end = self.policy_end
         asset.is_active = True
-        asset.save(update_fields=[
-            "insurer", "contract", "policy_number", "policy_start",
-            "policy_end", "is_active", "updated_at",
-        ])
+        asset._workflow_sync = True
+        try:
+            asset.save(update_fields=[
+                "insurer", "contract", "policy_number", "policy_start",
+                "policy_end", "is_active", "updated_at",
+            ])
+        finally:
+            asset._workflow_sync = False
 
     def activate_if_due(self, *, on_date=None):
         from django.utils import timezone
