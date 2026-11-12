@@ -128,7 +128,7 @@ class WorkflowEngineTests(TestCase):
         )
         representative = User.objects.create_user(
             username="person-change-current-rep", password="StrongPass!123",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         from accounts.models import RoleAssignment
         RoleAssignment.objects.create(
@@ -774,7 +774,7 @@ class WorkflowEngineTests(TestCase):
     def test_initial_assignee_infers_company_and_line_scope_from_object(self):
         representative = User.objects.create_user(
             username="workflow-scoped-company-rep",
-            password="StrongPass!123",
+            password="StrongPass!123", company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -1169,7 +1169,7 @@ class WorkflowEngineTests(TestCase):
         company_a = Company.objects.create(code="WF-SCOPE-A", name="شرکت تاریخی الف")
         company_b = Company.objects.create(code="WF-SCOPE-B", name="شرکت تاریخی ب")
         representative = User.objects.create_user(
-            username="workflow-snapshot-rep", password="StrongPass!123"
+            username="workflow-snapshot-rep", password="StrongPass!123", company=company_a
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -1228,13 +1228,15 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(scope["owner_user_id"], 159)
 
     def test_company_representative_is_denied_when_workflow_object_has_no_company_scope(self):
+        unscoped_company = Company.objects.create(code="WF-UNSCOPED", name="شرکت بدون محدوده")
         representative = User.objects.create_user(
-            username="workflow-unscoped-rep", password="StrongPass!123"
+            username="workflow-unscoped-rep", password="StrongPass!123",
+            company=unscoped_company,
         )
         RoleAssignment.objects.create(
             user=representative,
             role=RoleAssignment.Role.SUBSIDIARY_REP,
-            company=Company.objects.create(code="WF-UNSCOPED", name="شرکت بدون محدوده"),
+            company=unscoped_company,
             line_code="health",
             reason="نماینده شرکت",
         )
@@ -1248,7 +1250,7 @@ class WorkflowEngineTests(TestCase):
         company_a = Company.objects.create(code="WF-A", name="شرکت گردش کار الف")
         company_b = Company.objects.create(code="WF-B", name="شرکت گردش کار ب")
         representative = User.objects.create_user(
-            username="workflow-rep", password="StrongPass!123"
+            username="workflow-rep", password="StrongPass!123", company=company_a
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -1572,7 +1574,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         representative = User.objects.create_user(
             username="workflow-rebase-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=company,
         )
         RoleAssignment.objects.create(
             user=representative,

@@ -35,7 +35,7 @@ class ServiceRequestTests(TestCase):
         representative = User.objects.create_user(
             username="request-initial-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -389,7 +389,7 @@ class ServiceRequestTests(TestCase):
         representative = User.objects.create_user(
             username="medical-initial-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
