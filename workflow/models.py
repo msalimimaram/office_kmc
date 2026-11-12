@@ -543,6 +543,11 @@ class WorkflowSatisfactionSurvey(models.Model):
             WorkflowCase.Status.COMPLETED,
         }:
             raise ValidationError("ثبت ارزیابی رضایت فقط پس از پایان گردش کار مجاز است.")
+        if self.workflow_case_id and self.respondent_id:
+            from workflow.services import _workflow_owner_candidates
+            owners = _workflow_owner_candidates(self.workflow_case.content_object)
+            if not any(owner.pk == self.respondent_id for owner in owners):
+                raise ValidationError("فقط درخواست‌کننده یا بیمه‌شده مرتبط مجاز به ثبت ارزیابی است.")
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
