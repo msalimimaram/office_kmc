@@ -366,8 +366,6 @@ def correspondence_detail(request, pk):
                         )
                     if next_status == Correspondence.FollowUp.PENDING and not next_due:
                         follow_up_form.add_error("follow_up_due", "برای پیگیری در انتظار، تعیین مهلت الزامی است.")
-                    if next_status != Correspondence.FollowUp.PENDING and next_due:
-                        follow_up_form.add_error("follow_up_due", "برای پیگیری تکمیل‌شده یا غیرضروری، مهلت باز نباید ثبت شود.")
                     if follow_up_form.errors:
                         messages.error(request, "وضعیت یا مهلت پیگیری معتبر نیست.")
                         return render(request, "correspondence/correspondence_detail.html", {
