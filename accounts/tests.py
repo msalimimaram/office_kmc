@@ -62,6 +62,60 @@ class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
         defaults.update(kwargs)
         return RoleAssignment.objects.create(**defaults)
 
+    def test_company_representative_must_be_linked_to_the_same_company(self):
+        user = self._user("rep-wrong-company")
+        user.company = self.company_a
+        user.save(update_fields=["company"])
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=user, role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_b, line_code="health",
+                valid_from=self.today,
+                reason="تلاش برای انتصاب در شرکت نامرتبط",
+            )
+        self.assertIn("company", raised.exception.message_dict)
+
+    def test_company_representative_requires_company_identity_when_no_person_record_exists(self):
+        user = self._user("rep-without-company-identity")
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=user, role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a, line_code="health",
+                valid_from=self.today,
+                reason="تلاش برای انتصاب بدون هویت شرکتی",
+            )
+        self.assertIn("company", raised.exception.message_dict)
+
+    def test_dependent_representative_must_be_covered_by_primary_employee_employment(self):
+        from organizations.models import Person, PersonEmployment
+        employee = Person.objects.create(
+            company=self.company_a, national_id="1111111111",
+            first_name="کارمند", last_name="اصلی",
+            birth_date=self.today - timedelta(days=12000),
+        )
+        PersonEmployment.objects.create(
+            person=employee, company=self.company_a,
+            valid_from=self.today - timedelta(days=30),
+            valid_until=self.today + timedelta(days=10),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        dependent_user = self._user("rep-dependent")
+        Person.objects.create(
+            company=self.company_a, user=dependent_user, employee=employee,
+            relationship=Person.Relationship.SPOUSE,
+            national_id="2222222222", first_name="همسر", last_name="کارمند",
+            birth_date=self.today - timedelta(days=11000),
+        )
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=dependent_user, role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a, line_code="health",
+                valid_from=self.today,
+                valid_until=self.today + timedelta(days=20),
+                reason="انتصاب خارج از بازه اشتغال کارمند اصلی",
+            )
+        self.assertIn("company", raised.exception.message_dict)
+
     def test_company_limit_counts_distinct_users_not_line_assignments(self):
         first = self._user("rep-limit-first")
         second = self._user("rep-limit-second")

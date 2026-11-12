@@ -315,6 +315,13 @@ class RoleAssignment(models.Model):
                         "employee"
                     ).first()
                     if linked_person:
+                        if (
+                            linked_person.relationship != Person.Relationship.EMPLOYEE
+                            and not linked_person.employee_id
+                        ):
+                            errors["user"] = (
+                                "نماینده‌ای که بیمه‌شده اصلی نیست باید به رابطه تحت تکفلِ کارمند اصلی متصل باشد."
+                            )
                         primary_employee = linked_person.employee if linked_person.employee_id else linked_person
                         employment_rows = PersonEmployment.objects.filter(person_id=primary_employee.pk)
                         if employment_rows.exists():
