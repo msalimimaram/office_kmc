@@ -9,6 +9,7 @@ from django.db.models import Q
 from accounts.access import has_global_access
 from accounts.models import RoleAssignment, User
 from .models import WorkflowCase, WorkflowTransition
+from .presentation import build_workflow_presentation
 from .services import (
     _has_any_role, _scope_for_object, acknowledge_case, mark_case_opened,
     set_final_lock, transition_case, is_delegated_assignee,
@@ -95,8 +96,11 @@ def _eligible_recipients(case, transition):
 def workflow_case_list(request):
     cases = _visible_cases(request.user).order_by("sla_due_at", "-opened_at")
     page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
+    case_rows = list(page_obj.object_list)
+    for case in case_rows:
+        case.domain_presentation = build_workflow_presentation(case, user=request.user)
     return render(request, "workflow/workflow_case_list.html", {
-        "cases": page_obj.object_list,
+        "cases": case_rows,
         "page_obj": page_obj,
     })
 
@@ -153,6 +157,7 @@ def workflow_case_detail(request, pk):
         mark_case_opened(case_id=case.pk, actor=request.user)
         case.refresh_from_db()
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
+    presentation = build_workflow_presentation(case, user=request.user)
     transitions = []
     if can_act:
         for item in WorkflowTransition.objects.filter(
@@ -172,6 +177,7 @@ def workflow_case_detail(request, pk):
                 transitions.append((item, _eligible_recipients(case, item)))
     return render(request, "workflow/workflow_case_detail.html", {
         "case": case,
+        "presentation": presentation,
         "events": events,
         "transitions": transitions,
         "can_act": can_act,
