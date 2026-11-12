@@ -166,6 +166,11 @@ class WorkflowCoverageCommandTests(TestCase):
             email="workflow-audit@example.invalid",
             password="StrongPass!123",
         )
+        RoleAssignment.objects.create(
+            user=admin_user,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون ممیزی گردش‌کار",
+        )
         for kind, _label in ServiceRequest.Kind.choices:
             definition = WorkflowDefinition.objects.create(
                 code=kind,
