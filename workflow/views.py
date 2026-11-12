@@ -28,11 +28,10 @@ def _visible_cases(user):
     # Current and former assignees can read their own audit trail. A supervisor
     # or responsible can additionally monitor cases assigned to active internal
     # subordinates in their authorized organizational branch; this is read-only.
-    visible = (
-        Q(current_assignee=user)
-        | Q(events__from_assignee=user)
-        | Q(events__to_assignee=user)
-    )
+    # Current ownership requires a live authorization grant (checked below).
+    # Historical owners retain read-only event access; event recipients alone
+    # do not create an enduring permission after reassignment or expiry.
+    visible = Q(current_assignee=user) | Q(events__from_assignee=user)
     if is_unit_manager(user):
         from django.contrib.auth import get_user_model
         from tasks.forms import _manager_scope
@@ -125,9 +124,34 @@ def _eligible_recipients(case, transition):
 
 @login_required
 def workflow_case_list(request):
-    cases = _visible_cases(request.user).order_by("sla_due_at", "-opened_at")
-    page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
-    case_rows = list(page_obj.object_list)
+    cases = _visible_cases(request.user).select_related(
+        "definition", "current_step", "current_assignee", "current_position_assignment",
+        "delegation", "content_type",
+    ).order_by("sla_due_at", "-opened_at")
+    if has_global_access(request.user):
+        page_obj = Paginator(cases, 25).get_page(request.GET.get("page"))
+        case_rows = list(page_obj.object_list)
+    else:
+        # Current owners must still hold the exact role/position grant. Prior
+        # owners can read only their own historical trail, never act on it.
+        visible_rows = []
+        for case in cases.iterator(chunk_size=200):
+            if case.current_assignee_id == request.user.pk:
+                scope = _scope_for_object(case.content_object)
+                delegated = is_delegated_assignee(case, request.user)
+                authorized = delegated or bool(
+                    case.current_step
+                    and _case_actor_authorized(
+                        case, request.user, case.current_step.allowed_roles,
+                        position_levels=case.current_step.allowed_position_levels,
+                        scope=scope,
+                    )
+                )
+                if not authorized:
+                    continue
+            visible_rows.append(case)
+        page_obj = Paginator(visible_rows, 25).get_page(request.GET.get("page"))
+        case_rows = list(page_obj.object_list)
     for case in case_rows:
         case.domain_presentation = build_workflow_presentation(case, user=request.user)
     return render(request, "workflow/workflow_case_list.html", {
@@ -140,6 +164,18 @@ def workflow_case_list(request):
 def workflow_case_detail(request, pk):
     case = get_object_or_404(_visible_cases(request.user), pk=pk)
     scope = _scope_for_object(case.content_object)
+    if case.current_assignee_id == request.user.pk and not (
+        is_delegated_assignee(case, request.user)
+        or (
+            case.current_step
+            and _case_actor_authorized(
+                case, request.user, case.current_step.allowed_roles,
+                position_levels=case.current_step.allowed_position_levels,
+                scope=scope,
+            )
+        )
+    ):
+        raise PermissionDenied("انتصاب جاری شما برای مشاهده عملیاتی این پرونده معتبر نیست.")
     current_step = case.current_step
     can_act = (
         current_step is not None
