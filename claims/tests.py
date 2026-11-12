@@ -33,6 +33,29 @@ class ClaimVisibilityTests(TestCase):
         self.assertContains(response, "CL-1")
         self.assertNotContains(response, "CL-2")
 
+    def test_insured_user_cannot_read_internal_claim_assessment_notes(self):
+        claim = Claim.objects.create(
+            claim_number="CL-PRIVATE-ASSESSMENT",
+            person=self.person_a,
+            service_type="ویزیت",
+            requested_amount=100,
+            assessed_amount=80,
+            payable_amount=70,
+            assessed_by=self.admin,
+            assessed_at=timezone.now(),
+            assessment_note="PRIVATE_INTERNAL_ASSESSMENT_NOTE",
+        )
+        client = Client()
+        client.force_login(self.employee)
+        employee_response = client.get(reverse("claim_detail", args=[claim.pk]))
+        self.assertEqual(employee_response.status_code, 200)
+        self.assertNotContains(employee_response, "PRIVATE_INTERNAL_ASSESSMENT_NOTE")
+        self.assertNotContains(employee_response, "ارزیابی‌کننده")
+
+        client.force_login(self.admin)
+        reviewer_response = client.get(reverse("claim_detail", args=[claim.pk]))
+        self.assertContains(reviewer_response, "PRIVATE_INTERNAL_ASSESSMENT_NOTE")
+
     def test_company_rep_sees_only_company_claims(self):
         client = Client()
         client.force_login(self.rep)

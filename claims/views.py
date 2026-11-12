@@ -246,6 +246,20 @@ def claim_detail(request, pk):
         "can_submit_objection": can_submit_objection,
         "can_review_objections": can_review_objections,
         "is_global_reviewer": has_global_access(user),
+        "can_view_internal_claim_notes": can_decide_claim(user, claim),
+        "can_view_duplicate_details": bool(
+            has_global_access(user)
+            or can_decide_claim(user, claim)
+            or (
+                claim.insurer_id
+                and has_role(
+                    user,
+                    RoleAssignment.Role.INSURER_REP,
+                    insurer_id=claim.insurer_id,
+                    line_code=claim.contract.line if claim.contract_id else None,
+                )
+            )
+        ),
         "can_manage_payments": can_manage_payments,
         "payment_entries": payment_entries,
         "payment_form": payment_form,

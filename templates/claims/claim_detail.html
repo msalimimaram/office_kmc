@@ -37,12 +37,14 @@
 <section class="panel">
   <h2>گردش ارزیابی و تصمیم</h2>
   <div class="detail-grid">
+    {% if can_view_internal_claim_notes %}
     <div><small>ارزیابی‌کننده</small><strong>{{ claim.assessed_by|default:"ثبت نشده" }}</strong></div>
     <div><small>زمان ارزیابی</small><strong>{{ claim.assessed_at|date:"Y/m/d H:i"|default:"—" }}</strong></div>
+    {% endif %}
     <div><small>زمان اعلام نتیجه</small><strong>{{ claim.result_sent_at|date:"Y/m/d H:i"|default:"اعلام نشده" }}</strong></div>
     <div><small>مهلت اعتراض</small><strong>{{ claim.objection_deadline|date:"Y/m/d H:i"|default:"پس از اعلام نتیجه" }}</strong></div>
   </div>
-  {% if claim.assessment_note %}<h3>یادداشت ارزیابی</h3><p class="long-text">{{ claim.assessment_note|linebreaksbr }}</p>{% endif %}
+  {% if can_view_internal_claim_notes and claim.assessment_note %}<h3>یادداشت ارزیابی</h3><p class="long-text">{{ claim.assessment_note|linebreaksbr }}</p>{% endif %}
   {% if workflow_case %}
     <p class="muted">وضعیت گردش: {{ workflow_case.get_status_display }} · مرحله: {{ workflow_case.current_step.title|default:"پایان گردش" }} · مسئول فعلی: {{ workflow_case.current_assignee|default:"—" }}</p>
     {% if workflow_case.current_assignee_id == request.user.pk or is_global_reviewer %}
@@ -70,7 +72,7 @@
 <section class="panel">
   <h2>وضعیت تکراری بودن از دید بیمه‌گر</h2>
   <p><strong>{{ claim.get_source_duplicate_status_display }}</strong></p>
-  {% if claim.source_duplicate_status == "declared_duplicate" %}
+  {% if claim.source_duplicate_status == "declared_duplicate" and can_view_duplicate_details %}
     <p>شماره پرونده اصلی: {{ claim.source_duplicate_reference }}</p>
     <p>{{ claim.source_duplicate_note|linebreaksbr }}</p>
     <p class="muted">اعلام‌کننده: {{ claim.source_duplicate_reported_by|default:"—" }} · زمان: {{ claim.source_duplicate_reported_at|date:"Y/m/d H:i"|default:"—" }}</p>
