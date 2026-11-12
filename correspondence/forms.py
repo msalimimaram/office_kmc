@@ -30,6 +30,8 @@ def _eligible_internal_assignees():
     position_users = PositionAssignment.objects.filter(
         is_active=True,
         valid_from__lte=today,
+        unit__company__isnull=True,
+        line_code__gt="",
         position__level__in=[
             PositionAssignment.position.field.related_model.Level.SUPERVISOR,
             PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
