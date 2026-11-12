@@ -21,7 +21,13 @@ def _visible_cases(user):
     )
     if has_global_access(user):
         return qs
-    return qs.filter(current_assignee=user)
+    # Previous assignees retain read access to the audit trail, but actions
+    # remain restricted to the current assignee in workflow.services.
+    return qs.filter(
+        Q(current_assignee=user)
+        | Q(events__from_assignee=user)
+        | Q(events__to_assignee=user)
+    ).distinct()
 
 
 def _eligible_recipients(case, transition):
@@ -103,8 +109,9 @@ def workflow_case_detail(request, pk):
             messages.error(request, str(exc))
         return redirect("workflow_case_detail", pk=case.pk)
 
-    mark_case_opened(case_id=case.pk, actor=request.user)
-    case.refresh_from_db()
+    if case.current_assignee_id == request.user.pk:
+        mark_case_opened(case_id=case.pk, actor=request.user)
+        case.refresh_from_db()
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
     transitions = []
     if has_global_access(request.user) or case.current_assignee_id == request.user.pk:
