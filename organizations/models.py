@@ -240,9 +240,28 @@ class CompanyLeadershipTitle(models.Model):
         if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
             errors["valid_until"] = "پایان اعتبار نمی‌تواند قبل از شروع باشد."
         if self.person_id and self.company_id:
-            employed = PersonEmployment.objects.filter(person_id=self.person_id, company_id=self.company_id).filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=timezone.localdate())).exists()
-            legacy_company_match = self.person.company_id == self.company_id
-            if not employed and not legacy_company_match:
+            primary_employee = self.person.employee if self.person.employee_id else self.person
+            if (
+                self.person.relationship != Person.Relationship.EMPLOYEE
+                and not self.person.employee_id
+            ):
+                errors["person"] = "برای ثبت سمت مدیریتی فرد تحت تکفل، ارتباط او با کارمند اصلی الزامی است."
+            employment_rows = PersonEmployment.objects.filter(
+                person_id=primary_employee.pk, company_id=self.company_id
+            )
+            if employment_rows.exists():
+                appointment_start = self.valid_from or timezone.localdate()
+                appointment_end = self.valid_until or date.max
+                employed = employment_rows.filter(
+                    models.Q(valid_from__isnull=True)
+                    | models.Q(valid_from__lte=appointment_start)
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=appointment_end)
+                ).exists()
+                if not employed:
+                    errors["person"] = "اعتبار سمت باید به‌طور کامل داخل سابقه اشتغال معتبر کارمند اصلی در همان شرکت باشد."
+            elif primary_employee.company_id != self.company_id:
                 errors["person"] = "این شخص در سوابق اشتغال به شرکت انتخاب‌شده متصل نیست."
         if errors:
             raise ValidationError(errors)
