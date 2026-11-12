@@ -145,6 +145,17 @@ class CorrespondenceOrganizationalScopeTests(TestCase):
         self.assertNotIn(self.outsider.pk, recipient_ids)
         self.assertNotIn(self.manager.pk, recipient_ids)
 
+    def test_specialist_without_managerial_position_cannot_assign_to_a_peer(self):
+        from correspondence.forms import CorrespondenceForm
+
+        form = CorrespondenceForm(user=self.subordinate)
+        recipient_ids = set(
+            form.fields["assigned_to"].queryset.values_list("pk", flat=True)
+        )
+        self.assertEqual(recipient_ids, {self.subordinate.pk})
+        self.assertNotIn(self.outsider.pk, recipient_ids)
+        self.assertNotIn(self.manager.pk, recipient_ids)
+
     def test_supervisor_can_create_correspondence_assigned_to_subordinate(self):
         from django.urls import reverse
 

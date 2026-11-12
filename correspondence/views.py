@@ -234,7 +234,8 @@ def correspondence_create(request):
                 from insurance.models import Insurer
                 item.insurer = Insurer.objects.get(pk=next(iter(insurer_ids)))
                 item.is_confidential = False
-                item.assigned_to = None
+                if not (has_global_access(user) or is_unit_manager(user)):
+                    item.assigned_to = None
             if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(user):
                 item.is_confidential = False
             # Rebuild the form with the final server-owned scopes and use the

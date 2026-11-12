@@ -71,6 +71,12 @@ class CorrespondenceForm(forms.ModelForm):
 
         if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) and not has_global_access(user):
             self.fields.pop("is_confidential")
+            # A specialist may prepare correspondence for their own work, but
+            # cannot assign it sideways to a peer. A valid supervisor/responsible
+            # appointment is the only non-global exception and was already
+            # narrowed to active subordinates above.
+            if not is_unit_manager(user):
+                self.fields["assigned_to"].queryset = User.objects.filter(pk=user.pk)
             specialist_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
             if "*" in specialist_lines:
                 pass
@@ -84,13 +90,15 @@ class CorrespondenceForm(forms.ModelForm):
         if has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
             company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
             self.fields.pop("company")
-            self.fields.pop("assigned_to")
+            if not (has_global_access(user) or is_unit_manager(user)):
+                self.fields.pop("assigned_to")
             self.fields.pop("is_confidential")
             self.fields["contract"].queryset = self.fields["contract"].queryset.filter(companies__in=company_ids).distinct()
 
         insurer_ids = insurer_ids_for(user)
         if has_role(user, RoleAssignment.Role.INSURER_REP):
-            self.fields.pop("assigned_to")
+            if not (has_global_access(user) or is_unit_manager(user)):
+                self.fields.pop("assigned_to")
             self.fields.pop("is_confidential")
             self.fields["insurer"].queryset = Insurer.objects.filter(pk__in=insurer_ids)
             if len(insurer_ids) == 1:
