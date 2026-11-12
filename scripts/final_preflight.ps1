@@ -34,6 +34,10 @@ if (-not (Test-Path "manage.py")) {
     throw "Run this script from the office_kmc repository root (manage.py was not found)."
 }
 
+if (-not $Production -and [string]::IsNullOrWhiteSpace($env:DEMO_SEED_PASSWORD)) {
+    throw "Set DEMO_SEED_PASSWORD in this PowerShell process before local preflight; demo data is seeded only after all tests pass."
+}
+
 Write-Host "Python executable: $python"
 & $python --version
 if ($LASTEXITCODE -ne 0) {
