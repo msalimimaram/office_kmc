@@ -1,6 +1,6 @@
 # راهنمای تست محلی
 
-این پروژه برای تست محلی با PostgreSQL طراحی شده است.
+در حالت محلی، با `DEBUG=True` و بدون `DATABASE_URL` برنامه از SQLite استفاده می‌کند. PostgreSQL برای آزمون یکپارچگی جداگانه و پیش از پذیرش نهایی توصیه می‌شود.
 
 ## 1) دریافت و آماده‌سازی
 
@@ -38,32 +38,21 @@ python manage.py collectstatic --noinput
 
 `check --deploy` در محیط local ممکن است به دلیل HTTP/HTTPS و تنظیمات امنیتی چند هشدار داشته باشد؛ معیار اصلی برای شروع تست محلی، نبودن خطای واقعی در `check` و موفق بودن migrationها است.
 
-## 4) ایجاد داده نمونه
+## 4) ایجاد داده نمونه — فقط پس از سبز شدن تست‌ها
 
-```bash
+این مرحله را تا زمانی که کل `python manage.py test` موفق نشده است اجرا نکنید. فقط روی دیتابیس محلیِ آزمایشی و با `DEBUG=True` اجرا شود؛ داده واقعی را وارد یا جایگزین نمی‌کند. `seed_demo` به متغیر محیطی `DEMO_SEED_PASSWORD` نیاز دارد و آن را فقط برای حساب‌های نمایشی تازه‌ساخته‌شده مصرف می‌کند. رمز قابل‌استفاده حساب موجود بازنویسی نمی‌شود.
+
+در PowerShell:
+
+```powershell
+$secure = Read-Host "Enter a new demo password" -AsSecureString
+$env:DEMO_SEED_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
+Remove-Variable secure
 python manage.py seed_demo
+Remove-Item Env:DEMO_SEED_PASSWORD
 ```
 
-داده نمونه فقط در `DEBUG=True` ایجاد می‌شود و کاربران نمونه رمز قابل استفاده ندارند.
-
-حساب‌های نمونه بدون رمز قابل استفاده ساخته می‌شوند و اجرای دوباره seed_demo رمز یا اطلاعات حساب موجود را تغییر نمی‌دهد. برای تعیین رمز محلی برای یک کاربر:
-
-```bash
-python manage.py shell
-```
-
-سپس:
-
-```python
-from accounts.models import User
-u = User.objects.get(username="employee.a")
-u.set_password("یک-رمز-محلی-حداقل-۱۲-کاراکتری")
-# Keep the forced first-login password change enabled.
-u.must_change_password = True
-u.save()
-```
-
-همین کار را برای حساب‌های دیگر نمونه انجام دهید.
+این فرمان گردش‌کارهای عملیاتی پایه را نیز ایجاد می‌کند؛ اجرای مجدد `seed_operational_workflows` بلافاصله پس از آن لازم نیست. حساب‌های نمایشی عبارت‌اند از `Admin`, `Shahamat`, `Salimi`, `Amiri`, `Delbari`, `Mahbod`, `Namayande1` تا `Namayande4`, `employee.a`, `employee.b`, `Saman` و `Saman2`. حساب‌های جدید از رمز محیطی استفاده می‌کنند؛ آن را در Git یا گزارش‌ها ثبت نکنید و پیش از staging/production حساب‌های نمایشی را غیرفعال یا بازتنظیم کنید.
 
 ## 5) اجرای تست‌ها
 

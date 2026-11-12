@@ -58,11 +58,20 @@ python manage.py makemigrations --check --dry-run
 python manage.py migrate --plan
 python manage.py migrate
 python manage.py test
-python manage.py seed_demo
 python manage.py runserver
 ```
 
-پس از اجرای seed_demo، حساب‌های نمونه بدون رمز قابل استفاده ایجاد می‌شوند و فرمان در اجراهای بعدی رمز یا اطلاعات حساب‌های موجود را بازنویسی نمی‌کند. حساب‌ها: admin.demo، head.demo، specialist.demo، companya.demo، companyb.demo، employee.a، employee.b و insurer.demo. برای ورود محلی، برای حساب موردنظر از طریق `python manage.py shell` یک رمز محلی تعیین کنید؛ مقدار `must_change_password` را فعال نگه دارید تا تغییر رمز در نخستین ورود انجام شود. این حساب‌ها فقط برای داده ساختگی در DEBUG=True هستند و نباید در محیط واقعی ساخته یا استفاده شوند. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با python manage.py createsuperuser بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود؛ در مرحله تست اولیه migration خودکار نسازید.
+**ساخت داده نمایشی فقط پس از سبز شدن کل تست‌ها و روی دیتابیس محلیِ جدا از داده واقعی مجاز است.** فرمان `seed_demo` فقط در `DEBUG=True` اجرا می‌شود و متغیر محیطی `DEMO_SEED_PASSWORD` را برای حساب‌های تازه‌ساخته‌شده لازم دارد. در PowerShell:
+
+```powershell
+$secure = Read-Host "Enter a new demo password" -AsSecureString
+$env:DEMO_SEED_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
+Remove-Variable secure
+python manage.py seed_demo
+Remove-Item Env:DEMO_SEED_PASSWORD
+```
+
+فرمان داده ساختگی مرتبط و گردش‌کارهای پایه را ایجاد می‌کند؛ اجرای جداگانه `seed_operational_workflows` پس از آن لازم نیست. حساب‌های واقعی ساخته‌شده توسط seed عبارت‌اند از `Admin`, `Shahamat`, `Salimi`, `Amiri`, `Delbari`, `Mahbod`, `Namayande1` تا `Namayande4`, `employee.a`, `employee.b`, `Saman` و `Saman2`. حساب‌های جدید از رمز محیطی استفاده می‌کنند و رمز قابل‌استفاده حساب موجود بازنویسی نمی‌شود. این حساب‌ها و رمز مشترک صرفاً برای داده ساختگی محلی‌اند؛ پیش از staging/production آن‌ها را غیرفعال یا بازتنظیم کنید و هرگز `DEMO_SEED_PASSWORD` را در Git ثبت نکنید. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با `python manage.py createsuperuser` بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود.
 
 ## تنظیمات محیط
 
