@@ -64,7 +64,18 @@ def access_flags(request):
             "contracts": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "assets": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or unit_manager,
-            "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
+            "requests": (
+                staff
+                or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+                or has_role(user, RoleAssignment.Role.INSURER_REP)
+                or has_role(user, RoleAssignment.Role.INSURED_PERSON)
+            ),
+            "documents": (
+                staff
+                or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+                or has_role(user, RoleAssignment.Role.INSURER_REP)
+                or has_role(user, RoleAssignment.Role.INSURED_PERSON)
+            ),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "leadership_titles": has_global_access(user) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
             "tasks": staff or unit_manager,
