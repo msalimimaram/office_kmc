@@ -165,6 +165,61 @@ class WorkflowEngineTests(TestCase):
         self.assertNotContains(response, "09120000000")
         self.assertNotContains(response, "09121111111")
 
+    def test_workflow_initiator_can_read_routing_history_but_not_internal_notes_or_act(self):
+        from django.test import Client
+        from django.urls import reverse
+
+        requester = User.objects.create_user(
+            username="workflow-end-user-requester",
+            password="StrongPass!123",
+        )
+        RoleAssignment.objects.create(
+            user=requester,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company,
+            line_code="*",
+            reason="بیمه‌شده برای مشاهده تاریخچه درخواست",
+        )
+        item = ServiceRequest.objects.create(
+            reference="WF-END-USER-HISTORY",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=requester,
+            company=self.company,
+            title="درخواست کاربر",
+            description="شرح قابل مشاهده برای درخواست‌کننده",
+        )
+        case = start_workflow(
+            obj=item,
+            code=self.definition.code,
+            actor=requester,
+            assignee=self.specialist,
+            note="PRIVATE_INITIAL_ROUTING_NOTE",
+        )
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="send-to-head",
+            recipient=self.department_head,
+            note="PRIVATE_INTERNAL_REVIEW_NOTE",
+        )
+
+        client = Client()
+        client.force_login(requester)
+        response = client.get(reverse("workflow_case_detail", args=[case.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "درخواست کاربر")
+        self.assertNotContains(response, "PRIVATE_INITIAL_ROUTING_NOTE")
+        self.assertNotContains(response, "PRIVATE_INTERNAL_REVIEW_NOTE")
+        self.assertNotContains(response, "ثبت اقدام / ارجاع")
+
+        denied_action = client.post(
+            reverse("workflow_case_detail", args=[case.pk]),
+            {"action": "send-to-head", "note": "اقدام غیرمجاز"},
+        )
+        self.assertEqual(denied_action.status_code, 302)
+        case.refresh_from_db()
+        self.assertEqual(case.current_assignee_id, self.department_head.pk)
+
     def test_system_admin_can_unlock_final_lock_and_restore_previous_case_status(self):
         case = start_workflow(
             obj=self.request, code=self.definition.code,

@@ -10,7 +10,7 @@ from tasks.models import InternalTask
 from core.permissions import scoped_claims_for, scoped_requests_for
 from dashboard.services import insured_dashboard_metrics, management_kpis, personnel_performance_metrics
 from django.utils import timezone
-from workflow.models import WorkflowCase
+from workflow.models import WorkflowCase, WorkflowEvent
 from workflow.presentation import build_workflow_presentation
 from workflow.services import (
     _case_actor_authorized,
@@ -157,6 +157,19 @@ def home(request):
     else:
         unit_workflow_total = 0
 
+    initiated_cases = WorkflowCase.objects.filter(
+        events__event_type=WorkflowEvent.EventType.STARTED,
+        events__actor=user,
+    ).exclude(
+        current_assignee=user,
+    ).select_related(
+        "definition", "current_step", "current_assignee",
+        "current_position_assignment", "delegation", "content_type",
+    ).distinct().order_by("-opened_at", "-pk")
+    initiated_rows = list(initiated_cases[:5])
+    for case in initiated_rows:
+        case.domain_presentation = build_workflow_presentation(case, user=user)
+
     oversight_workflow_count = (
         WorkflowCase.objects.filter(status__in=active_statuses, is_locked=False).count()
         if is_management else 0
@@ -227,6 +240,8 @@ def home(request):
         "delegated_work_count": len(delegated_case_rows),
         "workflow_action_cases": assigned_rows[:8],
         "workflow_action_count": assigned_total,
+        "initiated_workflow_cases": initiated_rows,
+        "initiated_workflow_count": initiated_cases.count(),
         "workflow_overdue_count": assigned_overdue,
         "unit_workflow_cases": unit_workflow_rows,
         "unit_workflow_count": unit_workflow_total,

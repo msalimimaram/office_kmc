@@ -109,6 +109,25 @@
 </section>
 {% endif %}
 
+{% if initiated_workflow_count %}
+<section class="panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">پیگیری پرونده‌های ثبت‌شده توسط شما</p><h2>تاریخچه درخواست‌ها و ارجاع‌ها</h2></div>
+    <span class="status">{{ initiated_workflow_count }} پرونده</span>
+  </div>
+  <p class="muted">این بخش برای مشاهده مسیر رسیدگی است؛ امکان اقدام فقط برای مسئول جاری پرونده فعال می‌شود.</p>
+  <div class="activity-list">
+    {% for case in initiated_workflow_cases %}
+      <a class="activity" href="{% url 'workflow_case_detail' case.pk %}">
+        <span class="activity-dot"></span>
+        <span><strong>{{ case.domain_presentation.title }}</strong><small>{{ case.domain_presentation.type_label }} · {{ case.domain_presentation.reference }} · {{ case.current_step.title|default:case.get_status_display }}</small></span>
+        <span class="arrow">←</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% if unit_workflow_count %}
 <section class="panel">
   <div class="section-heading">

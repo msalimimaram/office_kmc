@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
-from accounts.access import has_global_access, is_unit_manager
+from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
 from accounts.models import RoleAssignment, User
 from .models import WorkflowCase, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowTransition
 from .forms import WorkflowSatisfactionForm
@@ -34,7 +34,13 @@ def _visible_cases(user):
     # Current ownership requires a live authorization grant (checked below).
     # Historical owners retain read-only event access; event recipients alone
     # do not create an enduring permission after reassignment or expiry.
-    visible = Q(current_assignee=user) | Q(events__from_assignee=user)
+    # The initiator retains read-only access to routing history after
+    # responsibility is transferred. This does not grant an action right.
+    visible = (
+        Q(current_assignee=user)
+        | Q(events__from_assignee=user)
+        | Q(events__event_type=WorkflowEvent.EventType.STARTED, events__actor=user)
+    )
     if is_unit_manager(user):
         from django.contrib.auth import get_user_model
         from tasks.forms import _manager_scope
@@ -249,12 +255,22 @@ def workflow_case_detail(request, pk):
         and case.content_type.model == "personchangerequest"
     )
     is_current_owner = case.current_assignee_id == request.user.pk
+    is_end_user_owner = (
+        not is_insurance_staff(request.user)
+        and not is_unit_manager(request.user)
+        and any(
+            owner.pk == request.user.pk
+            for owner in _workflow_owner_candidates(domain_object)
+        )
+    )
     if not has_global_access(request.user) and (
-        is_confidential_request or (is_person_change and not is_current_owner)
+        is_confidential_request
+        or (is_person_change and not is_current_owner)
+        or is_end_user_owner
     ):
-        # Medical notes may contain clinical details. Historical person-change
-        # recipients may see the routing trail, never free-text notes that can
-        # reveal old/new identity, contact, or banking values.
+        # Medical details, identity/banking changes, and internal operational
+        # notes are not part of the end-user timeline. Owners see stage and
+        # routing metadata only; internal assignees retain their authorized log.
         for event in events:
             event.note = ""
     presentation = build_workflow_presentation(case, user=request.user)
