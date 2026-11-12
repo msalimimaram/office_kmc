@@ -483,6 +483,17 @@ def claim_result_send(request, pk):
         claim.result_sent_at = timezone.now()
         claim.result_sent_by = request.user
         claim.save(update_fields=["result_sent_at", "result_sent_by", "updated_at"])
+        recipient_person = claim.primary_insured or (
+            claim.person.employee if claim.person_id and claim.person.employee_id else claim.person
+        )
+        if recipient_person and recipient_person.user_id:
+            UserNotification.objects.create(
+                recipient=recipient_person.user,
+                actor=request.user,
+                title="نتیجه رسیدگی به خسارت اعلام شد",
+                body="نتیجه پرونده خسارت شما ثبت و اعلام شده است. مهلت اعتراض ۶۰ روز تقویمی از زمان اعلام محاسبه می‌شود.",
+                target_url=reverse("claim_detail", args=[claim.pk]),
+            )
         record_event(
             actor=request.user,
             action="claim_result_sent",
