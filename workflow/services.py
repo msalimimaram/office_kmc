@@ -856,20 +856,17 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         ):
             raise PermissionDenied("تفویض انتخاب‌شده برای این پرونده معتبر یا فعال نیست.")
     else:
-        source_user = User.objects.filter(
-            pk=scope.get("owner_user_id"), is_active=True
-        ).first() if scope.get("owner_user_id") else None
-        if initial.allowed_position_levels and source_user is None:
-            raise ValidationError(
-                "شروع گردش سمت‌محور بدون مبدأ سازمانی معتبر مجاز نیست."
-            )
+        # Initial routing has no prior workflow assignee whose org branch
+        # should constrain the recipient. Resolve against active internal
+        # positions in the object's insurance-line scope; subsequent referrals
+        # are constrained relative to the current assignee's org branch.
         position_assignment = _validate_recipient(
             assignee,
             initial.allowed_roles,
             position_levels=initial.allowed_position_levels,
             scope=scope,
-            source_user=source_user,
-            position_route_scope="related_units",
+            source_user=None,
+            position_route_scope="line_wide",
         )
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
     case, created = WorkflowCase.objects.get_or_create(
