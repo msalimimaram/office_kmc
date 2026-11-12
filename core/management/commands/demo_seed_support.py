@@ -125,6 +125,9 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     admin = users["admin.demo"]
     head = users["head.demo"]
     specialist = users["specialist.demo"]
+    health_supervisor = users["supervisor.demo"]
+    fire_specialist = users["Delbari"]
+    motor_specialist = users["Mahbod"]
     company_rep_a = users["companya.demo"]
     company_rep_b = users["companyb.demo"]
     insurer_rep = users["insurer.demo"]
@@ -334,11 +337,17 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         OrganizationalUnit, {"code": "DEMO-PROPERTY"},
         {"name": "واحد اموال و مسئولیت", "parent": unit_hq, "company": None, "is_active": True},
     )
+    unit_motor = ensure(
+        OrganizationalUnit, {"code": "DEMO-MOTOR"},
+        {"name": "واحد بیمه‌های خودرو", "parent": unit_hq, "company": None, "is_active": True},
+    )
     position_specs = (
         (unit_hq, "DEMO-HEAD", "رئیس اداره بیمه", OrganizationalPosition.Level.HEAD),
+        (unit_health, "DEMO-HEALTH-SUPERVISOR", "سرپرست واحد درمان", OrganizationalPosition.Level.SUPERVISOR),
         (unit_health, "DEMO-HEALTH-EXPERT", "کارشناس درمان", OrganizationalPosition.Level.SPECIALIST),
+        (unit_property, "DEMO-FIRE-RESPONSIBLE", "مسئول واحد اموال و مسئولیت", OrganizationalPosition.Level.RESPONSIBLE),
         (unit_property, "DEMO-FIRE-EXPERT", "کارشناس آتش‌سوزی", OrganizationalPosition.Level.SPECIALIST),
-        (unit_hq, "DEMO-SUPERVISOR", "سرپرست عملیات", OrganizationalPosition.Level.SUPERVISOR),
+        (unit_motor, "DEMO-MOTOR-RESPONSIBLE", "مسئول واحد خودرو", OrganizationalPosition.Level.RESPONSIBLE),
     )
     positions = {}
     for unit, code, title, level in position_specs:
@@ -346,19 +355,25 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             OrganizationalPosition, {"unit": unit, "code": code},
             {"title": title, "level": level, "is_active": True},
         )
-    for user, unit, code in (
-        (head, unit_hq, "DEMO-HEAD"),
-        (specialist, unit_health, "DEMO-HEALTH-EXPERT"),
-        (fire_specialist, unit_property, "DEMO-FIRE-EXPERT"),
-        (users["admin.demo"], unit_hq, "DEMO-SUPERVISOR"),
-    ):
+    position_assignments = (
+        (head, unit_hq, "DEMO-HEAD", "*"),
+        (health_supervisor, unit_health, "DEMO-HEALTH-SUPERVISOR", "health"),
+        (specialist, unit_health, "DEMO-HEALTH-EXPERT", "health"),
+        (fire_specialist, unit_property, "DEMO-FIRE-RESPONSIBLE", "fire"),
+        (fire_specialist, unit_property, "DEMO-FIRE-RESPONSIBLE", "liability"),
+        (fire_specialist, unit_property, "DEMO-FIRE-EXPERT", "fire"),
+        (motor_specialist, unit_motor, "DEMO-MOTOR-RESPONSIBLE", "third_party"),
+        (motor_specialist, unit_motor, "DEMO-MOTOR-RESPONSIBLE", "body"),
+    )
+    for user, unit, code, line_code in position_assignments:
         position = positions[code]
         ensure(
             PositionAssignment,
-            {"user": user, "unit": unit, "position": position, "line_code": ""},
+            {"user": user, "unit": unit, "position": position, "line_code": line_code},
             {
                 "valid_from": start_date, "valid_until": None, "is_active": True,
-                "reason": "سمت سازمانی نمونه", "granted_by": admin, "approved_by": head,
+                "reason": f"انتصاب سمت سازمانی نمونه در رشته {line_code}",
+                "granted_by": admin, "approved_by": head,
             },
             verify_fields=("reason", "granted_by", "approved_by"),
         )
