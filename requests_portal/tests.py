@@ -20,6 +20,16 @@ class ServiceRequestTests(TestCase):
         self.user = User.objects.create_user(
             username="emp", password="StrongPass!2026", must_change_password=False, role="employee", company=self.company
         )
+        self.workflow_admin = User.objects.create_user(
+            username="request-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای تأیید گردش درخواست در آزمون",
+        )
 
     def test_user_can_submit_request(self):
         representative = User.objects.create_user(
@@ -37,7 +47,7 @@ class ServiceRequestTests(TestCase):
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.OTHER,
             title="گردش درخواست عمومی آزمون",
-            created_by=representative,
+            created_by=self.workflow_admin,
         )
         initial = WorkflowStep.objects.create(
             definition=definition,
@@ -55,7 +65,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             closes_case=True,
         )
-        definition.approved_by = representative
+        definition.approved_by = self.workflow_admin
         definition.is_active = True
         definition.save()
 
@@ -69,6 +79,60 @@ class ServiceRequestTests(TestCase):
         self.assertEqual(ServiceRequest.objects.first().submitted_by, self.user)
         self.assertEqual(WorkflowCase.objects.count(), 1)
         self.assertEqual(WorkflowCase.objects.get().current_assignee_id, representative.pk)
+
+    def test_only_representative_can_submit_own_request_and_receive_it(self):
+        RoleAssignment.objects.create(
+            user=self.user,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company,
+            line_code="*",
+            reason="Insured-person assignment for dual-role routing test",
+        )
+        RoleAssignment.objects.create(
+            user=self.user,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            reason="Only company representative in own-request routing test",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="Workflow for requester who is also the sole representative",
+            created_by=self.workflow_admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="Initial company representative review",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.approved_by = self.workflow_admin
+        definition.is_active = True
+        definition.save()
+
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست شخصی نماینده",
+            "description": "درخواست‌دهنده تنها نماینده فعال شرکت است.",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            RoleAssignment.objects.filter(
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company,
+                is_active=True,
+            ).count(),
+            1,
+        )
+        item = ServiceRequest.objects.get(submitted_by=self.user)
+        case = WorkflowCase.objects.get(object_id=str(item.pk))
+        self.assertEqual(case.current_assignee_id, self.user.pk)
+        self.assertEqual(item.assigned_to_id, self.user.pk)
 
     def test_missing_published_workflow_blocks_new_request_and_rolls_back(self):
         client = Client()
@@ -290,7 +354,7 @@ class ServiceRequestTests(TestCase):
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="گردش محرمانه کمک‌هزینه درمان",
-            created_by=representative,
+            created_by=self.workflow_admin,
         )
         WorkflowStep.objects.create(
             definition=definition,
@@ -300,7 +364,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             is_initial=True,
         )
-        definition.approved_by = representative
+        definition.approved_by = self.workflow_admin
         definition.is_active = True
         definition.save()
 
