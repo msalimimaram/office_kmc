@@ -1666,6 +1666,76 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             },
         )
 
+    # Complete the append-only event vocabularies with explicit, namespaced
+    # presentation-history snapshots. These are historical timeline entries,
+    # not mutations of the underlying delegation or workflow state.
+    delegation_sample = WorkDelegation.objects.order_by("pk").first()
+    if delegation_sample is None:
+        raise CommandError("A valid delegation is required for delegation-event coverage.")
+    existing_delegation_event_types = set(
+        DelegationEvent.objects.values_list("event_type", flat=True).distinct()
+    )
+    for event_type in DelegationEvent.EventType.values:
+        if event_type in existing_delegation_event_types:
+            continue
+        summary = f"رویداد تاریخی نمایشی برای پوشش نوع {event_type}"
+        ensure(
+            DelegationEvent,
+            {
+                "delegation": delegation_sample,
+                "event_type": event_type,
+                "summary": summary,
+            },
+            {
+                "actor": admin,
+                "metadata": {
+                    "fixture": "DEMO-PRESENTATION",
+                    "kind": "choice-coverage-history",
+                    "historical_event_type": event_type,
+                },
+            },
+            verify_fields=(),
+        )
+
+    existing_workflow_event_types = set(
+        WorkflowEvent.objects.values_list("event_type", flat=True).distinct()
+    )
+    for event_type in WorkflowEvent.EventType.values:
+        if event_type in existing_workflow_event_types:
+            continue
+        event_time = now - timedelta(minutes=10 + len(existing_workflow_event_types))
+        ensure(
+            WorkflowEvent,
+            {
+                "workflow_case": completed_case,
+                "event_type": event_type,
+                "action_code": f"presentation_choice_{event_type}",
+            },
+            {
+                "actor": admin,
+                "from_step": completed_definition.steps.filter(is_initial=True).first(),
+                "to_step": completed_case.current_step,
+                "from_assignee": admin,
+                "to_assignee": admin,
+                "note": f"ثبت تاریخی نمایشی برای پوشش نوع رویداد {event_type}.",
+                "opened_at": event_time if event_type == WorkflowEvent.EventType.OPENED else None,
+                "acknowledged_at": event_time if event_type == WorkflowEvent.EventType.ACKNOWLEDGED else None,
+                "acted_at": event_time if event_type in {
+                    WorkflowEvent.EventType.ACTION,
+                    WorkflowEvent.EventType.RETURNED,
+                    WorkflowEvent.EventType.UNLOCKED,
+                } else None,
+                "sent_at": event_time,
+                "metadata": {
+                    "fixture": "DEMO-PRESENTATION",
+                    "kind": "choice-coverage-history",
+                    "historical_event_type": event_type,
+                    "not_a_current_case_state": True,
+                },
+            },
+            verify_fields=(),
+        )
+
     # Final, exhaustive gate: every concrete model named in the manifest must
     # have at least 50 linked examples. No green summary is printed otherwise.
     from core.management.commands.demo_seed_support import EXPECTED_MODEL_LABELS
