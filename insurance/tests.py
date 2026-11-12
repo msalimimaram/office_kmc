@@ -94,6 +94,18 @@ class InsuranceAdminBoundaryTests(TestCase):
         self.assertFalse(model_admin.has_add_permission(staff_request))
         self.assertFalse(model_admin.has_change_permission(staff_request))
 
+        head = User.objects.create_user(
+            username="insurance-admin-head-only", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون مدیریت مرجع بیمه‌گر",
+        )
+        head_request = self._request(head)
+        self.assertFalse(model_admin.has_add_permission(head_request))
+        self.assertFalse(model_admin.has_change_permission(head_request))
+
 class ContractWorkflowLifecycleTests(TestCase):
     def setUp(self):
         today = timezone.localdate()

@@ -1,3 +1,5 @@
+from django.contrib import admin
+from django.test import RequestFactory
 from datetime import date, timedelta
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, Client
@@ -917,3 +919,34 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertEqual(self.person.national_id, "1234567891")
         self.assertEqual(self.insured.national_id, "1234567891")
         self.assertEqual(self.insured.username, "1234567891")
+
+
+class CompanyAdminAuthorizationTests(TestCase):
+    def test_company_master_data_is_system_admin_only(self):
+        company_admin = admin.site._registry[Company]
+        factory = RequestFactory()
+        head = User.objects.create_user(
+            username="company-admin-head", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون مرز مدیریت شرکت",
+        )
+        sysadmin = User.objects.create_user(
+            username="company-admin-sys", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=sysadmin, role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون مرز مدیریت شرکت",
+        )
+        head_request = factory.get("/admin/")
+        head_request.user = head
+        admin_request = factory.get("/admin/")
+        admin_request.user = sysadmin
+        self.assertFalse(company_admin.has_module_permission(head_request))
+        self.assertFalse(company_admin.has_add_permission(head_request))
+        self.assertTrue(company_admin.has_module_permission(admin_request))
+        self.assertTrue(company_admin.has_add_permission(admin_request))
+        self.assertFalse(company_admin.has_delete_permission(admin_request))

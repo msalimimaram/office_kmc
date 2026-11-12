@@ -389,3 +389,36 @@ class UserNotificationTests(TestCase):
         from django.core.exceptions import ValidationError
         with self.assertRaises(ValidationError):
             UserNotification.objects.filter(pk=self.notification.pk).update(read_at=None)
+
+
+class AdminBusinessRoleBoundaryTests(TestCase):
+    def test_superuser_without_active_business_role_cannot_open_admin(self):
+        user = User.objects.create_superuser(
+            username="technical-superuser-only", email="technical-superuser@example.invalid",
+            password="StrongPass!2026",
+        )
+        client = Client()
+        client.force_login(user)
+        self.assertEqual(client.get("/admin/").status_code, 403)
+
+    def test_active_department_head_can_open_admin_without_superuser_flag(self):
+        user = User.objects.create_user(
+            username="business-head-admin", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=user, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="دسترسی مدیریتی بر اساس انتصاب معتبر",
+        )
+        client = Client()
+        client.force_login(user)
+        self.assertEqual(client.get("/admin/").status_code, 200)
+
+    def test_staff_flag_without_global_role_cannot_open_admin(self):
+        user = User.objects.create_user(
+            username="staff-no-business-role", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        self.assertEqual(client.get("/admin/").status_code, 403)
