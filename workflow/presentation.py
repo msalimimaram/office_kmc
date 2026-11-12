@@ -24,7 +24,7 @@ def _display(obj, field):
     return getattr(obj, field, None)
 
 
-def build_workflow_presentation(case):
+def build_workflow_presentation(case, *, user=None):
     """Return a stable, privacy-aware summary for the workflow's domain record."""
     obj = case.content_object
     if obj is None:
@@ -42,15 +42,20 @@ def build_workflow_presentation(case):
     title = case.definition.title
     reference = _text(obj.pk)
     description = ""
+    company_name = ""
+    person_name = ""
     confidential = bool(getattr(obj, "is_confidential", False))
+    is_current_owner = bool(user and case.current_assignee_id == user.pk)
 
     if label == "requests_portal.servicerequest":
         reference = obj.reference
         request_kind = obj.get_kind_display()
         title = request_kind if confidential else obj.title
         _add(fields, "نوع درخواست", request_kind)
-        _add(fields, "شرکت", getattr(obj, "company", None))
-        _add(fields, "بیمه‌شده / متقاضی", getattr(obj, "person", None))
+        company_name = _text(getattr(obj, "company", None))
+        person_name = _text(getattr(obj, "person", None))
+        _add(fields, "شرکت", company_name)
+        _add(fields, "بیمه‌شده / متقاضی", person_name)
         _add(fields, "وضعیت درخواست", obj.get_status_display())
         _add(fields, "ثبت‌کننده", getattr(obj, "submitted_by", None))
         if not confidential:
@@ -59,8 +64,10 @@ def build_workflow_presentation(case):
     elif label == "claims.claim":
         reference = obj.claim_number
         title = f"خسارت {obj.claim_number}"
-        _add(fields, "بیمه‌شده", getattr(obj, "person", None))
-        _add(fields, "شرکت در زمان خسارت", getattr(obj, "company_snapshot", None))
+        person_name = _text(getattr(obj, "person", None))
+        company_name = _text(getattr(obj, "company_snapshot", None))
+        _add(fields, "بیمه‌شده", person_name)
+        _add(fields, "شرکت در زمان خسارت", company_name)
         _add(fields, "رشته بیمه", getattr(getattr(obj, "contract", None), "get_line_display", lambda: "")())
         _add(fields, "قرارداد", getattr(obj, "contract", None))
         _add(fields, "بیمه‌گر", getattr(obj, "insurer", None))
@@ -73,8 +80,10 @@ def build_workflow_presentation(case):
         claim = obj.claim
         reference = claim.claim_number
         title = f"اعتراض به خسارت {claim.claim_number}"
-        _add(fields, "بیمه‌شده", getattr(claim, "person", None))
-        _add(fields, "شرکت", getattr(claim, "company_snapshot", None))
+        person_name = _text(getattr(claim, "person", None))
+        company_name = _text(getattr(claim, "company_snapshot", None))
+        _add(fields, "بیمه‌شده", person_name)
+        _add(fields, "شرکت", company_name)
         _add(fields, "قرارداد", getattr(claim, "contract", None))
         _add(fields, "بیمه‌گر", getattr(claim, "insurer", None))
         _add(fields, "وضعیت اعتراض", obj.get_status_display())
@@ -84,8 +93,10 @@ def build_workflow_presentation(case):
     elif label == "organizations.personchangerequest":
         reference = f"PC-{obj.pk}"
         title = f"اصلاح اطلاعات {obj.get_change_type_display()}"
-        _add(fields, "بیمه‌شده", obj.person)
-        _add(fields, "شرکت در زمان درخواست", obj.company)
+        person_name = _text(obj.person)
+        company_name = _text(obj.company)
+        _add(fields, "بیمه‌شده", person_name)
+        _add(fields, "شرکت در زمان درخواست", company_name)
         _add(fields, "قرارداد / بیمه‌گر مرتبط", obj.contract)
         _add(fields, "نوع تغییر", obj.get_change_type_display())
         _add(fields, "مقدار فعلی", obj.current_value)
@@ -97,8 +108,10 @@ def build_workflow_presentation(case):
         reference = obj.asset_code
         title = obj.name
         _add(fields, "نوع دارایی", obj.get_asset_type_display())
-        _add(fields, "شرکت", getattr(obj, "company", None))
-        _add(fields, "بیمه‌شده مرتبط", getattr(obj, "person", None))
+        company_name = _text(getattr(obj, "company", None))
+        person_name = _text(getattr(obj, "person", None))
+        _add(fields, "شرکت", company_name)
+        _add(fields, "بیمه‌شده مرتبط", person_name)
         _add(fields, "قرارداد", getattr(obj, "contract", None))
         _add(fields, "بیمه‌گر", getattr(obj, "insurer", None))
         _add(fields, "ارزش بیمه‌شده", obj.insured_value)
@@ -111,7 +124,8 @@ def build_workflow_presentation(case):
         title = contract.title
         _add(fields, "بیمه‌گر", contract.insurer)
         _add(fields, "رشته بیمه", contract.get_line_display())
-        _add(fields, "شرکت‌ها", "، ".join(contract.companies.values_list("name", flat=True)))
+        company_name = "، ".join(contract.companies.values_list("name", flat=True))
+        _add(fields, "شرکت‌ها", company_name)
         _add(fields, "وضعیت نسخه", obj.get_status_display())
         _add(fields, "تاریخ اثر", obj.effective_date)
         _add(fields, "درخواست فسخ", "بله" if obj.is_termination else "خیر")
@@ -122,7 +136,8 @@ def build_workflow_presentation(case):
         title = obj.subject
         _add(fields, "جهت مکاتبه", obj.get_direction_display())
         _add(fields, "روش ارتباط", obj.get_channel_display())
-        _add(fields, "شرکت", getattr(obj, "company", None))
+        company_name = _text(getattr(obj, "company", None))
+        _add(fields, "شرکت", company_name)
         _add(fields, "بیمه‌گر", getattr(obj, "insurer", None))
         _add(fields, "مسئول پیگیری", getattr(obj, "assigned_to", None))
         _add(fields, "وضعیت پیگیری", obj.get_follow_up_status_display())
@@ -134,10 +149,22 @@ def build_workflow_presentation(case):
         _add(fields, "نوع رکورد", obj._meta.label)
         _add(fields, "شناسه رکورد", obj.pk)
 
+    # Former assignees retain a read-only timeline. Do not keep exposing
+    # personal-change payloads or internal assessment narratives after handoff.
+    if not is_current_owner and not (user and user.is_superuser):
+        description = ""
+        if label == "organizations.personchangerequest":
+            fields = [
+                field for field in fields
+                if field["label"] not in {"مقدار فعلی", "مقدار درخواستی", "دلیل و توضیحات"}
+            ]
+
     return {
         "type_label": str(obj._meta.verbose_name),
         "reference": reference,
         "title": title,
+        "company": company_name,
+        "person": person_name,
         "fields": fields,
         "description": description,
         "is_confidential": confidential,
