@@ -134,6 +134,42 @@ class ScopedRoleAssignmentTests(TestCase):
         ))
 
 
+class InactiveOrganizationAuthorizationTests(TestCase):
+    def test_inactive_company_or_insurer_disables_active_role_scope(self):
+        from accounts.access import company_ids_for, has_role, insurer_ids_for
+        from accounts.models import RoleAssignment, User
+        from insurance.models import Insurer
+        from organizations.models import Company
+
+        company = Company.objects.create(code="INACTIVE-ROLE-COMP", name="شرکت غیرفعال")
+        representative = User.objects.create_user(
+            username="inactive-company-role-user", password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company, line_code="*", reason="نماینده شرکت برای آزمون غیرفعالی",
+        )
+        company.is_active = False
+        company.save(update_fields=["is_active"])
+        self.assertFalse(has_role(representative, RoleAssignment.Role.SUBSIDIARY_REP))
+        self.assertEqual(company_ids_for(representative), set())
+
+        insurer = Insurer.objects.create(name="بیمه‌گر غیرفعال")
+        insurer_user = User.objects.create_user(
+            username="inactive-insurer-role-user", password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=insurer_user, role=RoleAssignment.Role.INSURER_REP,
+            insurer=insurer, reason="نماینده بیمه‌گر برای آزمون غیرفعالی",
+        )
+        insurer.is_active = False
+        insurer.save(update_fields=["is_active"])
+        self.assertFalse(has_role(insurer_user, RoleAssignment.Role.INSURER_REP))
+        self.assertEqual(insurer_ids_for(insurer_user), set())
+
+
 class InactiveAccountAuthorizationTests(TestCase):
     def test_inactive_superuser_cannot_use_global_role_bypass(self):
         inactive_admin = User.objects.create_user(

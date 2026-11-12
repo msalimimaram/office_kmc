@@ -53,6 +53,10 @@ def active_assignments(user, *, on_date: date | None = None):
         valid_from__lte=today,
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    ).filter(
+        ~Q(role=RoleAssignment.Role.SUBSIDIARY_REP) | Q(company__is_active=True)
+    ).filter(
+        ~Q(role=RoleAssignment.Role.INSURER_REP) | Q(insurer__is_active=True)
     )
 
 
@@ -128,6 +132,22 @@ def _legacy_role(user):
     return LEGACY_ROLE_MAP.get(role)
 
 
+def _legacy_company_is_active(user):
+    company_id = getattr(user, "company_id", None)
+    if not company_id:
+        return False
+    from organizations.models import Company
+    return Company.objects.filter(pk=company_id, is_active=True).exists()
+
+
+def _legacy_insurer_is_active(user):
+    insurer_id = getattr(user, "insurer_id", None)
+    if not insurer_id:
+        return False
+    from insurance.models import Insurer
+    return Insurer.objects.filter(pk=insurer_id, is_active=True).exists()
+
+
 def has_role(
     user,
     *roles: str,
@@ -162,6 +182,10 @@ def has_role(
 
     legacy = _legacy_role(user)
     if legacy not in requested:
+        return False
+    if legacy == RoleAssignment.Role.SUBSIDIARY_REP and not _legacy_company_is_active(user):
+        return False
+    if legacy == RoleAssignment.Role.INSURER_REP and not _legacy_insurer_is_active(user):
         return False
     if company_id is not None and getattr(user, "company_id", None) != company_id:
         return False
@@ -209,7 +233,7 @@ def company_ids_for(user, *, role: str | None = None, on_date: date | None = Non
         legacy = _legacy_role(user)
         if legacy == RoleAssignment.Role.SUBSIDIARY_REP and (not role or role == legacy):
             company_id = getattr(user, "company_id", None)
-            return {company_id} if company_id else set()
+            return {company_id} if company_id and _legacy_company_is_active(user) else set()
         if legacy == RoleAssignment.Role.INSURED_PERSON and (not role or role == legacy):
             company_id = getattr(user, "company_id", None)
             return {company_id} if company_id else set()
@@ -226,7 +250,7 @@ def insurer_ids_for(user, *, on_date: date | None = None) -> set[int]:
     )
     if not ids and _legacy_fallback_allowed(user) and _legacy_role(user) == RoleAssignment.Role.INSURER_REP:
         insurer_id = getattr(user, "insurer_id", None)
-        return {insurer_id} if insurer_id else set()
+        return {insurer_id} if insurer_id and _legacy_insurer_is_active(user) else set()
     return ids
 
 
@@ -247,7 +271,7 @@ def line_codes_for(user, *, role: str | None = None, on_date: date | None = None
         # record had company scope but no line dimension. Treat only this
         # legacy-only case as an overall company representative; once any
         # assignment history exists, an explicit '*' or line is required.
-        return {"*"}
+        return {"*"} if _legacy_company_is_active(user) else set()
     return values
 
 
