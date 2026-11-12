@@ -4,6 +4,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from accounts.access import has_global_access, is_unit_manager
@@ -277,11 +278,17 @@ def workflow_satisfaction_submit(request, pk):
 
     form = WorkflowSatisfactionForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        survey = form.save(commit=False)
-        survey.workflow_case = case
-        survey.respondent = request.user
         try:
-            survey.save()
+            with transaction.atomic():
+                locked_case = WorkflowCase.objects.select_for_update().get(pk=case.pk)
+                if locked_case.status not in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}:
+                    raise PermissionDenied("ثبت ارزیابی فقط پس از پایان گردش کار مجاز است.")
+                survey = form.save(commit=False)
+                survey.workflow_case = locked_case
+                survey.respondent = request.user
+                survey.save()
+        except IntegrityError:
+            return redirect("workflow_satisfaction_submitted", pk=case.pk)
         except ValidationError as exc:
             form.add_error(None, exc)
         else:
