@@ -575,6 +575,21 @@ class AdminAuditTrailTests(TestCase):
         self.assertNotIn("company", form.base_fields)
 
 
+class RoleNavigationBoundaryTests(TestCase):
+    def test_insured_person_does_not_receive_internal_workflow_inbox_navigation(self):
+        company = Company.objects.create(code="INSURED-NAV", name="شرکت بیمه‌شده")
+        user = User.objects.create_user(
+            username="insured-navigation-only", password="StrongPass!2026",
+            role="employee", company=company, must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "درخواست‌های من")
+        self.assertNotContains(response, "صندوق گردش‌کار")
+
+
 class AdminBusinessRoleBoundaryTests(TestCase):
     def test_superuser_without_active_business_role_cannot_open_admin(self):
         user = User.objects.create_superuser(

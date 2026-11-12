@@ -30,10 +30,11 @@ def access_flags(request):
         or has_role(user, RoleAssignment.Role.INSURER_REP)
         or active_position_assignment.exists()
     )
+    # Insured people follow their own requests from the Requests area; the
+    # operational workflow inbox is only for staff, managers and routed recipients.
     workflow_access = (
         staff
         or unit_manager
-        or has_role(user, RoleAssignment.Role.INSURED_PERSON)
         or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
         or has_role(user, RoleAssignment.Role.INSURER_REP)
     )
