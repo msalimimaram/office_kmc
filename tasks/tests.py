@@ -235,6 +235,63 @@ class OrganizationalTaskScopeTests(TestCase):
                 self.assertFalse(form.fields["assignees"].queryset.exists())
                 self.assertEqual(client.get(reverse("task_create")).status_code, 403)
 
+    def test_supervisor_reassigns_tasks_only_within_descendant_scope(self):
+        from django.urls import reverse
+        from tasks.models import TaskEvent
+
+        new_subordinate = User.objects.create_user(
+            username="task-tree-second-subordinate",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=new_subordinate,
+            unit=self.child,
+            position=self.specialist_position,
+            line_code="health",
+            reason="کارشناس دوم زیرمجموعه",
+        )
+        RoleAssignment.objects.create(
+            user=new_subordinate,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="انتصاب تخصصی کارشناس دوم",
+        )
+        task = InternalTask.objects.create(
+            title="وظیفه قابل بازتخصیص",
+            description="آزمون محدوده ارجاع مجدد",
+            created_by=self.subordinate,
+        )
+        task.assignees.add(self.subordinate)
+        client = Client()
+        client.force_login(self.manager)
+
+        response = client.post(reverse("task_update", args=[task.pk]), {
+            "action": "reassign",
+            "assignees": [str(new_subordinate.pk)],
+            "note": "تغییر مجری به دلیل توزیع متوازن کار",
+        })
+        self.assertEqual(response.status_code, 302)
+        task.refresh_from_db()
+        self.assertEqual(list(task.assignees.values_list("pk", flat=True)), [new_subordinate.pk])
+        self.assertTrue(task.events.filter(
+            event_type=TaskEvent.EventType.ASSIGNED,
+            from_value=str(self.subordinate.pk),
+        ).exists())
+        self.assertTrue(task.events.filter(
+            event_type=TaskEvent.EventType.ASSIGNED,
+            to_value=str(new_subordinate.pk),
+        ).exists())
+
+        response = client.post(reverse("task_update", args=[task.pk]), {
+            "action": "reassign",
+            "assignees": [str(self.outsider.pk)],
+            "note": "تلاش برای ارجاع خارج از شاخه سازمانی",
+        })
+        self.assertEqual(response.status_code, 200)
+        task.refresh_from_db()
+        self.assertEqual(list(task.assignees.values_list("pk", flat=True)), [new_subordinate.pk])
+
     def test_supervisor_can_monitor_but_cannot_complete_unassigned_subordinate_task(self):
         from django.urls import reverse
 
