@@ -103,3 +103,34 @@
 
 ### تصمیم
 **Production همچنان No-Go است.** علاوه بر تثبیت تست‌های HEAD، MFA واقعی، ممیزی جامع tenant/IDOR، آزمون PostgreSQL fresh/upgrade و concurrency، ClamAV واقعی (clean/EICAR/down)، خصوصی‌بودن media در وب‌سرور، backup/restore، بار و پذیرش end-to-end نقش‌ها باید در staging اثبات شوند.
+
+## Snapshot بازبینی گردش‌کار — 2026-11-12
+
+**HEAD پیش از ثبت این یادداشت:** `fad4c153d4581d9621ab29efe367e3bd05627b14` روی `main`.
+
+### اصلاحات ثبت‌شده پس از snapshot قبلی
+
+- ارزیابی دارایی: انتقال مرحله‌ای به `approved` دیگر ارزش جاری دارایی را تغییر نمی‌دهد؛ ثبت تأیید و اعمال روی snapshot فقط هنگام بستن نهایی WorkflowCase انجام می‌شود.
+- دوره بیمه‌نامه دارایی: فعال‌سازی دوره و به‌روزرسانی snapshot دارایی تا بستن نهایی به تعویق افتاده است. در رد نیز وضعیت دامنه تا بستن نهایی قطعی نمی‌شود.
+- الحاقیه دارایی: وضعیت تأیید/رد فقط در بستن نهایی گردش ثبت می‌شود.
+- خسارت: تصمیم `approved/rejected` تا بستن نهایی WorkflowCase در وضعیت دامنه اعمال نمی‌شود. ارسال نتیجه خسارت پیش از بسته‌شدن پرونده همچنان ممنوع است.
+- برای این قواعد تست‌های رگرسیون افزوده/تکمیل شده‌اند:
+  - `AssetOperationalWorkflowTests.test_valuation_snapshot_is_applied_only_after_final_workflow_close`
+  - `AssetOperationalWorkflowTests.test_policy_period_and_endorsement_commit_only_after_final_workflow_close`
+  - سناریوی `ManualClaimWorkflowTests.test_manual_claim_assessment_head_decision_and_result_dispatch` اکنون وضعیت قبل از بستن نهایی و منع ارسال زودهنگام نتیجه را نیز بررسی می‌کند.
+
+### وضعیت اجرای تست روی HEAD این snapshot
+
+در این بازبینی، سورس GitHub خوانده و تغییرات مستقیماً روی `main` ثبت شده‌اند؛ محیط اجرایی Django برای اجرای تست در اختیار این بررسی نبود. بنابراین تست‌های جدید **اضافه شده‌اند، اما اجرای موفق آن‌ها روی HEAD فعلی تأیید نشده است**.
+
+شواهد قبلی مالک:
+- ۱۷ تست assets روی snapshot قبلی با موفقیت اجرا شده‌اند؛ این اجرا قبل از تست‌های جدید final-close بوده است.
+- گزارش ۲۱۸ تست موفق مربوط به snapshot قدیمی‌تر ۱۰ نوامبر است و نباید به HEAD فعلی تعمیم داده شود.
+
+### وضعیت شاخه‌ها
+
+در زمان بررسی، علاوه بر `main` شاخه `engineering/workflow-access-integration-2026-11-12` نیز وجود داشت. مقایسه تاریخچه آن با `main` نشان می‌دهد دو شاخه واگرا هستند (۹۰ commit جلوتر و ۱۱۳ commit عقب‌تر در مقایسه GitHub). بررسی ایستای فایل‌های اصلی نشان داد نسخه‌های آن شاخه در بخش‌هایی مانند دسترسی، workflow، درخواست‌ها و وظایف قدیمی‌تر از کد `main` هستند؛ بااین‌حال حذف شاخه تا تعیین تکلیف کامل diff انجام نشده است. این بررسی ابزار حذف reference شاخه را در اختیار نداشت.
+
+### تصمیم انتشار
+
+**Production همچنان No-Go است.** قبل از go-live باید تست‌های جدید و مجموعه کامل روی HEAD نهایی اجرا شوند؛ سپس preflight، ممیزی گردش‌کار، آزمون PostgreSQL، ClamAV واقعی، کنترل private media در وب‌سرور، backup/restore، آزمون بار و پذیرش دستی journeyهای نقش‌ها در staging ثبت شوند.
