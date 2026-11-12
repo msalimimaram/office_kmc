@@ -94,11 +94,11 @@ class CorrespondenceOrganizationalScopeTests(TestCase):
         )
         PositionAssignment.objects.create(
             user=self.subordinate, unit=self.child, position=self.specialist_position,
-            valid_from=timezone.localdate(), reason="کارشناس زیرمجموعه",
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس زیرمجموعه",
         )
         PositionAssignment.objects.create(
             user=self.outsider, unit=self.outside, position=self.outside_position,
-            valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
         )
         RoleAssignment.objects.create(
             user=self.subordinate,
