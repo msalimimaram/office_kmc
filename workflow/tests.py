@@ -10,6 +10,7 @@ from claims.models import Claim
 from insurance.models import Insurer
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
+from core.permissions import can_process_request, scoped_requests_for
 from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
@@ -23,6 +24,20 @@ class WorkflowEngineTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
             username="workflow-admin", password="StrongPass!123", is_superuser=True, is_staff=True
+        )
+        RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه آزمون",
+        )
+        self.department_head = User.objects.create_user(
+            username="workflow-department-head",
+            password="StrongPass!123",
+        )
+        RoleAssignment.objects.create(
+            user=self.department_head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره آزمون",
         )
         self.specialist = User.objects.create_user(
             username="workflow-specialist", password="StrongPass!123"
@@ -234,14 +249,15 @@ class WorkflowEngineTests(TestCase):
             case_id=case.pk,
             actor=self.specialist,
             action_code="send-to-head",
-            recipient=self.admin,
+            recipient=self.department_head,
         )
         self.request.refresh_from_db()
         self.assertEqual(self.request.status, ServiceRequest.Status.COMPLETED)
+        self.assertEqual(self.request.assigned_to_id, self.department_head.pk)
 
         transition_case(
             case_id=case.pk,
-            actor=self.admin,
+            actor=self.department_head,
             action_code="close-request",
         )
         self.request.refresh_from_db()
@@ -258,14 +274,63 @@ class WorkflowEngineTests(TestCase):
             case_id=case.pk,
             actor=self.specialist,
             action_code="send-to-head",
-            recipient=self.admin,
+            recipient=self.department_head,
             note="نیازمند تصمیم ریاست",
         )
         case.refresh_from_db()
         self.assertEqual(case.current_step_id, self.final.pk)
-        self.assertEqual(case.current_assignee_id, self.admin.pk)
+        self.assertEqual(case.current_assignee_id, self.department_head.pk)
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.assigned_to_id, self.department_head.pk)
         self.assertEqual(case.events.count(), 2)
         self.assertIsNotNone(case.first_action_at)
+
+    def test_previous_assignee_can_view_but_cannot_act_after_referral(self):
+        case = start_workflow(
+            obj=self.request,
+            code="test-request",
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="send-to-head",
+            recipient=self.department_head,
+            note="ارجاع برای تصمیم",
+        )
+
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.assigned_to_id, self.department_head.pk)
+        self.assertIn(self.request, scoped_requests_for(self.specialist))
+        self.assertIn(self.request, scoped_requests_for(self.department_head))
+        self.assertFalse(can_process_request(self.specialist, self.request))
+        self.assertFalse(can_process_request(self.department_head, self.request))
+
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=self.specialist,
+                action_code="send-to-head",
+                recipient=self.department_head,
+                note="تلاش برای اقدام پس از انتقال مسئولیت",
+            )
+
+    def test_global_manager_cannot_act_on_a_stage_owned_by_another_user(self):
+        case = start_workflow(
+            obj=self.request,
+            code="test-request",
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=self.admin,
+                action_code="send-to-head",
+                recipient=self.department_head,
+                note="مدیر پرونده را بدون انتساب جاری تغییر داد",
+            )
 
     def test_transition_requires_note_when_configured(self):
         case = start_workflow(
@@ -279,7 +344,7 @@ class WorkflowEngineTests(TestCase):
                 case_id=case.pk,
                 actor=self.specialist,
                 action_code="send-to-head",
-                recipient=self.admin,
+                recipient=self.department_head,
                 note="",
             )
 
