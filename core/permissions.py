@@ -93,13 +93,23 @@ def scoped_claims_for(user):
                 employments__isnull=True,
             ).values_list("pk", flat=True)
         )
-        allowed |= (
+        company_scope = (
             Q(company_snapshot_id__in=company_ids)
             | Q(person_id__in=current_employment_people)
             | Q(primary_insured_id__in=current_employment_people)
             | Q(person_id__in=legacy_people)
             | Q(primary_insured_id__in=legacy_people)
         )
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= company_scope
+        elif representative_lines:
+            # The claim's contract is the authoritative source of insurance line.
+            # Claims without a contract cannot be safely exposed to a line-limited
+            # representative because no reliable line can be inferred.
+            allowed |= company_scope & Q(contract__line__in=representative_lines)
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
