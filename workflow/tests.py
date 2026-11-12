@@ -482,6 +482,11 @@ class WorkflowEngineTests(TestCase):
         assignment.is_active = False
         assignment.save(update_fields=["is_active"])
 
+        client = Client()
+        client.force_login(supervisor)
+        with self.assertRaises(PermissionDenied):
+            client.get(reverse("workflow_case_detail", args=[case.pk]))
+
         with self.assertRaises(PermissionDenied):
             transition_case(
                 case_id=case.pk,
