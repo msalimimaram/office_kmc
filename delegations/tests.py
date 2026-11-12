@@ -16,6 +16,7 @@ from workflow.models import WorkflowTransition
 from .forms import WorkDelegationForm
 from .models import WorkDelegation
 from .services import (
+    _role_assignment_is_active,
     apply_delegation_to_open_cases,
     synchronize_delegations,
     update_delegation_status,
@@ -330,6 +331,140 @@ class DelegationRoutingTests(TestCase):
 
         from workflow.services import mark_case_opened
         mark_case_opened(case_id=case.pk, actor=self.specialist)
+
+    def test_company_representative_delegation_requires_explicit_line_scope(self):
+        today = timezone.localdate()
+        blank_line_rep = User.objects.create_user(
+            username="delegation.rep.blank-line",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=blank_line_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="",
+            valid_from=today,
+        )
+        health_rep = User.objects.create_user(
+            username="delegation.rep.health-only",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=health_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            valid_from=today,
+        )
+        all_lines_rep = User.objects.create_user(
+            username="delegation.rep.all-lines",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=all_lines_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            valid_from=today,
+        )
+
+        def delegation_for(user, line_code):
+            return WorkDelegation(
+                delegate_role=RoleAssignment.Role.SUBSIDIARY_REP,
+                delegate_to=user,
+                company=self.company,
+                line_code=line_code,
+                valid_from=today,
+            )
+
+        self.assertFalse(_role_assignment_is_active(
+            delegation_for(blank_line_rep, "health")
+        ))
+        self.assertFalse(_role_assignment_is_active(
+            delegation_for(blank_line_rep, "")
+        ))
+        self.assertTrue(_role_assignment_is_active(
+            delegation_for(health_rep, "health")
+        ))
+        self.assertFalse(_role_assignment_is_active(
+            delegation_for(health_rep, "")
+        ))
+        self.assertTrue(_role_assignment_is_active(
+            delegation_for(all_lines_rep, "health")
+        ))
+        self.assertTrue(_role_assignment_is_active(
+            delegation_for(all_lines_rep, "")
+        ))
+
+    def test_company_representative_form_filters_recipients_by_line_scope(self):
+        today = timezone.localdate()
+        blank_line_rep = User.objects.create_user(
+            username="delegation.form.blank-line",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=blank_line_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="",
+            valid_from=today,
+        )
+        health_rep = User.objects.create_user(
+            username="delegation.form.health",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=health_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            valid_from=today,
+        )
+        all_lines_rep = User.objects.create_user(
+            username="delegation.form.all-lines",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=all_lines_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            valid_from=today,
+        )
+
+        base_data = {
+            "workflow_code": "person_change",
+            "item_type": "iban",
+            "delegate_role": RoleAssignment.Role.SUBSIDIARY_REP,
+            "delegate_to": str(health_rep.pk),
+            "company": str(self.company.pk),
+            "insurer": "",
+            "line_code": "health",
+            "valid_from": today.isoformat(),
+            "valid_until": "",
+            "reason": "پوشش کنترل‌شده اصلاح اطلاعات در رشته درمان",
+        }
+        scoped_form = WorkDelegationForm(data=base_data)
+        scoped_ids = set(scoped_form.fields["delegate_to"].queryset.values_list("pk", flat=True))
+        self.assertEqual(scoped_ids, {health_rep.pk, all_lines_rep.pk})
+
+        all_lines_data = {**base_data, "line_code": "", "delegate_to": str(all_lines_rep.pk)}
+        all_lines_form = WorkDelegationForm(data=all_lines_data)
+        all_lines_ids = set(all_lines_form.fields["delegate_to"].queryset.values_list("pk", flat=True))
+        self.assertEqual(all_lines_ids, {all_lines_rep.pk})
+
+        invalid_form = WorkDelegationForm(data={
+            **base_data,
+            "delegate_to": str(blank_line_rep.pk),
+        })
+        self.assertFalse(invalid_form.is_valid())
+        self.assertIn("delegate_to", invalid_form.errors)
 
     def test_more_specific_rule_wins_over_broader_rule(self):
         backup = User.objects.create_user(

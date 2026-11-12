@@ -29,7 +29,11 @@ def _role_assignment_is_active(delegation, *, on_date=None):
             return False
         scoped = assignments.filter(company_id=delegation.company_id)
         if delegation.line_code:
-            scoped = scoped.filter(Q(line_code="") | Q(line_code="*") | Q(line_code=delegation.line_code))
+            scoped = scoped.filter(Q(line_code="*") | Q(line_code=delegation.line_code))
+        else:
+            # An unscoped company delegation is an all-lines grant. A blank
+            # assignment is not an implicit wildcard; '*' must be explicit.
+            scoped = scoped.filter(line_code="*")
         return scoped.exists()
     if delegation.delegate_role == RoleAssignment.Role.INSURER_REP:
         if not delegation.insurer_id:

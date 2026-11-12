@@ -57,6 +57,10 @@ class WorkDelegationForm(forms.ModelForm):
             assignments = assignments.filter(line_code__in=[line_code, "*"])
         elif role == RoleAssignment.Role.SUBSIDIARY_REP and company_id:
             assignments = assignments.filter(company_id=company_id)
+            if line_code:
+                assignments = assignments.filter(Q(line_code__in=[line_code, "*"]))
+            else:
+                assignments = assignments.filter(line_code="*")
         elif role == RoleAssignment.Role.INSURER_REP and insurer_id:
             assignments = assignments.filter(insurer_id=insurer_id)
         self.fields["delegate_to"].queryset = User.objects.filter(
@@ -87,10 +91,19 @@ class WorkDelegationForm(forms.ModelForm):
             if not company:
                 self.add_error("company", "شرکت نماینده باید مشخص باشد.")
             effective_date = cleaned.get("valid_from") or timezone.localdate()
-            if delegate and company and not active_assignments(
-                delegate, on_date=effective_date
-            ).filter(role=role, company=company).exists():
-                self.add_error("delegate_to", "گیرنده نماینده فعال این شرکت نیست.")
+            if delegate and company:
+                assignments = active_assignments(
+                    delegate, on_date=effective_date
+                ).filter(role=role, company=company)
+                if line_code:
+                    assignments = assignments.filter(Q(line_code=line_code) | Q(line_code="*"))
+                else:
+                    assignments = assignments.filter(line_code="*")
+                if not assignments.exists():
+                    self.add_error(
+                        "delegate_to",
+                        "گیرنده برای رشته انتخاب‌شده (یا همه رشته‌ها) انتصاب معتبر این شرکت را ندارد.",
+                    )
         elif role == RoleAssignment.Role.INSURER_REP:
             if not insurer:
                 self.add_error("insurer", "بیمه‌گر باید مشخص باشد.")
