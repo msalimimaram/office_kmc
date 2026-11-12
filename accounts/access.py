@@ -81,7 +81,9 @@ def has_position_level(
     if not levels:
         return False
     qs = active_position_assignments(user, on_date=on_date).filter(
-        position__level__in=levels
+        position__level__in=levels,
+        unit__company__isnull=True,
+        line_code__gt="",
     )
     if unit_id is not None:
         qs = qs.filter(unit_id=unit_id)
