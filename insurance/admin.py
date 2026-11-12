@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, has_role
+from accounts.models import RoleAssignment
 from .models import Insurer, Contract, ContractRevision
 
 
@@ -30,17 +31,20 @@ class InsurerAdmin(admin.ModelAdmin):
     search_fields = ("name", "contact_name", "contact_email", "contact_phone")
     ordering = ("name",)
 
+    def _allowed(self, request):
+        return bool(request.user and has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN))
+
     def has_module_permission(self, request):
-        return bool(request.user and has_global_access(request.user))
+        return self._allowed(request)
 
     def has_view_permission(self, request, obj=None):
-        return bool(request.user and has_global_access(request.user))
+        return self._allowed(request)
 
     def has_add_permission(self, request):
-        return bool(request.user and has_global_access(request.user))
+        return self._allowed(request)
 
     def has_change_permission(self, request, obj=None):
-        return bool(request.user and has_global_access(request.user))
+        return self._allowed(request)
 
     def has_delete_permission(self, request, obj=None):
         # Insurer references may already be used by contracts, claims and payments.

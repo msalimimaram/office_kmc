@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, has_role
+from accounts.models import RoleAssignment
 from .models import Company, Person, PersonChangeRequest
 
 
@@ -11,6 +12,24 @@ class CompanyAdmin(admin.ModelAdmin):
     search_fields = ("code", "name", "parent__name")
     ordering = ("name", "code")
     list_select_related = ("parent",)
+
+    def _allowed(self, request):
+        return bool(request.user and has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN))
+
+    def has_module_permission(self, request):
+        return self._allowed(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self._allowed(request)
+
+    def has_add_permission(self, request):
+        return self._allowed(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self._allowed(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Person)
