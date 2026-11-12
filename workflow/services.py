@@ -67,7 +67,12 @@ def _scope_for_object(obj, _seen=None):
     line_code = getattr(obj, "line_code", None)
     if not line_code and getattr(obj, "kind", None) in HEALTH_REQUEST_KINDS:
         line_code = "health"
-    owner_user_id = getattr(obj, "submitted_by_id", None) or getattr(obj, "user_id", None)
+    owner_user_id = (
+        getattr(obj, "submitted_by_id", None)
+        or getattr(obj, "requested_by_id", None)
+        or getattr(obj, "created_by_id", None)
+        or getattr(obj, "user_id", None)
+    )
     person = getattr(obj, "person", None)
     if person is not None:
         company_id = company_id or getattr(person, "company_id", None)
@@ -513,9 +518,15 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
     # Position levels are evaluated after explicitly ordered operational roles.
     # Each position must be active, belong to an internal unit, and match the
     # business line; all-line authority requires an explicit '*' assignment.
+    source_user = User.objects.filter(
+        pk=owner_user_id, is_active=True
+    ).first() if owner_user_id else None
     for level in position_levels:
         position_user_ids = active_position_assignments_for_level(
-            level, line_code=line_code
+            level,
+            line_code=line_code,
+            source_user=source_user,
+            route_scope="related_units",
         )
         if exclude_user_id:
             position_user_ids = position_user_ids.exclude(user_id=exclude_user_id)
@@ -829,11 +840,16 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         ):
             raise PermissionDenied("تفویض انتخاب‌شده برای این پرونده معتبر یا فعال نیست.")
     else:
+        source_user = User.objects.filter(
+            pk=scope.get("owner_user_id"), is_active=True
+        ).first() if scope.get("owner_user_id") else None
         position_assignment = _validate_recipient(
             assignee,
             initial.allowed_roles,
             position_levels=initial.allowed_position_levels,
             scope=scope,
+            source_user=source_user,
+            position_route_scope="related_units",
         )
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
     case, created = WorkflowCase.objects.get_or_create(
