@@ -209,21 +209,36 @@ def _has_operational_role(user, roles, *, scope):
     return _has_any_role(user, roles, **scope)
 
 
+def _current_position_assignment(case, actor, position_levels=(), *, line_code=None):
+    """Resolve the exact active position row recorded as this case's owner grant."""
+    if not case.current_position_assignment_id:
+        return None
+    return _position_assignment_queryset(
+        actor, position_levels, line_code=line_code
+    ).filter(pk=case.current_position_assignment_id).select_related(
+        "position", "unit"
+    ).first()
+
+
 def _case_actor_authorized(case, actor, roles, *, position_levels=(), scope):
     """Validate the exact grant recorded when this user became current owner."""
     if case.current_position_assignment_id:
-        return _position_assignment_is_current(
-            case.current_position_assignment_id,
+        assignment = _current_position_assignment(
+            case,
             actor,
-            position_levels or (
-                case.current_step.allowed_position_levels
-                if case.current_step_id else []
-            ),
+            case.current_step.allowed_position_levels if case.current_step_id else [],
             line_code=scope.get("line_code"),
         )
+        if assignment is None:
+            return False
+        if _has_operational_role(actor, roles, scope=scope):
+            return True
+        return assignment.position.level in set(position_levels or [])
     return _has_any_role(
         actor, roles, position_levels=position_levels, **scope
     )
+
+
 
 
 def _sync_domain_assignee(obj, assignee):
