@@ -122,7 +122,12 @@ class Command(BaseCommand):
             if code in {"contract_approval", "contract_termination"} and initial_steps:
                 if initial_steps[0].code != ContractRevision.Status.PENDING_APPROVAL:
                     errors.append(f"{code}: مرحله آغازین باید pending_approval باشد.")
-                if not set(initial_steps[0].allowed_roles or []).issubset(global_roles):
+                initial_roles = set(initial_steps[0].allowed_roles or [])
+                if (
+                    not initial_roles
+                    or not initial_roles.issubset(global_roles)
+                    or initial_steps[0].allowed_position_levels
+                ):
                     errors.append(f"{code}: مرحله آغازین فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
             if code in {
@@ -132,7 +137,12 @@ class Command(BaseCommand):
             } and initial_steps:
                 if initial_steps[0].code != "pending_approval":
                     errors.append(f"{code}: مرحله آغازین باید pending_approval باشد.")
-                if not set(initial_steps[0].allowed_roles or []).issubset(global_roles):
+                initial_roles = set(initial_steps[0].allowed_roles or [])
+                if (
+                    not initial_roles
+                    or not initial_roles.issubset(global_roles)
+                    or initial_steps[0].allowed_position_levels
+                ):
                     errors.append(f"{code}: تأیید دارایی فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
             if code == "claim_review":
@@ -140,7 +150,7 @@ class Command(BaseCommand):
                     errors.append("claim_review: مرحله آغازین باید under_review باشد.")
                 elif not (
                     specialist_role in (initial_steps[0].allowed_roles or [])
-                    or set(initial_steps[0].allowed_roles or []).issubset(global_roles)
+                    or bool(set(initial_steps[0].allowed_roles or []) & global_roles)
                 ):
                     errors.append("claim_review: مرحله آغازین باید به کارشناس بیمه یا مرجع سراسری مجاز باشد.")
                 submit = next((item for item in transitions if item.action_code == "submit_for_decision"), None)
