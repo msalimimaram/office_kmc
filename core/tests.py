@@ -212,7 +212,9 @@ class DemoSeedCommandSafetyTests(TestCase):
         from organizations.models import Company, Person
         from requests_portal.models import ServiceRequest
 
-        call_command("seed_demo")
+        seed_environment = {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}
+        with patch.dict("os.environ", seed_environment):
+            call_command("seed_demo")
         employee = User.objects.get(username="employee.a")
         employee.set_password("LocallyChosen!Password2026")
         employee.save(update_fields=["password"])
@@ -222,13 +224,16 @@ class DemoSeedCommandSafetyTests(TestCase):
             for model in (Company, Person, User, Claim, ClaimPayment, ServiceRequest)
         }
 
-        call_command("seed_demo")
+        with patch.dict("os.environ", seed_environment):
+            call_command("seed_demo")
 
         employee.refresh_from_db()
         self.assertTrue(employee.check_password("LocallyChosen!Password2026"))
         for model, count in model_counts.items():
             self.assertEqual(model.objects.count(), count, model._meta.label)
-        self.assertFalse(User.objects.get(username="head.demo").has_usable_password())
+        head = User.objects.get(username="Shahamat")
+        self.assertTrue(head.check_password(seed_environment["DEMO_SEED_PASSWORD"]))
+        self.assertFalse(User.objects.filter(username="head.demo").exists())
 
     def test_seed_collision_aborts_without_overwriting_or_partial_creation(self):
         from django.core.management import call_command
@@ -242,8 +247,10 @@ class DemoSeedCommandSafetyTests(TestCase):
             is_active=True,
         )
 
-        with self.assertRaises(CommandError):
-            call_command("seed_demo")
+        with patch.dict("os.environ", {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}):
+            with self.assertRaises(CommandError) as raised:
+                call_command("seed_demo")
+        self.assertIn("Seed collision", str(raised.exception))
 
         company.refresh_from_db()
         self.assertEqual(company.name, "رکورد موجود نباید تغییر کند")
