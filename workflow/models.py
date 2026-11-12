@@ -265,6 +265,17 @@ class WorkflowTransition(models.Model):
 
     def clean(self):
         super().clean()
+        # Older rows may contain SQL NULL in optional JSON routing fields.
+        # Normalize only these optional recipient lists; malformed non-list
+        # values still fail validation below.
+        if self.recipient_roles is None:
+            self.recipient_roles = []
+        if self.recipient_position_levels is None:
+            self.recipient_position_levels = []
+        if self.allowed_roles is None:
+            self.allowed_roles = []
+        if self.allowed_position_levels is None:
+            self.allowed_position_levels = []
         if self.source_step_id and self.source_step.definition_id != self.definition_id:
             raise ValidationError({"source_step": "مرحله مبدأ باید متعلق به همین تعریف باشد."})
         if self.target_step_id and self.target_step.definition_id != self.definition_id:
