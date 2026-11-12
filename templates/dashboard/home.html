@@ -175,7 +175,7 @@
   {% if show_contracts %}<a class="quick-card" href="{% url 'contract_list' %}"><span class="quick-icon">▧</span><strong>قراردادهای بیمه</strong><p>قراردادها و پوشش‌های بیمه‌ای</p><span class="arrow">←</span></a>{% endif %}
   {% if show_people %}<a class="quick-card" href="{% url 'people_list' %}"><span class="quick-icon">♙</span><strong>{% if is_employee_dashboard %}افراد تحت تکفل{% else %}اطلاعات بیمه‌شدگان{% endif %}</strong><p>مشاهده اطلاعات مجاز بیمه‌شدگان</p><span class="arrow">←</span></a>{% endif %}
   <a class="quick-card" href="{% url 'announcement_list' %}"><span class="quick-icon">▤</span><strong>اطلاعیه‌ها و بخشنامه‌ها</strong><p>اطلاعیه‌های سازمانی</p><span class="arrow">←</span></a>
-  <a class="quick-card" href="{% url 'document_list' %}"><span class="quick-icon">▤</span><strong>اسناد و فرم‌ها</strong><p>دسترسی به فایل‌ها و فرم‌های منتشرشده</p><span class="arrow">←</span></a>
+  {% if access.documents %}<a class="quick-card" href="{% url 'document_list' %}"><span class="quick-icon">▤</span><strong>اسناد و فرم‌ها</strong><p>دسترسی به فایل‌ها و فرم‌های منتشرشده</p><span class="arrow">←</span></a>{% endif %}
   {% if show_correspondence %}<a class="quick-card" href="{% url 'correspondence_list' %}"><span class="quick-icon">✉</span><strong>مکاتبات</strong><p>مکاتبات و پیگیری‌های سازمانی</p><span class="arrow">←</span></a>{% endif %}
   {% if show_imports %}<a class="quick-card" href="{% url 'claim_import' %}"><span class="quick-icon">⇧</span><strong>ورود اطلاعات از اکسل</strong><p>ورود گروهی اطلاعات خسارت</p><span class="arrow">←</span></a>{% endif %}
 </section>
