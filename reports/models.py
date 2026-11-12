@@ -87,6 +87,7 @@ class Report(models.Model):
         self.status = target
         self._workflow_sync = True
         self.save(update_fields=["status", "updated_at"])
+        self._workflow_sync = False
 
     def sync_workflow_assignee(self, *, assignee):
         if self.assigned_to_id == getattr(assignee, "pk", None):

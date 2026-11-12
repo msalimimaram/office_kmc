@@ -176,9 +176,10 @@ def report_detail(request, pk):
     )
     form = ReportRevisionForm(request.POST or None) if can_resubmit else None
     if request.method == "POST":
-        if not can_resubmit or form is None or not form.is_valid():
+        if not can_resubmit or form is None:
             raise PermissionDenied("ثبت نسخه جدید فقط برای تهیه‌کننده گزارش بازگشتی مجاز است.")
-        try:
+        if form.is_valid():
+            try:
             with transaction.atomic():
                 locked_report = Report.objects.select_for_update().get(pk=report.pk)
                 locked_case = WorkflowCase.objects.select_for_update().get(pk=case.pk)
@@ -195,12 +196,12 @@ def report_detail(request, pk):
                 ).order_by("-version").first()
                 if not definition:
                     raise ValidationError("گردش‌کار گزارش مدیریتی فعال نیست.")
-                assignee, delegation = resolve_initial_assignee(
+                assignee = resolve_initial_assignee(
                     definition=definition,
                     obj=locked_report,
                     line_code=locked_report.line_code,
                     owner_user_id=request.user.pk,
-                    return_delegation=True,
+                    allow_delegation=False,
                 )
                 transition_case(
                     case_id=locked_case.pk,

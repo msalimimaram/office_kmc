@@ -407,7 +407,7 @@ def add_business_minutes(start_at, minutes, calendar=None):
     raise ValidationError("محاسبه مهلت کاری در بازه مجاز ممکن نشد.")
 
 
-def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None, obj=None, item_type=None, return_delegation=False):
+def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, line_code=None, owner_user_id=None, exclude_user_id=None, obj=None, item_type=None, return_delegation=False, allow_delegation=True):
     # When the caller supplies a domain object, derive any missing authorization
     # scope from that object and its known parent relations. Explicit arguments
     # remain authoritative, while object-only calls cannot accidentally become
@@ -431,12 +431,15 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
             or ""
         )
     from delegations.services import find_matching_delegation
-    delegation = find_matching_delegation(
-        workflow_code=definition.code,
-        item_type=item_type,
-        company_id=company_id,
-        insurer_id=insurer_id,
-        line_code=line_code,
+    delegation = (
+        find_matching_delegation(
+            workflow_code=definition.code,
+            item_type=item_type,
+            company_id=company_id,
+            insurer_id=insurer_id,
+            line_code=line_code,
+        )
+        if allow_delegation else None
     )
     if delegation is not None:
         if (
