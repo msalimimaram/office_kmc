@@ -211,21 +211,32 @@ def scoped_requests_for(user):
             current_assignee_id=user.pk,
             status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
         ).values("domain_pk")
-        historical_object_ids = WorkflowEvent.objects.filter(
+        historical_events = WorkflowEvent.objects.filter(
             workflow_case__content_type=content_type,
         ).filter(
             Q(from_assignee_id=user.pk) | Q(to_assignee_id=user.pk)
-        ).annotate(
+        )
+        historical_object_ids = historical_events.annotate(
             domain_pk=Cast("workflow_case__object_id", BigIntegerField())
         ).values("domain_pk")
+        # A former assignee may retain read-only access to the workflow trail
+        # of a confidential request. This does not grant current ownership or
+        # access to its medical payload; workflow presentation redacts details.
+        historical_confidential_ids = ServiceRequest.objects.filter(
+            pk__in=historical_object_ids,
+            is_confidential=True,
+        ).values("pk")
         legacy_ids = qs.filter(assigned_to_id=user.pk).exclude(
             pk__in=workflow_cases.values("domain_pk")
         ).values("pk")
         assigned_scope = ServiceRequest.objects.filter(
-            Q(pk__in=current_object_ids)
-            | Q(pk__in=historical_object_ids)
-            | Q(pk__in=legacy_ids),
-            is_confidential=False,
+            Q(
+                Q(pk__in=current_object_ids)
+                | Q(pk__in=historical_object_ids)
+                | Q(pk__in=legacy_ids),
+                is_confidential=False,
+            )
+            | Q(pk__in=historical_confidential_ids)
         )
         role_scoped_ids = Q(pk__in=[])
 
