@@ -2,7 +2,8 @@ from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Q, BigIntegerField
+from django.db.models.functions import Cast
 
 from accounts.access import (
     active_assignments,
@@ -152,34 +153,28 @@ def scoped_requests_for(user):
         content_type = ContentType.objects.get_for_model(
             ServiceRequest, for_concrete_model=False
         )
-        workflow_cases = WorkflowCase.objects.filter(content_type=content_type)
-        workflow_object_ids = list(
-            workflow_cases.values_list("object_id", flat=True)
-        )
-        current_object_ids = list(
-            workflow_cases.filter(
-                current_assignee_id=user.pk,
-                status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
-            ).values_list("object_id", flat=True)
-        )
-        historical_object_ids = list(
-            WorkflowEvent.objects.filter(
-                workflow_case__content_type=content_type,
-            ).filter(
-                Q(from_assignee_id=user.pk) | Q(to_assignee_id=user.pk)
-            ).values_list("workflow_case__object_id", flat=True).distinct()
-        )
-        assigned_ids = {
-            int(value)
-            for value in (*current_object_ids, *historical_object_ids)
-            if str(value).isdigit()
-        }
+        workflow_cases = WorkflowCase.objects.filter(
+            content_type=content_type,
+        ).annotate(domain_pk=Cast("object_id", BigIntegerField()))
+        current_object_ids = workflow_cases.filter(
+            current_assignee_id=user.pk,
+            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        ).values("domain_pk")
+        historical_object_ids = WorkflowEvent.objects.filter(
+            workflow_case__content_type=content_type,
+        ).filter(
+            Q(from_assignee_id=user.pk) | Q(to_assignee_id=user.pk)
+        ).annotate(
+            domain_pk=Cast("workflow_case__object_id", BigIntegerField())
+        ).values("domain_pk")
         legacy_ids = qs.filter(assigned_to_id=user.pk).exclude(
-            pk__in=workflow_object_ids
-        ).values_list("pk", flat=True)
-        assigned_ids.update(legacy_ids)
-        if assigned_ids:
-            allowed |= Q(pk__in=assigned_ids, is_confidential=False)
+            pk__in=workflow_cases.values("domain_pk")
+        ).values("pk")
+        allowed |= (
+            Q(pk__in=current_object_ids)
+            | Q(pk__in=historical_object_ids)
+            | Q(pk__in=legacy_ids)
+        ) & Q(is_confidential=False)
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         # Employees must still see their own requests when a company
