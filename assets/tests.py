@@ -51,7 +51,7 @@ class AssetScopeTests(TestCase):
         fire_rep = User.objects.create_user(
             username="asset-fire-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company_a,
         )
         RoleAssignment.objects.create(
             user=fire_rep,
@@ -513,7 +513,7 @@ class AssetOperationalWorkflowTests(TestCase):
         representative = User.objects.create_user(
             username="asset-ops-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -567,7 +567,7 @@ class AssetOperationalWorkflowTests(TestCase):
         outsider = User.objects.create_user(
             username="asset-ops-outsider",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=other_company,
         )
         RoleAssignment.objects.create(
             user=outsider,

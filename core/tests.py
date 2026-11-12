@@ -339,7 +339,7 @@ class SubsidiaryRepresentativeLineScopeTests(TestCase):
         representative = User.objects.create_user(
             username="line-health-representative",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -368,7 +368,7 @@ class SubsidiaryRepresentativeLineScopeTests(TestCase):
         representative = User.objects.create_user(
             username="line-request-representative",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
@@ -406,7 +406,7 @@ class SubsidiaryRepresentativeLineScopeTests(TestCase):
         representative = User.objects.create_user(
             username="line-all-representative",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=representative,
