@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 
 from accounts.access import active_assignments, has_global_access, has_role
@@ -287,15 +287,38 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
         scope |= role_scope
     if not scope.children:
         raise ValidationError("برای محدوده این پرونده، نقش گیرنده قابل تخصیص نیست.")
-    candidates = User.objects.filter(
-        pk__in=assignments.filter(scope).values("user_id"),
-        is_active=True,
+    # The order of roles in the published initial step is the routing
+    # priority (for example, specialist before head/system admin). Only after
+    # selecting the highest-priority role do we balance between its eligible
+    # assignees by current open workload, then stable primary key.
+    eligible_rows = list(
+        assignments.filter(scope).values_list("role", "user_id").distinct()
     )
-    if exclude_user_id:
-        candidates = candidates.exclude(pk=exclude_user_id)
-    candidate = candidates.order_by("pk").first()
-    if candidate:
-        return (candidate, None) if return_delegation else candidate
+    eligible_by_role = {
+        role: {user_id for assigned_role, user_id in eligible_rows if assigned_role == role}
+        for role in roles
+    }
+    for role in roles:
+        user_ids = eligible_by_role.get(role, set())
+        if exclude_user_id:
+            user_ids.discard(exclude_user_id)
+        if not user_ids:
+            continue
+        candidate = User.objects.filter(
+            pk__in=user_ids,
+            is_active=True,
+        ).annotate(
+            active_workload=Count(
+                "workflow_cases",
+                filter=Q(workflow_cases__status__in=[
+                    WorkflowCase.Status.OPEN,
+                    WorkflowCase.Status.WAITING,
+                ]),
+                distinct=True,
+            )
+        ).order_by("active_workload", "pk").first()
+        if candidate:
+            return (candidate, None) if return_delegation else candidate
     raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر در محدوده پرونده پیدا نشد.")
 
 
