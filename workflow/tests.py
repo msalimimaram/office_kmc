@@ -5,7 +5,9 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
-from accounts.models import RoleAssignment
+from accounts.models import (
+    OrganizationalPosition, OrganizationalUnit, PositionAssignment, RoleAssignment,
+)
 from claims.models import Claim
 from insurance.models import Insurer
 from organizations.models import Company, Person
@@ -94,6 +96,148 @@ class WorkflowEngineTests(TestCase):
         self.definition.approved_by = self.admin
         self.definition.is_active = True
         self.definition.save()
+
+    def test_position_only_initial_step_routes_to_active_line_scoped_supervisor(self):
+        unit = OrganizationalUnit.objects.create(
+            code="WF-POS-UNIT",
+            name="واحد رسیدگی درمان",
+        )
+        position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="WF-POS-SUPERVISOR",
+            title="سرپرست رسیدگی درمان",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-position-supervisor",
+            password="StrongPass!123",
+        )
+        PositionAssignment.objects.create(
+            user=supervisor,
+            unit=unit,
+            position=position,
+            line_code="health",
+            reason="انتصاب سرپرست درمان",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="test-position-only-initial",
+            title="گردش مبتنی بر سمت سازمانی",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="supervisor-review",
+            title="بررسی سرپرست درمان",
+            order=1,
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            is_initial=True,
+        )
+
+        assignee = resolve_initial_assignee(
+            definition=definition,
+            obj=self.request,
+        )
+        self.assertEqual(assignee.pk, supervisor.pk)
+
+        case = start_workflow(
+            obj=self.request,
+            code=definition.code,
+            actor=self.admin,
+            assignee=supervisor,
+        )
+        self.assertEqual(case.current_step_id, initial.pk)
+        self.assertEqual(case.current_assignee_id, supervisor.pk)
+
+    def test_position_only_workflow_actor_must_hold_active_matching_line_position(self):
+        unit = OrganizationalUnit.objects.create(
+            code="WF-POS-ACTOR-UNIT",
+            name="واحد سرپرستی درمان",
+        )
+        position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="WF-POS-ACTOR",
+            title="سرپرست درمان",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-position-actor",
+            password="StrongPass!123",
+        )
+        PositionAssignment.objects.create(
+            user=supervisor,
+            unit=unit,
+            position=position,
+            line_code="health",
+            reason="انتصاب سرپرست برای اقدام",
+        )
+        outsider = User.objects.create_user(
+            username="workflow-position-outsider",
+            password="StrongPass!123",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="test-position-only-action",
+            title="آزمون مجوز اقدام سمت‌محور",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="supervisor-review",
+            title="بررسی سرپرست",
+            order=1,
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            is_initial=True,
+        )
+        final = WorkflowStep.objects.create(
+            definition=definition,
+            code="head-review",
+            title="بررسی رئیس اداره",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=final,
+            action_code="refer-to-head",
+            title="ارجاع به رئیس اداره",
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+        case = start_workflow(
+            obj=self.request,
+            code=definition.code,
+            actor=self.admin,
+            assignee=supervisor,
+        )
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=outsider,
+                action_code="refer-to-head",
+                recipient=self.department_head,
+                note="اقدام با سمت نامعتبر",
+            )
+        case = transition_case(
+            case_id=case.pk,
+            actor=supervisor,
+            action_code="refer-to-head",
+            recipient=self.department_head,
+            note="ارجاع توسط سرپرست مجاز",
+        )
+        self.assertEqual(case.current_assignee_id, self.department_head.pk)
 
     def test_initial_assignee_prefers_declared_specialist_priority_over_global_roles(self):
         definition = WorkflowDefinition.objects.create(
