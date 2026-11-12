@@ -88,7 +88,7 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         self.rep = User.objects.create_user(
             username="leadership-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company_a,
         )
         self.head = User.objects.create_user(
             username="leadership-head",
@@ -335,7 +335,7 @@ class PersonChangeWorkflowTests(TestCase):
         self.company_rep = User.objects.create_user(
             username="person-change-company-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         self.insurer_rep = User.objects.create_user(
             username="person-change-insurer-rep",
@@ -471,7 +471,7 @@ class PersonChangeWorkflowTests(TestCase):
         other_line_rep = User.objects.create_user(
             username="person-change-other-line",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=other_line_rep,
@@ -550,7 +550,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.company_rep = User.objects.create_user(
             username="pcr-company-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         self.insurer_rep = User.objects.create_user(
             username="pcr-insurer-rep",
@@ -560,7 +560,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.other_company_rep = User.objects.create_user(
             username="pcr-other-company-rep",
             password="StrongPass!2026",
-            must_change_password=False,
+            must_change_password=False, company=self.company,
         )
         RoleAssignment.objects.create(
             user=self.insured,

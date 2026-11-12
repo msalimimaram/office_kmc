@@ -1,4 +1,6 @@
-from datetime import timedelta
+from datetime import date, timedelta
+
+from django.db import models
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase, Client
@@ -33,6 +35,22 @@ class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
         )
 
     def _assignment(self, user, company, **kwargs):
+        # Test identities use the legacy company link where a full HR person
+        # record is intentionally outside this focused scope test.
+        if not user.company_id and not RoleAssignment.objects.filter(
+            user=user, role=RoleAssignment.Role.SUBSIDIARY_REP, is_active=True
+        ).exists():
+            user.company = company
+            user.save(update_fields=["company"])
+        elif not RoleAssignment.objects.filter(
+            user=user, role=RoleAssignment.Role.SUBSIDIARY_REP, is_active=True,
+            valid_from__lte=kwargs.get("valid_until") or date.max,
+        ).filter(
+            models.Q(valid_until__isnull=True)
+            | models.Q(valid_until__gte=kwargs.get("valid_from") or self.today)
+        ).exists():
+            user.company = company
+            user.save(update_fields=["company"])
         defaults = {
             "user": user,
             "role": RoleAssignment.Role.SUBSIDIARY_REP,
