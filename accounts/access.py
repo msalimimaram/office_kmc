@@ -143,13 +143,8 @@ def has_role(
     if not requested:
         return False
 
-    # Django's superuser flag is a technical account capability, not a grant
-    # to impersonate every business role or tenant. It maps only to the
-    # explicit System Admin role; company/insurer/specialist scopes remain
-    # represented by their own assignments.
-    if getattr(user, "is_superuser", False):
-        return RoleAssignment.Role.SYSTEM_ADMIN in requested
-
+    # Django's superuser flag is technical only. A superuser receives no
+    # business role unless an explicit, active RoleAssignment grants it.
     assignments = active_assignments(user, on_date=on_date).filter(role__in=requested)
     if company_id is not None:
         assignments = assignments.filter(company_id=company_id)
@@ -159,6 +154,8 @@ def has_role(
         assignments = assignments.filter(Q(line_code="*") | Q(line_code=line_code))
     if assignments.exists():
         return True
+    if getattr(user, "is_superuser", False):
+        return False
 
     if not _legacy_fallback_allowed(user):
         return False

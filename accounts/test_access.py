@@ -90,6 +90,16 @@ class ScopedRoleAssignmentTests(TestCase):
             is_staff=True,
             must_change_password=False,
         )
+        self.assertFalse(has_global_access(admin))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.SYSTEM_ADMIN))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.SUBSIDIARY_REP))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.INSURER_REP))
+        self.assertFalse(has_role(admin, RoleAssignment.Role.INSURANCE_SPECIALIST))
+        RoleAssignment.objects.create(
+            user=admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="انتصاب صریح مدیر سامانه برای آزمون superuser",
+        )
         self.assertTrue(has_global_access(admin))
         self.assertTrue(has_role(admin, RoleAssignment.Role.SYSTEM_ADMIN))
         self.assertFalse(has_role(admin, RoleAssignment.Role.SUBSIDIARY_REP))
