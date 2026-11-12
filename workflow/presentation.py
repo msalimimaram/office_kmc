@@ -46,7 +46,14 @@ def build_workflow_presentation(case, *, user=None):
     person_name = ""
     confidential = bool(getattr(obj, "is_confidential", False))
     is_current_owner = bool(user and case.current_assignee_id == user.pk)
-    from accounts.access import has_global_access
+    can_view_internal_notes = bool(
+        user and (
+            has_global_access(user)
+            or is_insurance_staff(user)
+            or is_unit_manager(user)
+        )
+    )
+    from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
     can_view_confidential_content = bool(user and has_global_access(user))
 
     if label == "reports.report":
@@ -87,7 +94,10 @@ def build_workflow_presentation(case, *, user=None):
         _add(fields, "نوع خدمت", obj.service_type)
         _add(fields, "تاریخ خدمت", obj.service_date)
         _add(fields, "وضعیت خسارت", obj.get_status_display())
-        description = obj.assessment_note or ""
+        # Assessment notes are internal. An insured claimant may see the
+        # claim's public status and routing metadata, never the expert's
+        # internal assessment narrative.
+        description = (obj.assessment_note or "") if can_view_internal_notes else ""
 
     elif label == "claims.claimobjection":
         claim = obj.claim

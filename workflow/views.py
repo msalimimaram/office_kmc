@@ -255,8 +255,9 @@ def workflow_case_detail(request, pk):
         and case.content_type.model == "personchangerequest"
     )
     is_current_owner = case.current_assignee_id == request.user.pk
-    is_end_user_owner = (
-        not is_insurance_staff(request.user)
+    is_end_user_owner = bool(
+        domain_object is not None
+        and not is_insurance_staff(request.user)
         and not is_unit_manager(request.user)
         and any(
             owner.pk == request.user.pk

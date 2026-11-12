@@ -166,8 +166,12 @@ class WorkflowEngineTests(TestCase):
         self.assertNotContains(response, "09121111111")
 
     def test_workflow_initiator_can_read_routing_history_but_not_internal_notes_or_act(self):
+        from datetime import date, timedelta
         from django.test import Client
         from django.urls import reverse
+        from django.utils import timezone
+        from claims.models import Claim
+        from insurance.models import Contract, Insurer, InsuranceLine
 
         requester = User.objects.create_user(
             username="workflow-end-user-requester",
@@ -178,18 +182,46 @@ class WorkflowEngineTests(TestCase):
             role=RoleAssignment.Role.INSURED_PERSON,
             company=self.company,
             line_code="*",
-            reason="بیمه‌شده برای مشاهده تاریخچه درخواست",
+            reason="بیمه‌شده برای مشاهده تاریخچه خسارت",
         )
-        item = ServiceRequest.objects.create(
-            reference="WF-END-USER-HISTORY",
-            kind=ServiceRequest.Kind.OTHER,
-            submitted_by=requester,
+        person = Person.objects.create(
             company=self.company,
-            title="درخواست کاربر",
-            description="شرح قابل مشاهده برای درخواست‌کننده",
+            user=requester,
+            national_id="8765432109",
+            first_name="بیمه‌شده",
+            last_name="آزمایش",
+            birth_date=date(1990, 1, 1),
+        )
+        today = timezone.localdate()
+        insurer = Insurer.objects.create(name="بیمه‌گر تاریخچه خسارت")
+        contract = Contract.objects.create(
+            code="WF-HISTORY-CLAIM-CONTRACT",
+            title="قرارداد آزمون تاریخچه خسارت",
+            insurer=insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=300),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        contract.companies.add(self.company)
+        claim = Claim.objects.create(
+            claim_number="WF-END-USER-HISTORY",
+            person=person,
+            contract=contract,
+            insurer=insurer,
+            service_date=today,
+            registered_date=today,
+            service_type="هزینه درمان",
+            requested_amount=100000,
+            assessed_amount=90000,
+            payable_amount=80000,
+            assessed_by=self.specialist,
+            assessed_at=timezone.now(),
+            assessment_note="PRIVATE_CLAIM_ASSESSMENT_NOTE",
         )
         case = start_workflow(
-            obj=item,
+            obj=claim,
             code=self.definition.code,
             actor=requester,
             assignee=self.specialist,
@@ -207,7 +239,8 @@ class WorkflowEngineTests(TestCase):
         client.force_login(requester)
         response = client.get(reverse("workflow_case_detail", args=[case.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "درخواست کاربر")
+        self.assertContains(response, claim.claim_number)
+        self.assertNotContains(response, "PRIVATE_CLAIM_ASSESSMENT_NOTE")
         self.assertNotContains(response, "PRIVATE_INITIAL_ROUTING_NOTE")
         self.assertNotContains(response, "PRIVATE_INTERNAL_REVIEW_NOTE")
         self.assertNotContains(response, "ثبت اقدام / ارجاع")
