@@ -286,10 +286,11 @@ def can_process_request(user, item):
         return False
     from workflow.services import _scope_for_object
     scope = _scope_for_object(item)
-    specialist_allowed = bool(scope.get("line_code")) and has_role(
+    specialist_allowed = has_role(
         user,
         RoleAssignment.Role.INSURANCE_SPECIALIST,
-        line_code=scope["line_code"],
+        # Unknown-line legacy requests require an explicit all-line assignment.
+        line_code=scope.get("line_code") or "*",
     )
     insurer_allowed = bool(scope.get("insurer_id")) and has_role(
         user,
