@@ -22,7 +22,6 @@ from .forms import (
     ClaimDuplicateDeclarationForm,
     company_for_person_on_date,
     ClaimObjectionForm,
-    ClaimObjectionReviewForm,
     ClaimPaymentForm,
     ClaimPaymentReversalForm,
 )
