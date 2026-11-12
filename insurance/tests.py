@@ -398,6 +398,12 @@ class ContractSubmissionViewTests(TestCase):
             password="StrongPass!2026",
         )
         RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=today,
+            reason="مدیر سامانه برای آزمون ثبت قرارداد",
+        )
+        RoleAssignment.objects.create(
             user=self.specialist,
             role=RoleAssignment.Role.INSURANCE_SPECIALIST,
             line_code=InsuranceLine.HEALTH,
