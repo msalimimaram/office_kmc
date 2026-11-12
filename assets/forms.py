@@ -69,13 +69,7 @@ class InsuredAssetForm(forms.ModelForm):
         if bool(company) == bool(person):
             self.add_error("company", "مالک دارایی را دقیقاً یک مورد از شرکت یا شخص انتخاب کنید.")
         if "*" not in self.line_codes:
-            allowed = {
-                InsuredAsset.Type.VEHICLE: {"third_party", "body", "vehicle"},
-                InsuredAsset.Type.PROPERTY: {"fire", "property", "liability"},
-                InsuredAsset.Type.EQUIPMENT: {"fire", "equipment", "liability"},
-                InsuredAsset.Type.OTHER: {"other"},
-            }
-            permitted_lines = allowed.get(asset_type, set())
+            permitted_lines = allowed_asset_lines(asset_type)
             if not self.line_codes or not self.line_codes.intersection(permitted_lines):
                 self.add_error("asset_type", "انتصاب فعال شما اجازه ثبت این نوع دارایی را نمی‌دهد.")
         return cleaned

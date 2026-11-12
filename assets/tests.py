@@ -38,6 +38,69 @@ class AssetScopeTests(TestCase):
         self.assertContains(response, "ASSET-A1")
         self.assertNotContains(response, "ASSET-B1")
 
+    def test_company_representative_sees_only_asset_types_in_assigned_lines(self):
+        from assets.views import _asset_scope
+
+        other_asset = InsuredAsset.objects.create(
+            asset_code="ASSET-A-OTHER",
+            name="سایر دارایی خارج از رشته",
+            asset_type=InsuredAsset.Type.OTHER,
+            company=self.company_a,
+            created_by=self.rep,
+        )
+        fire_rep = User.objects.create_user(
+            username="asset-fire-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=fire_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company_a,
+            line_code="fire",
+            reason="نماینده رشته آتش‌سوزی",
+        )
+        scoped = _asset_scope(fire_rep)
+        self.assertFalse(scoped.filter(pk=other_asset.pk).exists())
+        self.assertTrue(scoped.filter(asset_code="ASSET-A1").exists())
+
+    def test_company_representative_can_see_dependent_personal_asset_of_active_employee(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from organizations.models import Person, PersonEmployment
+
+        primary = Person.objects.create(
+            company=self.company_a,
+            national_id="1234567801",
+            first_name="کارمند",
+            last_name="اصلی",
+            birth_date=timezone.localdate() - timedelta(days=12000),
+        )
+        PersonEmployment.objects.create(
+            person=primary,
+            company=self.company_a,
+            valid_from=timezone.localdate() - timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        dependent = Person.objects.create(
+            company=self.company_a,
+            national_id="1234567802",
+            first_name="فرد",
+            last_name="تحت تکفل",
+            birth_date=timezone.localdate() - timedelta(days=8000),
+            relationship=Person.Relationship.SPOUSE,
+            employee=primary,
+        )
+        dependent_asset = InsuredAsset.objects.create(
+            asset_code="ASSET-A-DEPENDENT",
+            name="دارایی شخصی فرد تحت تکفل",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            person=dependent,
+            created_by=self.rep,
+        )
+        from assets.views import _asset_scope
+        self.assertTrue(_asset_scope(self.rep).filter(pk=dependent_asset.pk).exists())
+
     def test_company_representative_cannot_create_or_choose_another_company_asset(self):
         client = Client()
         client.force_login(self.rep)

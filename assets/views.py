@@ -31,6 +31,7 @@ from .forms import (
 )
 from .models import (
     AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle,
+    allowed_asset_lines,
 )
 
 
@@ -48,34 +49,46 @@ def _asset_scope(user):
         if "*" in lines:
             allowed |= models.Q(pk__gt=0)
         else:
-            if lines.intersection({"third_party", "body", "vehicle"}):
-                allowed |= models.Q(asset_type=InsuredAsset.Type.VEHICLE)
-            if lines.intersection({"fire", "property", "liability", "equipment"}):
-                allowed |= ~models.Q(asset_type=InsuredAsset.Type.VEHICLE)
+            permitted_types = [
+                asset_type
+                for asset_type, _label in InsuredAsset.Type.choices
+                if lines.intersection(allowed_asset_lines(asset_type))
+            ]
+            if permitted_types:
+                allowed |= models.Q(asset_type__in=permitted_types)
 
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
         today = timezone.localdate()
-        employed_person_ids = PersonEmployment.objects.filter(
+        employed_person_ids = set(PersonEmployment.objects.filter(
             company_id__in=company_ids,
             status=PersonEmployment.Status.ACTIVE,
         ).filter(
             models.Q(valid_from__isnull=True) | models.Q(valid_from__lte=today)
         ).filter(
             models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=today)
-        ).values_list("person_id", flat=True)
+        ).values_list("person_id", flat=True))
+        dependent_person_ids = Person.objects.filter(
+            employee_id__in=employed_person_ids,
+            is_active=True,
+        ).values_list("pk", flat=True)
+        visible_person_ids = employed_person_ids | set(dependent_person_ids)
         rep_lines = line_codes_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
         if "*" in rep_lines:
             rep_asset_scope = models.Q(pk__gt=0)
         else:
-            rep_asset_scope = models.Q(pk__in=[])
-            if rep_lines.intersection({"third_party", "body", "vehicle"}):
-                rep_asset_scope |= models.Q(asset_type=InsuredAsset.Type.VEHICLE)
-            if rep_lines.intersection({"fire", "property", "liability", "equipment"}):
-                rep_asset_scope |= ~models.Q(asset_type=InsuredAsset.Type.VEHICLE)
+            permitted_types = [
+                asset_type
+                for asset_type, _label in InsuredAsset.Type.choices
+                if rep_lines.intersection(allowed_asset_lines(asset_type))
+            ]
+            rep_asset_scope = (
+                models.Q(asset_type__in=permitted_types)
+                if permitted_types else models.Q(pk__in=[])
+            )
         allowed |= (
             models.Q(company_id__in=company_ids)
-            | models.Q(person_id__in=employed_person_ids)
+            | models.Q(person_id__in=visible_person_ids)
         ) & rep_asset_scope
 
     insurer_ids = insurer_ids_for(user)
@@ -100,14 +113,7 @@ def _can_manage_asset(user, asset):
     lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
     if "*" in lines:
         return True
-    required = (
-        {"third_party", "body", "vehicle"}
-        if asset.asset_type == InsuredAsset.Type.VEHICLE
-        else {"fire", "property", "liability", "equipment"}
-        if asset.asset_type in {InsuredAsset.Type.PROPERTY, InsuredAsset.Type.EQUIPMENT}
-        else {"other"}
-    )
-    return bool(lines.intersection(required))
+    return bool(lines.intersection(allowed_asset_lines(asset.asset_type)))
 
 
 @login_required
