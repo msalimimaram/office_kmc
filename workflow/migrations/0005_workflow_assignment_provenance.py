@@ -4,7 +4,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("accounts", "0001_initial"),
+        ("accounts", "0006_user_notification"),
         ("workflow", "0004_workflow_position_eligibility"),
     ]
 
