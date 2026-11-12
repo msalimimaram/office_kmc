@@ -614,6 +614,111 @@ class AssetOperationalWorkflowTests(TestCase):
         self.assertEqual(self.asset.policy_number, period.policy_number)
 
 
+    def test_valuation_snapshot_is_applied_only_after_final_workflow_close(self):
+        from assets.models import AssetValuation
+        from workflow.services import start_workflow, transition_case
+
+        original_value = self.asset.insured_value
+        valuation = AssetValuation.objects.create(
+            asset=self.asset,
+            market_value=950000,
+            insured_value=875000,
+            created_by=self.specialist,
+        )
+        case = start_workflow(
+            obj=valuation,
+            code="asset_valuation_approval",
+            actor=self.specialist,
+            assignee=self.head,
+        )
+        transition_case(case_id=case.pk, actor=self.head, action_code="approve")
+
+        valuation.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(valuation.status, AssetValuation.Status.PENDING_APPROVAL)
+        self.assertEqual(self.asset.insured_value, original_value)
+
+        transition_case(case_id=case.pk, actor=self.head, action_code="finalize")
+        valuation.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(valuation.status, AssetValuation.Status.APPROVED)
+        self.assertEqual(valuation.approved_by_id, self.head.pk)
+        self.assertEqual(self.asset.insured_value, valuation.insured_value)
+
+    def test_policy_period_and_endorsement_commit_only_after_final_workflow_close(self):
+        from datetime import timedelta
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.utils import timezone
+        from assets.models import AssetPolicyPeriod, AssetPolicyEndorsement
+        from workflow.services import start_workflow, transition_case
+
+        today = timezone.localdate()
+        period = AssetPolicyPeriod.objects.create(
+            asset=self.asset,
+            insurer=self.insurer,
+            contract=self.contract,
+            policy_number="APPROVAL-GATED-POLICY",
+            policy_start=today,
+            policy_end=today + timedelta(days=30),
+            created_by=self.specialist,
+        )
+        policy_case = start_workflow(
+            obj=period,
+            code="asset_policy_approval",
+            actor=self.specialist,
+            assignee=self.head,
+        )
+        transition_case(case_id=policy_case.pk, actor=self.head, action_code="approve")
+        period.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.PENDING_APPROVAL)
+        self.assertEqual(self.asset.policy_number, "BASE-POLICY-1")
+
+        transition_case(case_id=policy_case.pk, actor=self.head, action_code="finalize")
+        period.refresh_from_db()
+        self.asset.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.ACTIVE)
+        self.assertEqual(self.asset.policy_number, period.policy_number)
+
+        endorsement = AssetPolicyEndorsement.objects.create(
+            policy_period=period,
+            endorsement_number="APPROVAL-GATED-ENDORSEMENT",
+            effective_date=today,
+            description="الحاقیه آزمایشی برای کنترل زمان اعمال",
+            document=SimpleUploadedFile(
+                "approval-gated-endorsement.pdf",
+                b"%PDF-1.4\\nApproval-gated endorsement\\n%%EOF",
+                content_type="application/pdf",
+            ),
+            created_by=self.specialist,
+        )
+        endorsement_case = start_workflow(
+            obj=endorsement,
+            code="asset_endorsement_approval",
+            actor=self.specialist,
+            assignee=self.head,
+        )
+        transition_case(
+            case_id=endorsement_case.pk,
+            actor=self.head,
+            action_code="approve",
+        )
+        endorsement.refresh_from_db()
+        self.assertEqual(
+            endorsement.status, AssetPolicyEndorsement.Status.PENDING_APPROVAL
+        )
+        transition_case(
+            case_id=endorsement_case.pk,
+            actor=self.head,
+            action_code="finalize",
+        )
+        endorsement.refresh_from_db()
+        self.assertEqual(
+            endorsement.status, AssetPolicyEndorsement.Status.APPROVED
+        )
+        self.assertEqual(endorsement.approved_by_id, self.head.pk)
+
+
 @override_settings(DEBUG=True, CLAMD_HOST="")
 class AssetPolicyLifecycleTests(TestCase):
     def setUp(self):

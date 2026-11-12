@@ -259,19 +259,25 @@ class AssetValuation(models.Model):
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
         if step_code not in {self.Status.PENDING_APPROVAL, self.Status.APPROVED, self.Status.REJECTED}:
             return
-        if self.status == step_code and (step_code != self.Status.APPROVED or self.approved_by_id == getattr(actor, "pk", None)):
+        # A decision stage is not the commit point. Keep the valuation and the
+        # asset snapshot unchanged until the authorized final-close transition.
+        if step_code in {self.Status.APPROVED, self.Status.REJECTED} and not closed:
             return
-        self.status = step_code
-        update_fields = ["status"]
-        if step_code == self.Status.APPROVED:
-            self.approved_by = actor
-            update_fields.append("approved_by")
-        self._workflow_sync = True
-        try:
-            self.save(update_fields=update_fields)
-        finally:
-            self._workflow_sync = False
-        if step_code == self.Status.APPROVED:
+        if self.status != step_code or (
+            step_code == self.Status.APPROVED
+            and self.approved_by_id != getattr(actor, "pk", None)
+        ):
+            self.status = step_code
+            update_fields = ["status"]
+            if step_code == self.Status.APPROVED:
+                self.approved_by = actor
+                update_fields.append("approved_by")
+            self._workflow_sync = True
+            try:
+                self.save(update_fields=update_fields)
+            finally:
+                self._workflow_sync = False
+        if step_code == self.Status.APPROVED and closed:
             asset = self.asset
             asset.insured_value = self.insured_value
             asset._workflow_sync = True
@@ -357,24 +363,29 @@ class AssetPolicyPeriod(models.Model):
         return super().save(*args, **kwargs)
 
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
-        if step_code == "approved":
+        # Approval/rejection must not activate a period or change the asset
+        # snapshot until the workflow has been finally closed.
+        if step_code in {"approved", self.Status.REJECTED} and not closed:
+            return
+        if step_code == "approved" and closed:
             from django.utils import timezone
 
             today = timezone.localdate()
             if self.contract_id and self.contract.status == "terminated":
-                self.status = self.Status.TERMINATED
+                target = self.Status.TERMINATED
             elif self.contract_id and self.contract.status == "expired":
-                self.status = self.Status.EXPIRED
+                target = self.Status.EXPIRED
             elif self.policy_end and self.policy_end < today:
-                self.status = self.Status.EXPIRED
+                target = self.Status.EXPIRED
             elif self.policy_start and self.policy_start > today:
-                self.status = self.Status.APPROVED
+                target = self.Status.APPROVED
             elif self.contract_id and (
                 self.contract.status != "active" or not self.contract.is_active
             ):
-                self.status = self.Status.APPROVED
+                target = self.Status.APPROVED
             else:
-                self.status = self.Status.ACTIVE
+                target = self.Status.ACTIVE
+            self.status = target
             self.approved_by = actor
             self._workflow_sync = True
             try:
@@ -384,7 +395,15 @@ class AssetPolicyPeriod(models.Model):
             if self.status == self.Status.ACTIVE:
                 self._apply_to_asset_snapshot(on_date=today)
             return
-        if step_code in {self.Status.PENDING_APPROVAL, self.Status.REJECTED}:
+        if step_code == self.Status.PENDING_APPROVAL:
+            if self.status != step_code:
+                self.status = step_code
+                self._workflow_sync = True
+                try:
+                    self.save(update_fields=["status"])
+                finally:
+                    self._workflow_sync = False
+        elif step_code == self.Status.REJECTED and closed:
             if self.status != step_code:
                 self.status = step_code
                 self._workflow_sync = True
@@ -538,7 +557,13 @@ class AssetPolicyEndorsement(models.Model):
     def sync_workflow_status(self, *, step_code=None, closed=False, actor=None):
         if step_code not in {self.Status.PENDING_APPROVAL, self.Status.APPROVED, self.Status.REJECTED}:
             return
-        if self.status == step_code and (step_code != self.Status.APPROVED or self.approved_by_id == getattr(actor, "pk", None)):
+        # Persist the approval/rejection decision only at final workflow close.
+        if step_code in {self.Status.APPROVED, self.Status.REJECTED} and not closed:
+            return
+        if self.status == step_code and (
+            step_code != self.Status.APPROVED
+            or self.approved_by_id == getattr(actor, "pk", None)
+        ):
             return
         self.status = step_code
         update_fields = ["status"]
