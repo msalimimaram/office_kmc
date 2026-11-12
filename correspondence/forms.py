@@ -32,10 +32,6 @@ def _eligible_internal_assignees():
         valid_from__lte=today,
         unit__company__isnull=True,
         line_code__gt="",
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ],
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=today)
     ).values_list("user_id", flat=True)
