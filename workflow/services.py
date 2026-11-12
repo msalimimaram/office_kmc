@@ -679,8 +679,19 @@ def mark_case_opened(*, case_id, actor):
         return case
     if case.current_assignee_id != actor.pk:
         raise PermissionDenied("مشاهده عملیاتی این مرحله فقط برای مسئول جاری پرونده ثبت می‌شود.")
-    if case.delegation_id and not is_delegated_assignee(case, actor):
+    delegated = bool(case.delegation_id and is_delegated_assignee(case, actor))
+    if case.delegation_id and not delegated:
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
+    if not delegated and (
+        not case.current_step
+        or not _has_any_role(
+            actor,
+            case.current_step.allowed_roles,
+            position_levels=case.current_step.allowed_position_levels,
+            **_scope_for_object(case.content_object),
+        )
+    ):
+        raise PermissionDenied("انتصاب فعال شما برای مشاهده عملیاتی این مرحله معتبر نیست.")
     now = timezone.now()
     if not case.first_viewed_at:
         case.first_viewed_at = now
