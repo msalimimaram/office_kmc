@@ -11,7 +11,7 @@ from django.utils import timezone
 from accounts.access import has_global_access, is_unit_manager
 from accounts.models import PositionAssignment, UserNotification, User
 from auditlog.models import AuditEvent
-from .forms import InternalTaskForm, _manager_scope
+from .forms import InternalTaskForm, TaskReassignmentForm, _manager_scope
 from .models import InternalTask, TaskEvent
 
 
@@ -129,7 +129,60 @@ def task_update(request, pk):
         raise PermissionDenied
 
     if request.method == "POST":
-        status = request.POST.get("status")
+        action = request.POST.get("action", "update")
+        if action == "reassign":
+            if not is_manager:
+                raise PermissionDenied("تغییر مجریان وظیفه فقط برای مدیر مجاز است.")
+            reassign_form = TaskReassignmentForm(request.POST, user=request.user, task=task)
+            if not reassign_form.is_valid():
+                return render(request, "tasks/task_update.html", {
+                    "task": task,
+                    "events": task.events.select_related("actor"),
+                    "can_manage": is_manager,
+                    "can_change_status": task.assignees.filter(pk=request.user.pk).exists() or has_global_access(request.user),
+                    "reassign_form": reassign_form,
+                })
+            with transaction.atomic():
+                locked = InternalTask.objects.select_for_update().get(pk=task.pk)
+                if not _can_manage_tasks(request.user) or not _visible_tasks(request.user).filter(pk=locked.pk).exists():
+                    raise PermissionDenied("اختیار مدیریت این وظیفه دیگر معتبر نیست.")
+                new_assignees = list(reassign_form.cleaned_data["assignees"])
+                allowed_ids = set(
+                    InternalTaskForm(user=request.user).fields["assignees"].queryset
+                    .filter(pk__in=[user.pk for user in new_assignees])
+                    .values_list("pk", flat=True)
+                )
+                if allowed_ids != {user.pk for user in new_assignees}:
+                    raise PermissionDenied("یکی از مجریان جدید خارج از محدوده اختیار سازمانی شماست.")
+                old_ids = set(locked.assignees.values_list("pk", flat=True))
+                new_ids = {user.pk for user in new_assignees}
+                locked.assignees.set(new_assignees)
+                TaskEvent.objects.create(
+                    task=locked,
+                    actor=request.user,
+                    event_type=TaskEvent.EventType.ASSIGNED,
+                    from_value=",".join(map(str, sorted(old_ids)))[:80],
+                    to_value=",".join(map(str, sorted(new_ids)))[:80],
+                    note=reassign_form.cleaned_data["note"].strip(),
+                )
+                AuditEvent.objects.create(
+                    actor=request.user,
+                    action="internal_task_reassigned",
+                    object_type="InternalTask",
+                    object_id=str(locked.pk),
+                    summary="مجریان وظیفه با کنترل محدوده سازمانی تغییر کردند.",
+                )
+                for assignee in new_assignees:
+                    if assignee.pk not in old_ids:
+                        _notify_task_recipient(
+                            locked, assignee, request.user,
+                            title="وظیفه جدید به شما تخصیص یافت",
+                            body=f"وظیفه «{locked.title}» به شما تخصیص داده شد.",
+                        )
+            messages.success(request, "تخصیص وظیفه با ثبت دلیل و تاریخچه تغییر کرد.")
+            return redirect("task_update", pk=task.pk)
+
+        status = request.POST.get("status", task.status)
         note = request.POST.get("note", "").strip()[:4000]
         if status not in dict(InternalTask.Status.choices):
             raise PermissionDenied
@@ -202,4 +255,7 @@ def task_update(request, pk):
     return render(request, "tasks/task_update.html", {
         "task": task,
         "events": task.events.select_related("actor"),
+        "can_manage": is_manager,
+        "can_change_status": task.assignees.filter(pk=request.user.pk).exists() or has_global_access(request.user),
+        "reassign_form": TaskReassignmentForm(user=request.user, task=task) if is_manager else None,
     })

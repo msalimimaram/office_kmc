@@ -149,3 +149,38 @@ class InternalTaskForm(forms.ModelForm):
                     "وظیفه مرتبط با پرونده محرمانه فقط می‌تواند به رئیس اداره یا مدیر سامانه تخصیص داده شود.",
                 )
         return cleaned
+
+
+class TaskReassignmentForm(forms.Form):
+    assignees = forms.ModelMultipleChoiceField(
+        label="مجریان جدید",
+        queryset=User.objects.none(),
+        required=True,
+    )
+    note = forms.CharField(
+        label="دلیل تغییر تخصیص",
+        min_length=4,
+        max_length=1000,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, user=None, task=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.task = task
+        self.fields["assignees"].queryset = (
+            InternalTaskForm(user=user).fields["assignees"].queryset
+            if user and user.is_authenticated else User.objects.none()
+        )
+        if task is not None:
+            self.fields["assignees"].initial = task.assignees.all()
+
+    def clean(self):
+        cleaned = super().clean()
+        selected = cleaned.get("assignees")
+        if self.task is not None and selected is not None:
+            selected_ids = {user.pk for user in selected}
+            current_ids = set(self.task.assignees.values_list("pk", flat=True))
+            if selected_ids == current_ids:
+                self.add_error("assignees", "تخصیص جدید با تخصیص فعلی تفاوتی ندارد.")
+        return cleaned
