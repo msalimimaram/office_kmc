@@ -62,6 +62,8 @@ def _eligible_recipients(case, transition):
                 role_filter &= Q(company_id=scope["company_id"])
                 if scope["line_code"]:
                     role_filter &= Q(line_code__in=[scope["line_code"], "*"])
+                else:
+                    role_filter &= Q(line_code="*")
             elif role == RoleAssignment.Role.INSURER_REP:
                 if not scope["insurer_id"]:
                     continue
