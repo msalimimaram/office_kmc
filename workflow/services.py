@@ -8,8 +8,11 @@ from django.db import transaction
 from django.db.models import Q, Count
 from django.utils import timezone
 
-from accounts.access import active_assignments, has_global_access, has_role
-from accounts.models import RoleAssignment
+from accounts.access import (
+    active_assignments, active_position_assignments,
+    has_global_access, has_role,
+)
+from accounts.models import PositionAssignment, RoleAssignment
 from .models import (
     BusinessCalendar, WorkflowCase, WorkflowDefinition, WorkflowEvent,
     WorkflowStep, WorkflowTransition,
@@ -96,8 +99,28 @@ def _scope_for_object(obj, _seen=None):
     }
 
 
+def _has_any_position(user, position_levels, *, line_code=None):
+    """Check a valid internal position within the workflow's line scope.
+
+    A blank line assignment is not treated as an all-lines grant. Cross-line
+    authority must be explicit through line_code='*'.
+    """
+    if not position_levels or not user or not user.is_authenticated or not user.is_active:
+        return False
+    qs = active_position_assignments(user).filter(
+        position__level__in=position_levels,
+        unit__company__isnull=True,
+    )
+    if line_code:
+        qs = qs.filter(Q(line_code=line_code) | Q(line_code="*"))
+    else:
+        qs = qs.filter(line_code="*")
+    return qs.exists()
+
+
 def _has_any_role(
-    user, roles, *, company_id=None, insurer_id=None, line_code=None, owner_user_id=None
+    user, roles, *, company_id=None, insurer_id=None, line_code=None,
+    owner_user_id=None, position_levels=(),
 ):
     if not user or not user.is_authenticated or not user.is_active or not roles:
         return False
@@ -144,7 +167,7 @@ def _has_any_role(
             continue
         if has_role(user, role):
             return True
-    return False
+    return _has_any_position(user, position_levels, line_code=line_code)
 
 
 def _sync_domain_assignee(obj, assignee):
@@ -293,7 +316,7 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
     # assignees by current open workload, then stable primary key.
     eligible_rows = list(
         assignments.filter(scope).values_list("role", "user_id").distinct()
-    )
+    ) if roles and scope.children else []
     eligible_by_role = {
         role: {user_id for assigned_role, user_id in eligible_rows if assigned_role == role}
         for role in roles
@@ -319,12 +342,52 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
         ).order_by("active_workload", "pk").first()
         if candidate:
             return (candidate, None) if return_delegation else candidate
+
+    # Position levels are evaluated after explicitly ordered operational roles.
+    # Each position must be active, belong to an internal unit, and match the
+    # business line; all-line authority requires an explicit '*' assignment.
+    for level in position_levels:
+        position_user_ids = active_position_assignments_for_level(
+            level, line_code=line_code
+        )
+        if exclude_user_id:
+            position_user_ids = position_user_ids.exclude(user_id=exclude_user_id)
+        candidate = User.objects.filter(
+            pk__in=position_user_ids.values("user_id"),
+            is_active=True,
+        ).annotate(
+            active_workload=Count(
+                "workflow_cases",
+                filter=Q(workflow_cases__status__in=[
+                    WorkflowCase.Status.OPEN,
+                    WorkflowCase.Status.WAITING,
+                ]),
+                distinct=True,
+            )
+        ).order_by("active_workload", "pk").first()
+        if candidate:
+            return (candidate, None) if return_delegation else candidate
+
     raise ValidationError("برای مرحله آغازین گردش کار، گیرنده‌ای با انتصاب معتبر در محدوده پرونده پیدا نشد.")
 
 
-def _validate_recipient(user, roles, *, scope):
-    if not _has_any_role(user, roles, **scope):
-        raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش مجاز این مرحله ندارد.")
+def active_position_assignments_for_level(level, *, line_code=None):
+    """Query active internal position assignments eligible for one workflow level."""
+    today = timezone.localdate()
+    qs = PositionAssignment.objects.filter(
+        position__level=level,
+        unit__company__isnull=True,
+        is_active=True,
+        valid_from__lte=today,
+    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    if line_code:
+        return qs.filter(Q(line_code=line_code) | Q(line_code="*"))
+    return qs.filter(line_code="*")
+
+
+def _validate_recipient(user, roles, *, scope, position_levels=()):
+    if not _has_any_role(user, roles, position_levels=position_levels, **scope):
+        raise PermissionDenied("گیرنده انتخاب‌شده انتصاب معتبر و هم‌محدوده با پرونده در نقش یا سمت مجاز این مرحله ندارد.")
 
 
 def is_delegated_assignee(case, user):
@@ -360,15 +423,15 @@ def is_delegated_assignee(case, user):
     )
 
 
-def _validate_actor(case, actor, roles, *, scope):
+def _validate_actor(case, actor, roles, *, scope, position_levels=()):
     if not actor or not actor.is_authenticated or not actor.is_active:
         raise PermissionDenied
     if case.current_assignee_id != actor.pk:
         raise PermissionDenied("مسئولیت اقدام این مرحله به حساب شما واگذار نشده است.")
     if case.delegation_id and not is_delegated_assignee(case, actor):
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
-    if not _has_any_role(actor, roles, **scope):
-        raise PermissionDenied("نقش فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
+    if not _has_any_role(actor, roles, position_levels=position_levels, **scope):
+        raise PermissionDenied("نقش یا سمت فعال شما برای اقدام در محدوده این پرونده مجاز نیست.")
 
 
 def _workflow_owner_candidates(obj):
@@ -546,7 +609,12 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         ):
             raise PermissionDenied("تفویض انتخاب‌شده برای این پرونده معتبر یا فعال نیست.")
     else:
-        _validate_recipient(assignee, initial.allowed_roles, scope=scope)
+        _validate_recipient(
+            assignee,
+            initial.allowed_roles,
+            position_levels=initial.allowed_position_levels,
+            scope=scope,
+        )
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
     case, created = WorkflowCase.objects.get_or_create(
         definition=definition,
@@ -640,8 +708,14 @@ def acknowledge_case(*, case_id, actor, note=""):
         raise PermissionDenied("اعتبار تفویض این پرونده پایان یافته یا لغو شده است.")
     if not case.current_step or not case.current_step.requires_acknowledgement:
         raise PermissionDenied("تأیید رسمی مشاهده در این مرحله فعال نشده است.")
-    if not has_global_access(actor) and not is_delegated_assignee(case, actor) and not _has_any_role(
-        actor, case.current_step.allowed_roles, **_scope_for_object(case.content_object)
+    if (
+        not is_delegated_assignee(case, actor)
+        and not _has_any_role(
+            actor,
+            case.current_step.allowed_roles,
+            position_levels=case.current_step.allowed_position_levels,
+            **_scope_for_object(case.content_object),
+        )
     ):
         raise PermissionDenied("نقش شما برای تأیید مشاهده در این محدوده مجاز نیست.")
     now = timezone.now()
@@ -676,7 +750,16 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
     except WorkflowTransition.DoesNotExist:
         raise PermissionDenied("این اقدام در مرحله جاری تعریف نشده است.")
     scope = _scope_for_object(case.content_object)
-    _validate_actor(case, actor, transition.allowed_roles or case.current_step.allowed_roles, scope=scope)
+    _validate_actor(
+        case,
+        actor,
+        transition.allowed_roles or case.current_step.allowed_roles,
+        position_levels=(
+            transition.allowed_position_levels
+            or case.current_step.allowed_position_levels
+        ),
+        scope=scope,
+    )
     if (
         transition.closes_case
         and case.definition.code in {"claim_objection", "contract_approval", "contract_termination"}
@@ -737,8 +820,22 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
             raise ValidationError("مرحله مقصد برای این اقدام مشخص نشده است.")
         target = recipient or actor
         allowed_recipients = transition.recipient_roles or transition.target_step.allowed_roles
-        _validate_recipient(target, allowed_recipients, scope=scope)
-        _validate_recipient(target, transition.target_step.allowed_roles, scope=scope)
+        allowed_position_recipients = (
+            transition.recipient_position_levels
+            or transition.target_step.allowed_position_levels
+        )
+        _validate_recipient(
+            target,
+            allowed_recipients,
+            position_levels=allowed_position_recipients,
+            scope=scope,
+        )
+        _validate_recipient(
+            target,
+            transition.target_step.allowed_roles,
+            position_levels=transition.target_step.allowed_position_levels,
+            scope=scope,
+        )
         case.current_step = transition.target_step
         case.current_assignee = target
         if case.delegation_id and case.delegation.delegate_to_id != target.pk:
