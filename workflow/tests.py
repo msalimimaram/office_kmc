@@ -17,6 +17,7 @@ from .models import (
     BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
 from .services import _has_any_role, _scope_for_object, add_business_minutes, resolve_initial_assignee, start_workflow, transition_case
+from .presentation import build_workflow_presentation
 
 
 User = get_user_model()
@@ -96,6 +97,26 @@ class WorkflowEngineTests(TestCase):
         self.definition.approved_by = self.admin
         self.definition.is_active = True
         self.definition.save()
+
+    def test_confidential_medical_request_summary_never_exposes_free_text_or_description(self):
+        from types import SimpleNamespace
+
+        self.request.title = "نام بیماری محرمانه در عنوان آزاد"
+        self.request.description = "شرح پزشکی محرمانه و تشخیص"
+        self.request.save(update_fields=["title", "description", "updated_at"])
+        case = SimpleNamespace(
+            content_object=self.request,
+            definition=SimpleNamespace(title="گردش کمک‌هزینه درمان"),
+            object_id=str(self.request.pk),
+            current_assignee_id=self.specialist.pk,
+        )
+
+        summary = build_workflow_presentation(case, user=self.specialist)
+
+        self.assertEqual(summary["title"], self.request.get_kind_display())
+        self.assertEqual(summary["description"], "")
+        self.assertNotIn("نام بیماری محرمانه", summary["title"])
+        self.assertTrue(summary["is_confidential"])
 
     def test_position_only_initial_step_routes_to_active_line_scoped_supervisor(self):
         unit = OrganizationalUnit.objects.create(
