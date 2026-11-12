@@ -469,31 +469,32 @@ def claim_assess(request, pk):
 @login_required
 @require_POST
 def claim_result_send(request, pk):
-    claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
-    case = _claim_workflow_case(claim)
-    if (
-        claim.status not in {Claim.Status.APPROVED, Claim.Status.REJECTED}
-        or claim.result_sent_at
-        or not case
-        or case.status != WorkflowCase.Status.CLOSED
-        or not can_decide_claim(request.user, claim)
-    ):
-        raise PermissionDenied("ارسال نتیجه فقط پس از تصمیم و بستن گردش ارزیابی مجاز است.")
-    claim.result_sent_at = timezone.now()
-    claim.result_sent_by = request.user
-    claim.save(update_fields=["result_sent_at", "result_sent_by", "updated_at"])
-    record_event(
-        actor=request.user,
-        action="claim_result_sent",
-        obj=claim,
-        summary="نتیجه رسیدگی به بیمه‌شده اعلام شد؛ مهلت ۶۰ روزه اعتراض آغاز شد.",
-        after_data={
-            "result_sent_at": claim.result_sent_at.isoformat(),
-            "result_sent_by": request.user.pk,
-            "objection_deadline": claim.objection_deadline.isoformat(),
-        },
-        request=request,
-    )
+    with transaction.atomic():
+        claim = get_object_or_404(scoped_claims_for(request.user).select_for_update(), pk=pk)
+        case = _claim_workflow_case(claim)
+        if (
+            claim.status not in {Claim.Status.APPROVED, Claim.Status.REJECTED}
+            or claim.result_sent_at
+            or not case
+            or case.status != WorkflowCase.Status.CLOSED
+            or not can_decide_claim(request.user, claim)
+        ):
+            raise PermissionDenied("ارسال نتیجه فقط پس از تصمیم و بستن گردش ارزیابی مجاز است.")
+        claim.result_sent_at = timezone.now()
+        claim.result_sent_by = request.user
+        claim.save(update_fields=["result_sent_at", "result_sent_by", "updated_at"])
+        record_event(
+            actor=request.user,
+            action="claim_result_sent",
+            obj=claim,
+            summary="نتیجه رسیدگی به بیمه‌شده اعلام شد؛ مهلت ۶۰ روزه اعتراض آغاز شد.",
+            after_data={
+                "result_sent_at": claim.result_sent_at.isoformat(),
+                "result_sent_by": request.user.pk,
+                "objection_deadline": claim.objection_deadline.isoformat(),
+            },
+            request=request,
+        )
     messages.success(request, "زمان اعلام نتیجه ثبت شد و مهلت ۶۰ روزه اعتراض آغاز گردید.")
     return redirect("claim_detail", pk=claim.pk)
 
