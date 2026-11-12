@@ -1,5 +1,4 @@
 from django import forms
-from insurance.models import Contract, Insurer
 from organizations.models import Company, Person
 from accounts.access import line_codes_for
 from accounts.models import RoleAssignment
@@ -19,40 +18,23 @@ class InsuredAssetForm(forms.ModelForm):
     class Meta:
         model = InsuredAsset
         fields = [
-            "asset_code", "name", "asset_type", "company", "person", "identifier",
-            "location", "insured_value", "insurer", "contract", "policy_number",
-            "policy_start", "policy_end", "is_active", "notes",
+            "asset_code", "name", "asset_type", "company", "person",
+            "identifier", "location", "is_active", "notes",
         ]
-        widgets = {
-            "policy_start": forms.DateInput(attrs={"type": "date"}),
-            "policy_end": forms.DateInput(attrs={"type": "date"}),
-            "notes": forms.Textarea(attrs={"rows": 3}),
-        }
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         company_qs = Company.objects.filter(is_active=True)
         person_qs = Person.objects.filter(is_active=True)
-        contract_qs = Contract.objects.filter(is_active=True).select_related("insurer")
-        insurer_qs = Insurer.objects.filter(is_active=True)
-        # Editing an existing asset must retain its current foreign-key choices
-        # even when a referenced company/person/contract/insurer was later
-        # deactivated. This does not make inactive records selectable for new
-        # assets; it only prevents valid historical links from invalidating edits.
         if self.instance.pk:
             if self.instance.company_id:
                 company_qs = (company_qs | Company.objects.filter(pk=self.instance.company_id)).distinct()
             if self.instance.person_id:
                 person_qs = (person_qs | Person.objects.filter(pk=self.instance.person_id)).distinct()
-            if self.instance.contract_id:
-                contract_qs = (contract_qs | Contract.objects.filter(pk=self.instance.contract_id)).distinct()
-            if self.instance.insurer_id:
-                insurer_qs = (insurer_qs | Insurer.objects.filter(pk=self.instance.insurer_id)).distinct()
         self.fields["company"].queryset = company_qs
         self.fields["person"].queryset = person_qs
-        self.fields["contract"].queryset = contract_qs
-        self.fields["insurer"].queryset = insurer_qs
         self.line_codes = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
         if self.instance.pk and self.instance.asset_type == InsuredAsset.Type.VEHICLE:
             try:
@@ -74,27 +56,16 @@ class InsuredAssetForm(forms.ModelForm):
         asset_type = cleaned.get("asset_type")
         if asset_type == InsuredAsset.Type.VEHICLE and not cleaned.get("plate_number"):
             self.add_error("plate_number", "برای خودرو، شماره پلاک الزامی است.")
-        if self.instance.pk and self.instance.asset_type == InsuredAsset.Type.VEHICLE and asset_type != InsuredAsset.Type.VEHICLE:
+        if (
+            self.instance.pk
+            and self.instance.asset_type == InsuredAsset.Type.VEHICLE
+            and asset_type != InsuredAsset.Type.VEHICLE
+        ):
             self.add_error("asset_type", "نوع دارایی خودروی دارای مشخصات را نمی‌توان به نوع دیگری تغییر داد.")
-        if cleaned.get("policy_start") and cleaned.get("policy_end") and cleaned["policy_end"] < cleaned["policy_start"]:
-            self.add_error("policy_end", "پایان پوشش نمی‌تواند قبل از شروع پوشش باشد.")
-
         company = cleaned.get("company")
         person = cleaned.get("person")
         if bool(company) == bool(person):
             self.add_error("company", "مالک دارایی را دقیقاً یک مورد از شرکت یا شخص انتخاب کنید.")
-
-        contract = cleaned.get("contract")
-        insurer = cleaned.get("insurer")
-        if contract and not insurer:
-            cleaned["insurer"] = contract.insurer
-        elif contract and insurer and contract.insurer_id != insurer.pk:
-            self.add_error("insurer", "بیمه‌گر انتخاب‌شده با بیمه‌گر قرارداد یکسان نیست.")
-        if contract and company and not contract.companies.filter(pk=company.pk).exists():
-            self.add_error("contract", "این قرارداد برای شرکت انتخاب‌شده تعریف نشده است.")
-        if contract and person and person.company_id and not contract.companies.filter(pk=person.company_id).exists():
-            self.add_error("contract", "این قرارداد برای شرکت محل اشتغال شخص تعریف نشده است.")
-
         if "*" not in self.line_codes:
             allowed = {
                 InsuredAsset.Type.VEHICLE: {"third_party", "body", "vehicle"},
@@ -104,9 +75,8 @@ class InsuredAssetForm(forms.ModelForm):
             }
             permitted_lines = allowed.get(asset_type, set())
             if not self.line_codes or not self.line_codes.intersection(permitted_lines):
-                self.add_error("asset_type", "Your active insurance-line assignment does not allow this asset type.")
+                self.add_error("asset_type", "انتصاب فعال شما اجازه ثبت این نوع دارایی را نمی‌دهد.")
         return cleaned
-
 
 
 class AssetValuationForm(forms.ModelForm):

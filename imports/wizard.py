@@ -1081,12 +1081,8 @@ def _process_assets_batch(batch, reviewer, request):
             person=person,
             identifier=row["identifier"],
             location=row["location"],
-            insured_value=Decimal(row["insured_value"]),
-            insurer=contract.insurer,
-            contract=contract,
-            policy_number=row["policy_number"],
-            policy_start=policy_start,
-            policy_end=policy_end,
+            # Imported valuation and policy remain pending until their own
+            # approval workflows complete; do not publish them as current yet.
             is_active=True,
             notes=f"ثبت گروهی از فایل Excel؛ شماره عملیات {batch.batch_number}.",
             created_by=batch.uploaded_by,

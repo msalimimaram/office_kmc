@@ -412,6 +412,16 @@ class ManualClaimWorkflowTests(TestCase):
         )
         self.assertEqual(case.current_assignee_id, self.specialist.pk)
 
+        # Global visibility does not allow a manager to take the specialist's action.
+        client.force_login(self.head)
+        forbidden_assessment = client.post(reverse("claim_assess", args=[claim.pk]), {
+            "assessed_amount": "900000",
+            "payable_amount": "800000",
+            "assessment_note": "اقدام مستقیم مدیر روی صف کارشناس",
+        })
+        self.assertEqual(forbidden_assessment.status_code, 403)
+
+        client.force_login(self.specialist)
         assessment_response = client.post(reverse("claim_assess", args=[claim.pk]), {
             "assessed_amount": "900000",
             "payable_amount": "800000",
@@ -421,6 +431,13 @@ class ManualClaimWorkflowTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.assessed_by_id, self.specialist.pk)
         self.assertIsNotNone(claim.assessed_at)
+        case.refresh_from_db()
+        self.assertIsNotNone(case.first_action_at)
+        from workflow.models import WorkflowEvent
+        assessment_event = case.events.get(action_code="claim_assessment")
+        self.assertEqual(assessment_event.event_type, WorkflowEvent.EventType.ACTION)
+        self.assertEqual(assessment_event.actor_id, self.specialist.pk)
+        self.assertEqual(assessment_event.from_assignee_id, self.specialist.pk)
 
         transition_case(
             case_id=case.pk,

@@ -29,7 +29,13 @@ from .forms import (
 from .models import Claim, ClaimObjection, ClaimPayment
 from .services import record_payment, reverse_payment
 from workflow.models import WorkflowCase, WorkflowDefinition
-from workflow.services import resolve_initial_assignee, start_workflow
+from workflow.services import (
+    _case_actor_authorized,
+    _scope_for_object,
+    record_case_action,
+    resolve_initial_assignee,
+    start_workflow,
+)
 
 
 @login_required
@@ -64,8 +70,34 @@ def _claim_workflow_case(claim):
     return WorkflowCase.objects.filter(
         content_type=content_type,
         object_id=str(claim.pk),
-    ).select_related("current_step", "current_assignee").first()
+    ).select_related(
+        "current_step", "current_assignee", "current_position_assignment", "delegation"
+    ).first()
 
+
+def _can_assess_claim(user, claim, case):
+    # Assessment belongs to the assigned specialist for this insurance line.
+    # Global visibility is not authority to perform an expert assessment.
+    if (
+        not case
+        or not case.current_step
+        or case.current_step.code not in {"under_review", "needs_info"}
+        or case.current_assignee_id != user.pk
+        or not claim.contract_id
+        or not has_role(
+            user,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=claim.contract.line,
+        )
+    ):
+        return False
+    return _case_actor_authorized(
+        case,
+        user,
+        case.current_step.allowed_roles,
+        position_levels=case.current_step.allowed_position_levels,
+        scope=_scope_for_object(claim),
+    )
 
 
 def _objection_workflow_case(objection):
@@ -103,13 +135,7 @@ def claim_detail(request, pk):
         )
     )
     workflow_case = _claim_workflow_case(claim)
-    can_assess = bool(
-        workflow_case
-        and workflow_case.current_step
-        and workflow_case.current_step.code in {"under_review", "needs_info"}
-        and (workflow_case.current_assignee_id == user.pk or has_global_access(user))
-        and can_decide_claim(user, claim)
-    )
+    can_assess = _can_assess_claim(user, claim, workflow_case)
     can_send_result = bool(
         claim.status in {Claim.Status.APPROVED, Claim.Status.REJECTED}
         and not claim.result_sent_at
@@ -433,13 +459,7 @@ def claim_create(request):
 def claim_assess(request, pk):
     claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
     case = _claim_workflow_case(claim)
-    if (
-        not case
-        or not case.current_step
-        or case.current_step.code not in {"under_review", "needs_info"}
-        or not (case.current_assignee_id == request.user.pk or has_global_access(request.user))
-        or not can_decide_claim(request.user, claim)
-    ):
+    if not _can_assess_claim(request.user, claim, case):
         raise PermissionDenied
 
     form = ClaimAssessmentForm(request.POST, claim=claim)
@@ -477,6 +497,16 @@ def claim_assess(request, pk):
                 "assessment_note": claim.assessment_note,
             },
             request=request,
+        )
+        record_case_action(
+            case_id=case.pk,
+            actor=request.user,
+            action_code="claim_assessment",
+            note="ارزیابی غیرپزشکی خسارت ثبت شد.",
+            metadata={
+                "assessed_amount": str(claim.assessed_amount),
+                "payable_amount": str(claim.payable_amount),
+            },
         )
     messages.success(request, "ارزیابی ثبت شد؛ برای تصمیم نهایی، گردش کار را به مرجع مجاز ارجاع دهید.")
     return redirect("claim_detail", pk=claim.pk)

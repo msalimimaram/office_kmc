@@ -964,6 +964,51 @@ def acknowledge_case(*, case_id, actor, note=""):
 
 
 @transaction.atomic
+def record_case_action(*, case_id, actor, action_code, note="", metadata=None):
+    """Record a domain action without advancing the current workflow step."""
+    case = WorkflowCase.objects.select_for_update().select_related(
+        "definition", "current_step", "current_assignee", "delegation",
+        "current_position_assignment",
+    ).get(pk=case_id)
+    if (
+        case.is_locked
+        or case.status in {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED}
+        or not case.current_step_id
+    ):
+        raise PermissionDenied("این پرونده در مرحله فعال و قابل اقدام نیست.")
+    scope = _scope_for_object(case.content_object)
+    _validate_actor(
+        case,
+        actor,
+        case.current_step.allowed_roles,
+        position_levels=case.current_step.allowed_position_levels,
+        scope=scope,
+    )
+    if not action_code or len(action_code) > 60:
+        raise ValidationError({"action_code": "کد اقدام معتبر نیست."})
+    now = timezone.now()
+    if not case.first_action_at:
+        case.first_action_at = now
+        case.save(update_fields=["first_action_at"])
+    return WorkflowEvent.objects.create(
+        workflow_case=case,
+        actor=actor,
+        event_type=WorkflowEvent.EventType.ACTION,
+        action_code=action_code,
+        from_step=case.current_step,
+        to_step=case.current_step,
+        from_assignee=case.current_assignee,
+        to_assignee=case.current_assignee,
+        from_position_assignment=case.current_position_assignment,
+        to_position_assignment=case.current_position_assignment,
+        note=(note or "")[:4000],
+        acted_at=now,
+        sent_at=now,
+        metadata=metadata or {},
+    )
+
+
+@transaction.atomic
 def transition_case(*, case_id, actor, action_code, recipient=None, note="", calendar=None):
     case = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "delegation"

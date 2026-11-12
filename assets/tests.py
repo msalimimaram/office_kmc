@@ -396,6 +396,16 @@ class AssetOperationalWorkflowTests(TestCase):
         self.assertEqual(self.asset.vehicle_details.vin, "VIN-AS-OPS-UPDATED")
         self.assertEqual(self.asset.vehicle_details.model_year, 2025)
 
+    def test_policy_snapshot_queryset_updates_are_rejected(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            InsuredAsset.objects.filter(pk=self.asset.pk).update(
+                policy_number="QUERYSET-BYPASS"
+            )
+        self.asset.refresh_from_db()
+        self.assertNotEqual(self.asset.policy_number, "QUERYSET-BYPASS")
+
     def test_company_representative_cannot_create_asset_lifecycle_records(self):
         from accounts.models import RoleAssignment
 

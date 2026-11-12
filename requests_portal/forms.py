@@ -7,6 +7,11 @@ from accounts.models import RoleAssignment
 from organizations.models import Person, PersonEmployment
 from .models import ServiceRequest
 
+LEGACY_PERSON_CHANGE_KINDS = {
+    ServiceRequest.Kind.IDENTITY_CHANGE,
+    ServiceRequest.Kind.IBAN_CHANGE,
+}
+
 
 class ServiceRequestForm(forms.ModelForm):
     person = forms.ModelChoiceField(
@@ -24,6 +29,10 @@ class ServiceRequestForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.fields["kind"].choices = [
+            choice for choice in self.fields["kind"].choices
+            if choice[0] not in LEGACY_PERSON_CHANGE_KINDS
+        ]
         if not user:
             return
 
@@ -50,6 +59,12 @@ class ServiceRequestForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        submitted_kind = self.data.get(self.add_prefix("kind"))
+        if submitted_kind in LEGACY_PERSON_CHANGE_KINDS:
+            self.add_error(
+                "kind",
+                "اصلاح اطلاعات هویتی و شبا فقط از مسیر مستقل «درخواست اصلاح اطلاعات شخص» ثبت می‌شود.",
+            )
         person = cleaned.get("person")
         if person and self.user:
             if has_role(self.user, RoleAssignment.Role.INSURED_PERSON):

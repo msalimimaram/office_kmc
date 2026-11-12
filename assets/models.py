@@ -3,6 +3,27 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 
+class InsuredAssetQuerySet(models.QuerySet):
+    PROTECTED_FIELDS = {
+        "insured_value", "insurer", "insurer_id", "contract", "contract_id",
+        "policy_number", "policy_start", "policy_end",
+    }
+
+    def update(self, **kwargs):
+        if self.PROTECTED_FIELDS.intersection(kwargs):
+            raise ValidationError(
+                "ارزش و اطلاعات بیمه‌نامه فقط از مسیر گردش تأیید دارایی قابل تغییر است."
+            )
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if self.PROTECTED_FIELDS.intersection(fields):
+            raise ValidationError(
+                "ویرایش گروهی ارزش و بیمه‌نامه خارج از گردش تأیید مجاز نیست."
+            )
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
 class ImmutableAssetApprovalQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise ValidationError("سوابق دارایی فقط از مسیر گردش تأیید تغییر می‌کنند.")
@@ -18,6 +39,8 @@ class ImmutableAssetApprovalQuerySet(models.QuerySet):
 
 
 class InsuredAsset(models.Model):
+    objects = InsuredAssetQuerySet.as_manager()
+
     class Type(models.TextChoices):
         VEHICLE = "vehicle", "خودرو"
         PROPERTY = "property", "ساختمان و ملک"
