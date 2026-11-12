@@ -3,6 +3,8 @@ from datetime import date, timedelta
 from django.db import models
 
 from django.core.exceptions import ValidationError
+from django.contrib import admin
+from django.test import RequestFactory
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
@@ -13,6 +15,7 @@ from accounts.models import (
 )
 from organizations.models import Company, Person
 from claims.models import Claim
+from auditlog.models import AuditEvent
 
 
 class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
@@ -518,6 +521,58 @@ class UserNotificationTests(TestCase):
         from django.core.exceptions import ValidationError
         with self.assertRaises(ValidationError):
             UserNotification.objects.filter(pk=self.notification.pk).update(read_at=None)
+
+
+class AdminAuditTrailTests(TestCase):
+    def test_role_assignment_admin_writes_immutable_audit_snapshot(self):
+        from accounts.models import RoleAssignment
+        sysadmin = User.objects.create_user(
+            username="audit-admin-actor", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=sysadmin, role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون ثبت ممیزی",
+        )
+        company = Company.objects.create(code="AUDIT-REP-COMP", name="شرکت ممیزی")
+        representative = User.objects.create_user(
+            username="audit-representative", password="StrongPass!2026",
+            must_change_password=False, company=company,
+        )
+        model_admin = admin.site._registry[RoleAssignment]
+        request = RequestFactory().post("/admin/accounts/roleassignment/add/")
+        request.user = sysadmin
+        assignment = RoleAssignment(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company,
+            line_code="health",
+            reason="انتصاب آزمایشی برای ممیزی",
+        )
+        model_admin.save_model(request, assignment, form=None, change=False)
+        event = AuditEvent.objects.get(action="role_assignment_created")
+        self.assertEqual(event.actor_id, sysadmin.pk)
+        self.assertEqual(event.object_id, str(assignment.pk))
+        self.assertEqual(event.after_data["company_id"], company.pk)
+        self.assertEqual(event.after_data["line_code"], "health")
+
+    def test_user_admin_does_not_expose_technical_or_legacy_role_switches(self):
+        model_admin = admin.site._registry[User]
+        request = RequestFactory().get("/admin/accounts/user/add/")
+        sysadmin = User.objects.create_user(
+            username="user-admin-schema-actor", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=sysadmin, role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه برای آزمون فرم حساب",
+        )
+        request.user = sysadmin
+        form = model_admin.get_form(request)
+        self.assertNotIn("is_superuser", form.base_fields)
+        self.assertNotIn("is_staff", form.base_fields)
+        self.assertNotIn("role", form.base_fields)
+        self.assertNotIn("company", form.base_fields)
 
 
 class AdminBusinessRoleBoundaryTests(TestCase):
