@@ -28,10 +28,10 @@ class RestrictAdminAccessMiddleware:
             request.path_info.startswith("/admin/")
             and user is not None
             and user.is_authenticated
-            and not user.is_superuser
         ):
             from accounts.access import has_global_access
 
+            # Technical Django flags never replace a current business-role grant.
             allowed = has_global_access(user)
             if not allowed:
                 from django.core.exceptions import PermissionDenied

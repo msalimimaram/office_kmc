@@ -16,7 +16,7 @@ def is_system_admin(request):
     return bool(
         request.user
         and request.user.is_authenticated
-        and (request.user.is_superuser or has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN))
+        and has_role(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
     )
 
 
