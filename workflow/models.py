@@ -27,6 +27,22 @@ def _validate_role_list(value, field_name, *, allow_empty=False):
         raise ValidationError({field_name: "نقش تکراری مجاز نیست."})
 
 
+def _validate_position_level_list(value, field_name):
+    from accounts.models import PositionAssignment
+
+    if not isinstance(value, list):
+        raise ValidationError({field_name: "سطوح سمت مجاز باید به‌صورت فهرست ثبت شوند."})
+    level_model = PositionAssignment.position.field.related_model.Level
+    allowed = {int(item.value) for item in level_model}
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in value):
+        raise ValidationError({field_name: "سطح سمت باید عدد صحیح معتبر باشد."})
+    invalid = sorted(set(value) - allowed)
+    if invalid:
+        raise ValidationError({field_name: f"سطوح سمت تعریف‌نشده: {invalid}"})
+    if len(value) != len(set(value)):
+        raise ValidationError({field_name: "سطح سمت تکراری مجاز نیست."})
+
+
 class PublishedWorkflowDefinitionQuerySet(models.QuerySet):
     def update(self, **kwargs):
         # QuerySet.update bypasses model.save()/full_clean(), including the
@@ -149,7 +165,13 @@ class WorkflowStep(models.Model):
     code = models.SlugField("کد مرحله", max_length=60)
     title = models.CharField("عنوان مرحله", max_length=160)
     order = models.PositiveSmallIntegerField("ترتیب")
-    allowed_roles = models.JSONField("نقش‌های مجاز", default=list, blank=True)
+    allowed_roles = models.JSONField("نقش‌های عملیاتی مجاز", default=list, blank=True)
+    allowed_position_levels = models.JSONField(
+        "سطوح سمت سازمانی مجاز",
+        default=list,
+        blank=True,
+        help_text="سطوح مجاز از ساختار سازمانی؛ همراه با محدوده رشته‌ای انتصاب بررسی می‌شوند.",
+    )
     sla_minutes = models.PositiveIntegerField("مهلت کاری (دقیقه)", default=0)
     is_initial = models.BooleanField("مرحله آغازین", default=False)
     is_terminal = models.BooleanField("مرحله پایانی", default=False)
@@ -167,7 +189,10 @@ class WorkflowStep(models.Model):
 
     def clean(self):
         super().clean()
-        _validate_role_list(self.allowed_roles, "allowed_roles")
+        _validate_role_list(self.allowed_roles, "allowed_roles", allow_empty=True)
+        _validate_position_level_list(self.allowed_position_levels, "allowed_position_levels")
+        if not self.allowed_roles and not self.allowed_position_levels:
+            raise ValidationError("هر مرحله باید دست‌کم یک نقش عملیاتی یا سطح سمت مجاز داشته باشد.")
         if self.is_terminal and self.allow_return:
             raise ValidationError({"allow_return": "مرحله پایانی نباید امکان بازگشت داشته باشد."})
 
@@ -204,8 +229,14 @@ class WorkflowTransition(models.Model):
     target_step = models.ForeignKey(WorkflowStep, null=True, blank=True, on_delete=models.PROTECT, related_name="incoming_transitions")
     action_code = models.SlugField("کد اقدام", max_length=60)
     title = models.CharField("عنوان اقدام", max_length=120)
-    allowed_roles = models.JSONField("نقش‌های مجاز برای اقدام", default=list, blank=True)
-    recipient_roles = models.JSONField("نقش‌های مجاز گیرنده", default=list, blank=True)
+    allowed_roles = models.JSONField("نقش‌های عملیاتی مجاز برای اقدام", default=list, blank=True)
+    allowed_position_levels = models.JSONField(
+        "سطوح سمت سازمانی مجاز برای اقدام", default=list, blank=True
+    )
+    recipient_roles = models.JSONField("نقش‌های عملیاتی مجاز گیرنده", default=list, blank=True)
+    recipient_position_levels = models.JSONField(
+        "سطوح سمت سازمانی مجاز گیرنده", default=list, blank=True
+    )
     requires_note = models.BooleanField("توضیح اجباری", default=False)
     is_return = models.BooleanField("اقدام بازگشت", default=False)
     closes_case = models.BooleanField("بستن پرونده", default=False)
@@ -227,8 +258,23 @@ class WorkflowTransition(models.Model):
             raise ValidationError({"target_step": "مسیر بستن پرونده نباید مرحله مقصد داشته باشد."})
         if not self.closes_case and not self.target_step_id:
             raise ValidationError({"target_step": "برای مسیر غیرنهایی تعیین مرحله مقصد الزامی است."})
-        _validate_role_list(self.allowed_roles, "allowed_roles")
+        _validate_role_list(self.allowed_roles, "allowed_roles", allow_empty=True)
+        _validate_position_level_list(self.allowed_position_levels, "allowed_position_levels")
         _validate_role_list(self.recipient_roles, "recipient_roles", allow_empty=True)
+        _validate_position_level_list(
+            self.recipient_position_levels, "recipient_position_levels"
+        )
+        if not self.allowed_roles and not self.allowed_position_levels:
+            raise ValidationError("هر اقدام باید دست‌کم یک نقش عملیاتی یا سطح سمت اقدام‌کننده داشته باشد.")
+        if (
+            not self.closes_case
+            and not self.recipient_roles
+            and not self.recipient_position_levels
+            and self.target_step
+            and not self.target_step.allowed_roles
+            and not self.target_step.allowed_position_levels
+        ):
+            raise ValidationError("گیرنده مسیر باید با نقش عملیاتی یا سطح سمت مشخص شود.")
 
     def save(self, *args, **kwargs):
         if self.pk:
