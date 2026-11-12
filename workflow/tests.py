@@ -10,12 +10,12 @@ from accounts.models import (
     OrganizationalPosition, OrganizationalUnit, PositionAssignment, RoleAssignment,
 )
 from claims.models import Claim
-from insurance.models import Insurer
-from organizations.models import Company, Person
+from insurance.models import Contract, Insurer, InsuranceLine
+from organizations.models import Company, Person, PersonChangeRequest
 from requests_portal.models import ServiceRequest
 from core.permissions import can_process_request, scoped_requests_for
 from .models import (
-    BusinessCalendar, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
+    BusinessCalendar, WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition,
 )
 from .services import _has_any_role, _scope_for_object, add_business_minutes, resolve_initial_assignee, start_workflow, transition_case
 from .presentation import build_workflow_presentation
@@ -98,6 +98,71 @@ class WorkflowEngineTests(TestCase):
         self.definition.approved_by = self.admin
         self.definition.is_active = True
         self.definition.save()
+
+    def test_former_person_change_assignee_cannot_read_sensitive_workflow_notes(self):
+        from datetime import date, timedelta
+        from django.test import Client
+        from django.urls import reverse
+
+        today = timezone.localdate()
+        insurer = Insurer.objects.create(name="بیمه‌گر آزمون تغییر شخص")
+        contract = Contract.objects.create(
+            code="PERSON-CHANGE-WF-CONTRACT", title="قرارداد تغییر شخص",
+            insurer=insurer, line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=30), end_date=today + timedelta(days=300),
+            status=Contract.Status.ACTIVE, is_active=True,
+        )
+        contract.companies.add(self.company)
+        person = Person.objects.create(
+            company=self.company, user=self.specialist, national_id="1234567890",
+            first_name="کاربر", last_name="آزمایش", birth_date=date(1990, 1, 1),
+            mobile="09120000000",
+        )
+        change = PersonChangeRequest.objects.create(
+            person=person, company=self.company, contract=contract,
+            requested_by=self.specialist,
+            change_type=PersonChangeRequest.ChangeType.MOBILE,
+            current_value="09120000000", requested_value="09121111111",
+            reason="اصلاح شماره همراه به درخواست بیمه‌شده",
+        )
+        representative = User.objects.create_user(
+            username="person-change-current-rep", password="StrongPass!123",
+            must_change_password=False,
+        )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(
+            user=representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company, line_code="health",
+            reason="نماینده جاری پرونده تغییر اطلاعات",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="person_change", title="گردش اصلاح اطلاعات", version=91,
+            created_by=self.admin, approved_by=self.admin, is_active=True,
+        )
+        step = WorkflowStep.objects.create(
+            definition=definition, code="company_final_review",
+            title="بازبینی نماینده شرکت", order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP], is_initial=True,
+        )
+        case = WorkflowCase.objects.create(
+            definition=definition,
+            content_type=ContentType.objects.get_for_model(change, for_concrete_model=False),
+            object_id=str(change.pk), current_step=step, current_assignee=representative,
+        )
+        WorkflowEvent.objects.create(
+            workflow_case=case, actor=self.specialist,
+            event_type=WorkflowEvent.EventType.REFERRED,
+            from_assignee=self.specialist, to_assignee=representative,
+            to_step=step,
+            note="شماره قبلی 09120000000 و شماره جدید 09121111111",
+        )
+
+        client = Client()
+        client.force_login(self.specialist)
+        response = client.get(reverse("workflow_case_detail", args=[case.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "09120000000")
+        self.assertNotContains(response, "09121111111")
 
     def test_confidential_medical_request_summary_never_exposes_free_text_or_description(self):
         from types import SimpleNamespace
@@ -1452,7 +1517,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         current = WorkflowDefinition.objects.get(code="other", is_active=True)
         self.assertFalse(old.is_active)
         self.assertEqual(current.version, 2)
-        self.assertIn("baseline-route-v2", current.description)
+        self.assertIn("baseline-route-v3", current.description)
         self.assertEqual(old.steps.count(), 1)
 
     def test_seed_command_rebases_open_cases_to_new_definition_and_preserves_history(self):
@@ -1558,11 +1623,15 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             "person_change",
             "claim_review",
             "claim_objection",
+            "management_report_approval",
         } | set(ServiceRequest.Kind.values)
         active = set(
             WorkflowDefinition.objects.filter(is_active=True).values_list("code", flat=True)
         )
         self.assertTrue(expected.issubset(active))
+        for kind in ServiceRequest.Kind.values:
+            definition = WorkflowDefinition.objects.get(code=kind, is_active=True)
+            self.assertFalse(definition.steps.filter(code=ServiceRequest.Status.CLOSED).exists())
 
         # The audit is the publication gate: all request kinds and domain
         # workflows must have valid status mappings, roles, and transitions.
