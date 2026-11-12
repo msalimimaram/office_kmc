@@ -35,7 +35,7 @@
       </div>
       <div class="sidebar-user">
         <span class="avatar-mark" aria-hidden="true">{{ request.user.get_full_name|default:request.user.username|slice:":1" }}</span>
-        <span class="sidebar-user-copy"><strong>{{ request.user.get_full_name|default:request.user.username }}</strong><small>{% if access.system_admin %}مدیر سامانه{% elif access.global %}مدیریت اداره بیمه{% elif access.company_rep %}نماینده شرکت{% elif access.insurer_rep %}نماینده بیمه‌گر{% elif access.insured %}بیمه‌شده{% else %}کاربر سامانه{% endif %}</small></span>
+        <span class="sidebar-user-copy"><strong>{{ request.user.get_full_name|default:request.user.username }}</strong><small>{% if access.system_admin %}مدیر سامانه{% elif access.global %}رئیس اداره بیمه{% elif access.primary_position %}{{ access.primary_position }}{% elif access.company_rep %}نماینده شرکت{% elif access.insurer_rep %}نماینده بیمه‌گر{% elif access.insured %}بیمه‌شده{% else %}کاربر سامانه{% endif %}</small></span>
       </div>
       <nav class="sidebar-nav">
         <span class="sidebar-section-label">نمای کلی</span>
