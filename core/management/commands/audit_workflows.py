@@ -61,8 +61,8 @@ class Command(BaseCommand):
             for step in steps:
                 if step.code not in valid_statuses:
                     errors.append(f"{code}/{step.code}: کد مرحله با وضعیت مدل دامنه سازگار نیست.")
-                if not step.allowed_roles:
-                    errors.append(f"{code}/{step.code}: نقش مجاز مرحله خالی است.")
+                if not step.allowed_roles and not step.allowed_position_levels:
+                    errors.append(f"{code}/{step.code}: نقش و سمت مجاز مرحله هر دو خالی هستند.")
                 if "*" in (step.allowed_roles or []):
                     errors.append(f"{code}/{step.code}: نقش عمومی * مجاز نیست.")
                 if not step.is_terminal and not step.outgoing_transitions.exists():
@@ -81,13 +81,30 @@ class Command(BaseCommand):
                     errors.append(f"{code}/{transition.action_code}: نقش عمومی * مجاز نیست.")
                 if not transition.closes_case and not (
                     transition.recipient_roles
-                    or (transition.target_step and transition.target_step.allowed_roles)
+                    or transition.recipient_position_levels
+                    or (
+                        transition.target_step
+                        and (
+                            transition.target_step.allowed_roles
+                            or transition.target_step.allowed_position_levels
+                        )
+                    )
                 ):
                     errors.append(f"{code}/{transition.action_code}: نقش گیرنده مسیر مشخص نیست.")
 
                 if code in self.DOMAIN_CODES - {"person_change"} and transition.closes_case:
-                    closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
-                    if not closing_roles or not closing_roles.issubset(global_roles):
+                    closing_roles = set(
+                        transition.allowed_roles or transition.source_step.allowed_roles
+                    )
+                    closing_positions = set(
+                        transition.allowed_position_levels
+                        or transition.source_step.allowed_position_levels
+                    )
+                    if (
+                        (not closing_roles and not closing_positions)
+                        or not closing_roles.issubset(global_roles)
+                        or closing_positions
+                    ):
                         errors.append(
                             f"{code}/{transition.action_code}: بستن نهایی فقط برای رئیس اداره/مدیر سامانه مجاز است."
                         )
@@ -105,7 +122,12 @@ class Command(BaseCommand):
             if code in {"contract_approval", "contract_termination"} and initial_steps:
                 if initial_steps[0].code != ContractRevision.Status.PENDING_APPROVAL:
                     errors.append(f"{code}: مرحله آغازین باید pending_approval باشد.")
-                if not set(initial_steps[0].allowed_roles or []).issubset(global_roles):
+                initial_roles = set(initial_steps[0].allowed_roles or [])
+                if (
+                    not initial_roles
+                    or not initial_roles.issubset(global_roles)
+                    or initial_steps[0].allowed_position_levels
+                ):
                     errors.append(f"{code}: مرحله آغازین فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
             if code in {
@@ -115,7 +137,12 @@ class Command(BaseCommand):
             } and initial_steps:
                 if initial_steps[0].code != "pending_approval":
                     errors.append(f"{code}: مرحله آغازین باید pending_approval باشد.")
-                if not set(initial_steps[0].allowed_roles or []).issubset(global_roles):
+                initial_roles = set(initial_steps[0].allowed_roles or [])
+                if (
+                    not initial_roles
+                    or not initial_roles.issubset(global_roles)
+                    or initial_steps[0].allowed_position_levels
+                ):
                     errors.append(f"{code}: تأیید دارایی فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
             if code == "claim_review":
@@ -123,7 +150,7 @@ class Command(BaseCommand):
                     errors.append("claim_review: مرحله آغازین باید under_review باشد.")
                 elif not (
                     specialist_role in (initial_steps[0].allowed_roles or [])
-                    or set(initial_steps[0].allowed_roles or []).issubset(global_roles)
+                    or bool(set(initial_steps[0].allowed_roles or []) & global_roles)
                 ):
                     errors.append("claim_review: مرحله آغازین باید به کارشناس بیمه یا مرجع سراسری مجاز باشد.")
                 submit = next((item for item in transitions if item.action_code == "submit_for_decision"), None)

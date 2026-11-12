@@ -12,7 +12,7 @@ from datetime import date
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import RoleAssignment
+from .models import PositionAssignment, RoleAssignment
 
 
 LEGACY_ROLE_MAP = {
@@ -53,6 +53,50 @@ def active_assignments(user, *, on_date: date | None = None):
         valid_from__lte=today,
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    )
+
+
+def active_position_assignments(user, *, on_date: date | None = None):
+    """Return the user's currently valid organizational positions."""
+    if (
+        not getattr(user, "is_authenticated", False)
+        or not getattr(user, "is_active", False)
+        or not getattr(user, "pk", None)
+    ):
+        return PositionAssignment.objects.none()
+    today = _today(on_date)
+    return PositionAssignment.objects.filter(
+        user_id=user.pk,
+        is_active=True,
+        valid_from__lte=today,
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    ).select_related("unit", "position")
+
+
+def has_position_level(
+    user, *levels: int, unit_id: int | None = None, on_date: date | None = None
+) -> bool:
+    """Check a valid organizational position without granting domain roles."""
+    if not levels:
+        return False
+    qs = active_position_assignments(user, on_date=on_date).filter(
+        position__level__in=levels,
+        unit__company__isnull=True,
+        line_code__gt="",
+    )
+    if unit_id is not None:
+        qs = qs.filter(unit_id=unit_id)
+    return qs.exists()
+
+
+def is_unit_manager(user, *, on_date: date | None = None) -> bool:
+    """Supervisors and responsibles can manage work within their org scope."""
+    return has_position_level(
+        user,
+        PositionAssignment.position.field.related_model.Level.SUPERVISOR,
+        PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+        on_date=on_date,
     )
 
 
@@ -181,6 +225,17 @@ def line_codes_for(user, *, role: str | None = None, on_date: date | None = None
     if role:
         qs = qs.filter(role=role)
     values = set(qs.exclude(line_code="").values_list("line_code", flat=True))
+    if (
+        not values
+        and _legacy_fallback_allowed(user)
+        and _legacy_role(user) == RoleAssignment.Role.SUBSIDIARY_REP
+        and role in (None, RoleAssignment.Role.SUBSIDIARY_REP)
+    ):
+        # Compatibility for pre-assignment accounts: their old single-role
+        # record had company scope but no line dimension. Treat only this
+        # legacy-only case as an overall company representative; once any
+        # assignment history exists, an explicit '*' or line is required.
+        return {"*"}
     return values
 
 

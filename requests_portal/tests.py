@@ -7,7 +7,7 @@ from accounts.models import RoleAssignment, User
 from organizations.models import Company, Person
 from requests_portal.models import ServiceRequest
 from core.permissions import can_transition_request, scoped_requests_for
-from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep
+from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowStep, WorkflowTransition
 
 NATIONAL_ID_A = "1" * 10
 NATIONAL_ID_B = "2" * 10
@@ -22,6 +22,43 @@ class ServiceRequestTests(TestCase):
         )
 
     def test_user_can_submit_request(self):
+        representative = User.objects.create_user(
+            username="request-initial-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            reason="نماینده اولیه کل شرکت برای آزمون درخواست با رشته نامشخص",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="گردش درخواست عمومی آزمون",
+            created_by=representative,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="بررسی نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            action_code="close-test-request",
+            title="بستن آزمون",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            closes_case=True,
+        )
+        definition.approved_by = representative
+        definition.is_active = True
+        definition.save()
+
         client = Client()
         client.force_login(self.user)
         response = client.post(reverse("request_create"), {
@@ -30,6 +67,21 @@ class ServiceRequestTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(ServiceRequest.objects.count(), 1)
         self.assertEqual(ServiceRequest.objects.first().submitted_by, self.user)
+        self.assertEqual(WorkflowCase.objects.count(), 1)
+        self.assertEqual(WorkflowCase.objects.get().current_assignee_id, representative.pk)
+
+    def test_missing_published_workflow_blocks_new_request_and_rolls_back(self):
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(reverse("request_create"), {
+            "kind": ServiceRequest.Kind.OTHER,
+            "title": "درخواست بدون گردش منتشرشده",
+            "description": "نباید بدون گردش ثبت شود",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "گردش‌کار فعال و منتشرشده")
+        self.assertEqual(ServiceRequest.objects.count(), 0)
+        self.assertEqual(WorkflowCase.objects.count(), 0)
 
     def test_subsidiary_representative_cannot_see_confidential_or_other_company_requests(self):
         rep = User.objects.create_user(
@@ -223,6 +275,35 @@ class ServiceRequestTests(TestCase):
         self.assertIn("لطفاً اطلاعات تکمیلی ارائه شود", item.response)
 
     def test_employee_medical_request_must_select_self_or_insured_dependent(self):
+        representative = User.objects.create_user(
+            username="medical-initial-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            reason="نماینده درمان شرکت",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            title="گردش محرمانه کمک‌هزینه درمان",
+            created_by=representative,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="دریافت اولیه نماینده شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        definition.approved_by = representative
+        definition.is_active = True
+        definition.save()
+
         self.user.national_id = NATIONAL_ID_A
         self.user.save(update_fields=["national_id"])
         employee_person = Person.objects.create(
@@ -246,6 +327,8 @@ class ServiceRequestTests(TestCase):
         item = ServiceRequest.objects.get()
         self.assertEqual(item.person_id, dependent.pk)
         self.assertTrue(item.is_confidential)
+        case = WorkflowCase.objects.get(object_id=str(item.pk))
+        self.assertEqual(case.current_assignee_id, representative.pk)
 
     def test_employee_cannot_link_medical_request_to_person_from_another_company(self):
         self.user.national_id = NATIONAL_ID_A
@@ -294,6 +377,12 @@ class LegacyRequestTransitionPermissionTests(TestCase):
             password="StrongPass!2026",
             role="insurance_specialist",
             must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="*",
+            reason="مجوز صریح تمام رشته‌ها برای درخواست فاقد رشته مشخص در آزمون سازگاری",
         )
         self.item = ServiceRequest.objects.create(
             reference="IB-TRANSITION-1",
@@ -603,7 +692,8 @@ class RequestWorkflowCreationTests(TestCase):
             user=representative,
             role=RoleAssignment.Role.SUBSIDIARY_REP,
             company=company,
-            reason="نماینده یگانه شرکت برای آزمون گردش کار",
+            line_code="health",
+            reason="نماینده درمان شرکت برای آزمون گردش کار",
         )
         RoleAssignment.objects.create(
             user=head,

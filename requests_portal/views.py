@@ -89,31 +89,44 @@ def request_create(request):
                     if has_role(user, RoleAssignment.Role.INSURED_PERSON) and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP):
                         item.assigned_to = _first_company_representative(item.company_id)
                     item.save()
-                    active_definition = WorkflowDefinition.objects.filter(code=item.kind, is_active=True).order_by("-version").first()
-                    if active_definition:
-                        initial_assignee, delegation = resolve_initial_assignee(
-                            definition=active_definition,
-                            obj=item,
-                            return_delegation=True,
-                            company_id=item.company_id,
-                            line_code="health" if item.kind in {
-                                ServiceRequest.Kind.MEDICAL_ASSISTANCE,
-                                ServiceRequest.Kind.ANONYMOUS_PLAN,
-                                ServiceRequest.Kind.EXCESS_COVERAGE,
-                                ServiceRequest.Kind.ADD_COVERAGE,
-                                ServiceRequest.Kind.REMOVE_COVERAGE,
-                                ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
-                            } else None,
-                            owner_user_id=user.pk,
-                            # Keep a company representative eligible to receive their own request.
-                            exclude_user_id=(
-                                user.pk if has_role(user, RoleAssignment.Role.INSURED_PERSON)
-                                and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) else None
-                            ),
+                    active_definition = WorkflowDefinition.objects.filter(
+                        code=item.kind, is_active=True
+                    ).order_by("-version").first()
+                    if not active_definition:
+                        raise ValidationError(
+                            f"گردش‌کار فعال و منتشرشده برای نوع درخواست «{item.get_kind_display()}» تعریف نشده است؛ "
+                            "ثبت درخواست تا زمان انتشار گردش‌کار مجاز نیست."
                         )
-                        start_workflow(obj=item, code=item.kind, actor=user, assignee=initial_assignee, delegation=delegation, note="درخواست توسط کاربر ثبت شد.")
-                        item.assigned_to = initial_assignee
-                        item.save(update_fields=["assigned_to", "updated_at"])
+                    initial_assignee, delegation = resolve_initial_assignee(
+                        definition=active_definition,
+                        obj=item,
+                        return_delegation=True,
+                        company_id=item.company_id,
+                        line_code="health" if item.kind in {
+                            ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+                            ServiceRequest.Kind.ANONYMOUS_PLAN,
+                            ServiceRequest.Kind.EXCESS_COVERAGE,
+                            ServiceRequest.Kind.ADD_COVERAGE,
+                            ServiceRequest.Kind.REMOVE_COVERAGE,
+                            ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
+                        } else None,
+                        owner_user_id=user.pk,
+                        # Keep a company representative eligible to receive their own request.
+                        exclude_user_id=(
+                            user.pk if has_role(user, RoleAssignment.Role.INSURED_PERSON)
+                            and not has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) else None
+                        ),
+                    )
+                    start_workflow(
+                        obj=item,
+                        code=item.kind,
+                        actor=user,
+                        assignee=initial_assignee,
+                        delegation=delegation,
+                        note="درخواست توسط کاربر ثبت شد.",
+                    )
+                    item.assigned_to = initial_assignee
+                    item.save(update_fields=["assigned_to", "updated_at"])
                     record_event(
                         actor=user,
                         action="service_request_created",

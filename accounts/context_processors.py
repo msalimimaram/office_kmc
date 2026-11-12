@@ -1,8 +1,8 @@
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import has_global_access, has_role, is_insurance_staff
-from accounts.models import PositionAssignment, RoleAssignment, UserNotification
+from accounts.access import has_global_access, has_role, is_insurance_staff, is_unit_manager, active_position_assignments
+from accounts.models import RoleAssignment, UserNotification
 
 
 def access_flags(request):
@@ -11,17 +11,14 @@ def access_flags(request):
         return {"access": {}, "unread_notification_count": 0}
     staff = is_insurance_staff(user)
     today = timezone.localdate()
-    active_position_assignment = PositionAssignment.objects.filter(
-        user=user,
-        is_active=True,
-        valid_from__lte=today,
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-    assigned_correspondence = active_position_assignment.filter(
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ],
-    ).exists()
+    active_position_assignment = active_position_assignments(user)
+    unit_manager = is_unit_manager(user)
+    position_titles = list(
+        active_position_assignment.filter(
+            unit__company__isnull=True,
+            line_code__gt="",
+        ).values_list("position__title", flat=True).distinct()
+    )
     notification_access = (
         staff
         or has_role(user, RoleAssignment.Role.INSURED_PERSON)
@@ -52,14 +49,17 @@ def access_flags(request):
             "insured": has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "company_rep": has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
             "insurer_rep": has_role(user, RoleAssignment.Role.INSURER_REP),
+            "unit_manager": unit_manager,
+            "position_titles": position_titles,
+            "primary_position": position_titles[0] if position_titles else "",
             "claims": staff or has_role(user, RoleAssignment.Role.INSURED_PERSON) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "contracts": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "assets": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
-            "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or assigned_correspondence,
+            "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or unit_manager,
             "requests": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "people": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
             "leadership_titles": has_global_access(user) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP),
-            "tasks": staff or PositionAssignment.objects.filter(user=user, is_active=True, valid_from__lte=timezone.localdate()).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())).exists(),
+            "tasks": staff or unit_manager,
             "imports": staff or has_role(user, RoleAssignment.Role.INSURER_REP),
         },
     }

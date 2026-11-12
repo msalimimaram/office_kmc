@@ -1,7 +1,10 @@
 from django.test import TestCase, Client
 from django.urls import reverse
 
-from accounts.models import RoleAssignment, User, UserNotification
+from accounts.models import (
+    RoleAssignment, User, UserNotification,
+    OrganizationalUnit, OrganizationalPosition, PositionAssignment,
+)
 from organizations.models import Company
 from requests_portal.models import ServiceRequest
 from tasks.forms import InternalTaskForm
@@ -75,6 +78,148 @@ class InternalTaskFormScopeTests(TestCase):
     def test_confidential_request_task_can_be_assigned_to_department_head(self):
         form = self._confidential_task_form([self.head.pk])
         self.assertTrue(form.is_valid(), form.errors)
+
+
+class OrganizationalTaskScopeTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        self.parent = OrganizationalUnit.objects.create(
+            code="TASK-ROOT",
+            name="واحد بالادست",
+        )
+        self.child = OrganizationalUnit.objects.create(
+            code="TASK-CHILD",
+            name="واحد زیرمجموعه",
+            parent=self.parent,
+        )
+        self.other_unit = OrganizationalUnit.objects.create(
+            code="TASK-OTHER",
+            name="واحد مستقل",
+        )
+        self.supervisor_position = OrganizationalPosition.objects.create(
+            unit=self.parent,
+            code="TASK-SUPERVISOR",
+            title="سرپرست آزمون",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        self.specialist_position = OrganizationalPosition.objects.create(
+            unit=self.child,
+            code="TASK-SPECIALIST",
+            title="کارشناس آزمون",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        self.other_position = OrganizationalPosition.objects.create(
+            unit=self.other_unit,
+            code="TASK-OTHER-SPECIALIST",
+            title="کارشناس واحد دیگر",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        self.manager = User.objects.create_user(
+            username="task-tree-supervisor",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.subordinate = User.objects.create_user(
+            username="task-tree-subordinate",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.outsider = User.objects.create_user(
+            username="task-tree-outsider",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=self.manager, unit=self.parent, position=self.supervisor_position,
+            line_code="*", valid_from=timezone.localdate(), reason="سرپرست واحد بالادست",
+        )
+        PositionAssignment.objects.create(
+            user=self.subordinate, unit=self.child, position=self.specialist_position,
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد زیرمجموعه",
+        )
+        PositionAssignment.objects.create(
+            user=self.outsider, unit=self.other_unit, position=self.other_position,
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
+        )
+        RoleAssignment.objects.create(
+            user=self.subordinate,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="انتصاب تخصصی",
+        )
+        RoleAssignment.objects.create(
+            user=self.outsider,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="انتصاب تخصصی خارج از واحد",
+        )
+
+    def test_company_declared_supervisor_title_does_not_grant_internal_task_management(self):
+        from django.urls import reverse
+        from accounts.access import is_unit_manager
+        from tasks.views import _can_manage_tasks
+
+        company = Company.objects.create(
+            code="TASK-COMPANY-POS",
+            name="شرکت دارای سمت‌های اعلامی",
+        )
+        company_unit = OrganizationalUnit.objects.create(
+            code="TASK-COMPANY-UNIT",
+            name="ساختار داخلی شرکت",
+            company=company,
+        )
+        company_supervisor_position = OrganizationalPosition.objects.create(
+            unit=company_unit,
+            code="TASK-COMPANY-SUPERVISOR",
+            title="سرپرست شرکت",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        company_representative = User.objects.create_user(
+            username="task-company-supervisor-title",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=company_representative,
+            unit=company_unit,
+            position=company_supervisor_position,
+            line_code="*",
+            reason="سمت اعلامی داخل شرکت؛ نه سمت اداره بیمه",
+        )
+
+        self.assertFalse(is_unit_manager(company_representative))
+        self.assertFalse(_can_manage_tasks(company_representative))
+        client = Client()
+        client.force_login(company_representative)
+        self.assertEqual(client.get(reverse("task_create")).status_code, 403)
+
+    def test_supervisor_can_assign_only_to_active_subordinates_in_descendant_units(self):
+        form = InternalTaskForm(user=self.manager)
+        choices = set(form.fields["assignees"].queryset.values_list("pk", flat=True))
+        self.assertIn(self.subordinate.pk, choices)
+        self.assertNotIn(self.outsider.pk, choices)
+        self.assertNotIn(self.manager.pk, choices)
+
+    def test_supervisor_sees_subordinate_tasks_but_not_independent_unit_tasks(self):
+        from tasks.views import _visible_tasks
+
+        subordinate_task = InternalTask.objects.create(
+            title="وظیفه واحد زیرمجموعه",
+            description="برای آزمون محدوده",
+            created_by=self.subordinate,
+        )
+        subordinate_task.assignees.add(self.subordinate)
+        outsider_task = InternalTask.objects.create(
+            title="وظیفه واحد مستقل",
+            description="نباید در صف سرپرست باشد",
+            created_by=self.outsider,
+        )
+        outsider_task.assignees.add(self.outsider)
+
+        visible_ids = set(_visible_tasks(self.manager).values_list("pk", flat=True))
+        self.assertIn(subordinate_task.pk, visible_ids)
+        self.assertNotIn(outsider_task.pk, visible_ids)
 
 
 class TaskFirstViewActionFlowTests(TestCase):

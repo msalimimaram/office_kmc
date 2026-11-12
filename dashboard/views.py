@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.shortcuts import render
 
-from accounts.access import has_global_access, has_role
+from accounts.access import has_global_access, has_role, is_unit_manager
 from accounts.models import RoleAssignment
 from claims.models import Claim
 from requests_portal.models import ServiceRequest
@@ -16,10 +16,15 @@ from workflow.services import is_delegated_assignee
 
 def _capabilities_for(user):
     capabilities = set()
-    if has_global_access(user):
+    if has_role(user, RoleAssignment.Role.SYSTEM_ADMIN):
         return {
             "claims", "requests", "tasks", "assets", "contracts", "people",
             "correspondence", "imports", "review", "reports", "admin_settings",
+        }
+    if has_role(user, RoleAssignment.Role.DEPARTMENT_HEAD):
+        return {
+            "claims", "requests", "tasks", "assets", "contracts", "people",
+            "correspondence", "imports", "review", "reports",
         }
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
@@ -39,6 +44,8 @@ def _capabilities_for(user):
             "claims", "requests", "assets", "contracts", "correspondence",
             "imports", "reports",
         })
+    if is_unit_manager(user):
+        capabilities.update({"tasks", "correspondence"})
     return capabilities
 
 
@@ -50,17 +57,13 @@ def home(request):
     claims = scoped_claims_for(user) if "claims" in capabilities else Claim.objects.none()
     requests = scoped_requests_for(user) if "requests" in capabilities else ServiceRequest.objects.none()
     if "tasks" in capabilities:
-        tasks = InternalTask.objects.filter(assignees=user) | InternalTask.objects.filter(created_by=user)
-        if has_global_access(user):
-            tasks = InternalTask.objects.all()
-        else:
-            # Keep dashboard counts consistent with task_list: confidential
-            # request-linked tasks must never be exposed to non-global users.
-            tasks = tasks.exclude(related_request__is_confidential=True)
-        tasks = tasks.distinct()
+        from tasks.views import _visible_tasks
+        tasks = _visible_tasks(user)
     else:
         tasks = InternalTask.objects.none()
 
+    is_system_admin = has_role(user, RoleAssignment.Role.SYSTEM_ADMIN)
+    is_department_head = has_role(user, RoleAssignment.Role.DEPARTMENT_HEAD)
     is_management = has_global_access(user)
     is_insured_dashboard = has_role(user, RoleAssignment.Role.INSURED_PERSON) and not is_management
     delegated_cases = WorkflowCase.objects.filter(
@@ -88,6 +91,20 @@ def home(request):
         "task_count": tasks.exclude(status__in=["done", "cancelled"]).count(),
         "recent_claims": claims.select_related("person").order_by("-registered_date", "-pk")[:8],
         "recent_requests": requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8],
+        "recent_tasks": tasks.select_related("created_by").order_by("due_at", "-pk")[:8],
+        "is_unit_manager": is_unit_manager(user),
+        "is_system_admin": is_system_admin,
+        "is_department_head": is_department_head and not is_system_admin,
+        "position_titles": list(
+            user.position_assignments.filter(
+                is_active=True,
+                valid_from__lte=timezone.localdate(),
+                unit__company__isnull=True,
+                line_code__gt="",
+            ).filter(
+                Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())
+            ).values_list("position__title", flat=True).distinct()
+        ),
         "capabilities": capabilities,
         "show_claims": "claims" in capabilities,
         "show_requests": "requests" in capabilities,

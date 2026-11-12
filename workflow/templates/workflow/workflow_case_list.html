@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}پرونده‌های گردش کار{% endblock %}
 {% block content %}
-<section class="page-heading"><div><h1>پرونده‌های ارجاع‌شده</h1><p>پرونده‌هایی که در حال حاضر مسئولیت آن‌ها به شما واگذار شده است.</p></div></section>
-<div class="table-wrap"><table><thead><tr><th>نوع گردش کار</th><th>شناسه پرونده</th><th>مرحله جاری</th><th>مهلت SLA</th><th>وضعیت</th><th></th></tr></thead><tbody>
-{% for case in cases %}<tr><td>{{ case.definition.title }}</td><td>{{ case.object_id }}</td><td>{{ case.current_step.title|default:"—" }}</td><td>{{ case.sla_due_at|default:"—" }}</td><td>{{ case.get_status_display }}</td><td><a href="{% url 'workflow_case_detail' case.pk %}">مشاهده و اقدام</a></td></tr>
+<section class="page-heading"><div><h1>پرونده‌های ارجاع‌شده</h1><p>صف اقدام جاری شما و سوابق ارجاع‌هایی که در آن‌ها مشارکت داشته‌اید.</p></div></section>
+<div class="table-wrap"><table><thead><tr><th>پرونده</th><th>شرکت / بیمه‌شده</th><th>مرحله جاری</th><th>مهلت SLA</th><th>وضعیت</th><th></th></tr></thead><tbody>
+{% for case in cases %}<tr><td><strong>{{ case.domain_presentation.title }}</strong><small>{{ case.domain_presentation.type_label }} · {{ case.domain_presentation.reference }} · {{ case.definition.title }}</small></td><td>{{ case.domain_presentation.company|default:"—" }}<small>{{ case.domain_presentation.person|default:"" }}</small></td><td>{{ case.current_step.title|default:"—" }}<small>مسئول: {{ case.current_assignee.get_full_name|default:case.current_assignee.username|default:"—" }}</small></td><td>{{ case.sla_due_at|default:"—" }}</td><td>{{ case.get_status_display }}</td><td><a href="{% url 'workflow_case_detail' case.pk %}">{% if case.current_assignee_id == request.user.pk and case.status != "closed" and not case.is_locked %}مشاهده و اقدام{% else %}مشاهده سوابق{% endif %}</a></td></tr>
 {% empty %}<tr><td colspan="6">پرونده فعالی برای نمایش وجود ندارد.</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

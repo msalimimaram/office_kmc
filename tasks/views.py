@@ -8,10 +8,10 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.access import has_global_access
-from accounts.models import PositionAssignment, UserNotification
+from accounts.access import has_global_access, is_unit_manager
+from accounts.models import PositionAssignment, UserNotification, User
 from auditlog.models import AuditEvent
-from .forms import InternalTaskForm
+from .forms import InternalTaskForm, _manager_scope
 from .models import InternalTask, TaskEvent
 
 
@@ -32,21 +32,26 @@ def _active_positions(user):
 
 
 def _can_manage_tasks(user):
-    if has_global_access(user):
-        return True
-    return _active_positions(user).filter(
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ]
-    ).exists()
+    return has_global_access(user) or is_unit_manager(user)
 
 
 def _visible_tasks(user):
     qs = InternalTask.objects.select_related("created_by", "related_request").prefetch_related("assignees")
     if has_global_access(user):
         return qs
-    return qs.filter(Q(assignees=user) | Q(created_by=user)).exclude(related_request__is_confidential=True)
+
+    scope = _manager_scope(user)
+    if scope is None:
+        return qs
+    subordinate_ids = User.objects.filter(scope).values("pk")
+    return qs.filter(
+        Q(assignees=user)
+        | Q(created_by=user)
+        | Q(assignees__in=subordinate_ids)
+        | Q(created_by__in=subordinate_ids)
+    ).exclude(
+        related_request__is_confidential=True
+    ).distinct()
 
 
 def _notify_task_recipient(task, recipient, actor, *, title, body):

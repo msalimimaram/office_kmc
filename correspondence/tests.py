@@ -33,6 +33,139 @@ class CorrespondenceScopeTests(TestCase):
 
 
 
+
+class CorrespondenceOrganizationalScopeTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+        from accounts.models import (
+            OrganizationalUnit, OrganizationalPosition, PositionAssignment,
+            RoleAssignment, User,
+        )
+
+        self.parent = OrganizationalUnit.objects.create(
+            code="COR-ROOT",
+            name="واحد مکاتبات بالادست",
+        )
+        self.child = OrganizationalUnit.objects.create(
+            code="COR-CHILD",
+            name="واحد مکاتبات زیرمجموعه",
+            parent=self.parent,
+        )
+        self.outside = OrganizationalUnit.objects.create(
+            code="COR-OUTSIDE",
+            name="واحد مکاتبات مستقل",
+        )
+        self.supervisor_position = OrganizationalPosition.objects.create(
+            unit=self.parent,
+            code="COR-SUPERVISOR",
+            title="سرپرست مکاتبات",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        self.specialist_position = OrganizationalPosition.objects.create(
+            unit=self.child,
+            code="COR-SPECIALIST",
+            title="کارشناس مکاتبات",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        self.outside_position = OrganizationalPosition.objects.create(
+            unit=self.outside,
+            code="COR-OUTSIDE-SPECIALIST",
+            title="کارشناس مستقل",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        self.manager = User.objects.create_user(
+            username="cor-tree-supervisor",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.subordinate = User.objects.create_user(
+            username="cor-tree-subordinate",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.outsider = User.objects.create_user(
+            username="cor-tree-outsider",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=self.manager, unit=self.parent, position=self.supervisor_position,
+            line_code="*", valid_from=timezone.localdate(), reason="سرپرست مکاتبات",
+        )
+        PositionAssignment.objects.create(
+            user=self.subordinate, unit=self.child, position=self.specialist_position,
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس زیرمجموعه",
+        )
+        PositionAssignment.objects.create(
+            user=self.outsider, unit=self.outside, position=self.outside_position,
+            line_code="health", valid_from=timezone.localdate(), reason="کارشناس واحد مستقل",
+        )
+        RoleAssignment.objects.create(
+            user=self.subordinate,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="کارشناس مجاز مکاتبات",
+        )
+        RoleAssignment.objects.create(
+            user=self.outsider,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="کارشناس واحد مستقل",
+        )
+        self.subordinate_item = Correspondence.objects.create(
+            internal_number=next_internal_number(),
+            subject="مکاتبه واحد زیرمجموعه",
+            channel=Correspondence.Channel.LETTER,
+            direction=Correspondence.Direction.INBOUND,
+            summary="نامه واحد تحت نظارت",
+            assigned_to=self.subordinate,
+            created_by=self.subordinate,
+        )
+        self.outside_item = Correspondence.objects.create(
+            internal_number=next_internal_number(),
+            subject="مکاتبه واحد مستقل",
+            channel=Correspondence.Channel.LETTER,
+            direction=Correspondence.Direction.INBOUND,
+            summary="نامه خارج از محدوده",
+            assigned_to=self.outsider,
+            created_by=self.outsider,
+        )
+
+    def test_supervisor_sees_correspondence_of_descendant_units_only(self):
+        visible = set(_scope(self.manager).values_list("pk", flat=True))
+        self.assertIn(self.subordinate_item.pk, visible)
+        self.assertNotIn(self.outside_item.pk, visible)
+
+    def test_supervisor_form_offers_only_subordinate_recipients(self):
+        from correspondence.forms import CorrespondenceForm
+
+        form = CorrespondenceForm(user=self.manager)
+        recipient_ids = set(form.fields["assigned_to"].queryset.values_list("pk", flat=True))
+        self.assertIn(self.subordinate.pk, recipient_ids)
+        self.assertNotIn(self.outsider.pk, recipient_ids)
+        self.assertNotIn(self.manager.pk, recipient_ids)
+
+    def test_supervisor_can_create_correspondence_assigned_to_subordinate(self):
+        from django.urls import reverse
+
+        client = Client()
+        client.force_login(self.manager)
+        response = client.post(reverse("correspondence_create"), {
+            "subject": "ارجاع مکاتبه از سرپرست",
+            "channel": Correspondence.Channel.LETTER,
+            "direction": Correspondence.Direction.INTERNAL,
+            "summary": "برای بررسی و پیگیری به کارشناس واحد ارجاع شود.",
+            "assigned_to": str(self.subordinate.pk),
+            "follow_up_status": Correspondence.FollowUp.PENDING,
+            "is_confidential": "",
+            "attachment": "",
+        })
+        self.assertEqual(response.status_code, 302)
+        created = Correspondence.objects.get(subject="ارجاع مکاتبه از سرپرست")
+        self.assertEqual(created.created_by_id, self.manager.pk)
+        self.assertEqual(created.assigned_to_id, self.subordinate.pk)
+
+
 class CorrespondenceFollowUpFlowTests(TestCase):
     def setUp(self):
         from accounts.models import RoleAssignment, User

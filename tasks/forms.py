@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.access import has_global_access
+from accounts.access import has_global_access, is_unit_manager
 from accounts.models import PositionAssignment, RoleAssignment
 from core.permissions import scoped_requests_for
 from requests_portal.models import ServiceRequest
@@ -24,30 +24,72 @@ def _active_staff_ids():
         ],
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
     positions = PositionAssignment.objects.filter(
-        is_active=True, valid_from__lte=today,
+        is_active=True,
+        valid_from__lte=today,
+        unit__company__isnull=True,
+        line_code__gt="",
     ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
     return User.objects.filter(is_active=True).filter(Q(pk__in=roles) | Q(pk__in=positions)).distinct()
 
 
 def _manager_scope(user):
+    """Build the assignable-user scope for each active supervisor/responsible.
+
+    Responsibles manage lower positions in their own unit. Supervisors also
+    cover every descendant unit, matching the organizational tree rather than
+    assuming that all subordinates share one unit_id.
+    """
     if has_global_access(user):
         return None
+
     today = timezone.localdate()
+    level_model = PositionAssignment.position.field.related_model.Level
     assignments = list(PositionAssignment.objects.filter(
-        user=user, is_active=True, valid_from__lte=today,
-        position__level__in=[
-            PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-            PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-        ],
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).select_related("position"))
+        user=user,
+        is_active=True,
+        valid_from__lte=today,
+        position__level__in=[level_model.SUPERVISOR, level_model.RESPONSIBLE],
+        unit__company__isnull=True,
+        line_code__gt="",
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    ).select_related("position", "unit"))
+
     allowed = Q(pk__in=[])
     for assignment in assignments:
-        subordinate_ids = PositionAssignment.objects.filter(
-            unit_id=assignment.unit_id,
+        unit_ids = {assignment.unit_id}
+        if assignment.position.level == level_model.SUPERVISOR:
+            frontier = {assignment.unit_id}
+            while frontier:
+                children = set(
+                    PositionAssignment.unit.field.related_model.objects.filter(
+                        parent_id__in=frontier,
+                        is_active=True,
+                    ).values_list("pk", flat=True)
+                )
+                children -= unit_ids
+                if not children:
+                    break
+                unit_ids.update(children)
+                frontier = children
+
+        subordinate_scope = PositionAssignment.objects.filter(
+            unit_id__in=unit_ids,
+            unit__company__isnull=True,
             is_active=True,
             valid_from__lte=today,
             position__level__gt=assignment.position.level,
-        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values("user_id")
+            line_code__gt="",
+        ).filter(
+            Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+        )
+        if assignment.line_code != "*":
+            subordinate_scope = subordinate_scope.filter(
+                Q(line_code=assignment.line_code) | Q(line_code="*")
+            )
+        subordinate_ids = subordinate_scope.exclude(
+            user_id=user.pk
+        ).values("user_id")
         allowed |= Q(pk__in=subordinate_ids)
     return allowed
 
@@ -76,17 +118,11 @@ class InternalTaskForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        if not has_global_access(self.user):
-            today = timezone.localdate()
-            levels = PositionAssignment.objects.filter(
-                user=self.user, is_active=True, valid_from__lte=today,
-                position__level__in=[
-                    PositionAssignment.position.field.related_model.Level.SUPERVISOR,
-                    PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
-                ],
-            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).values_list("position__level", flat=True)
-            if not levels:
-                self.add_error(None, "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول مجاز می‌تواند وظیفه تعریف کند.")
+        if not has_global_access(self.user) and not is_unit_manager(self.user):
+            self.add_error(
+                None,
+                "فقط رئیس اداره، مدیر سامانه یا سرپرست/مسئول دارای انتصاب معتبر در اداره بیمه مجاز است وظیفه تعریف کند.",
+            )
 
         related_request = cleaned.get("related_request")
         assignees = cleaned.get("assignees")

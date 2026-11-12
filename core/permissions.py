@@ -2,7 +2,8 @@ from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Q, BigIntegerField
+from django.db.models.functions import Cast
 
 from accounts.access import (
     active_assignments,
@@ -92,13 +93,23 @@ def scoped_claims_for(user):
                 employments__isnull=True,
             ).values_list("pk", flat=True)
         )
-        allowed |= (
+        company_scope = (
             Q(company_snapshot_id__in=company_ids)
             | Q(person_id__in=current_employment_people)
             | Q(primary_insured_id__in=current_employment_people)
             | Q(person_id__in=legacy_people)
             | Q(primary_insured_id__in=legacy_people)
         )
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= company_scope
+        elif representative_lines:
+            # The claim's contract is the authoritative source of insurance line.
+            # Claims without a contract cannot be safely exposed to a line-limited
+            # representative because no reliable line can be inferred.
+            allowed |= company_scope & Q(contract__line__in=representative_lines)
 
     insurer_ids = insurer_ids_for(user)
     if insurer_ids:
@@ -123,8 +134,10 @@ def scoped_claims_for(user):
 
 
 def scoped_requests_for(user):
-    """Union the request scopes of all active roles held by the user."""
+    """Union request visibility scopes, using WorkflowCase for routed work."""
+    from django.contrib.contenttypes.models import ContentType
     from requests_portal.models import ServiceRequest
+    from workflow.models import WorkflowCase, WorkflowEvent
 
     qs = ServiceRequest.objects.select_related(
         "submitted_by", "company", "person", "assigned_to"
@@ -136,19 +149,95 @@ def scoped_requests_for(user):
 
     allowed = Q(pk__in=[])
 
+    health_request_kinds = {
+        ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+        ServiceRequest.Kind.ANONYMOUS_PLAN,
+        ServiceRequest.Kind.EXCESS_COVERAGE,
+        ServiceRequest.Kind.IDENTITY_CHANGE,
+        ServiceRequest.Kind.IBAN_CHANGE,
+        ServiceRequest.Kind.ADD_COVERAGE,
+        ServiceRequest.Kind.REMOVE_COVERAGE,
+        ServiceRequest.Kind.BASE_INSURANCE_WAIVER,
+    }
+
     company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
     if company_ids:
-        allowed |= Q(company_id__in=company_ids, is_confidential=False)
+        company_scope = Q(company_id__in=company_ids, is_confidential=False)
+        representative_lines = line_codes_for(
+            user, role=RoleAssignment.Role.SUBSIDIARY_REP
+        )
+        if "*" in representative_lines:
+            allowed |= company_scope
+        elif "health" in representative_lines:
+            # This model has no direct contract/line link yet. Only request
+            # kinds with an unambiguous health line are visible to this rep.
+            allowed |= company_scope & Q(kind__in=health_request_kinds)
 
-    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
-        # Requests reach a specialist through an explicit workflow assignment.
-        # There is no shared unassigned queue: the representative/manager chooses
-        # the authorized recipient and the workflow transfers ownership.
-        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) or has_role(
+        user, RoleAssignment.Role.INSURER_REP
+    ):
+        # WorkflowCase.current_assignee is the sole current-owner authority.
+        # Prior assignees retain read access to the audit trail, but never gain
+        # an action right from this visibility rule. The legacy assigned_to
+        # field is consulted only for records that predate workflow creation.
+        content_type = ContentType.objects.get_for_model(
+            ServiceRequest, for_concrete_model=False
+        )
+        workflow_cases = WorkflowCase.objects.filter(
+            content_type=content_type,
+        ).annotate(domain_pk=Cast("object_id", BigIntegerField()))
+        current_object_ids = workflow_cases.filter(
+            current_assignee_id=user.pk,
+            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+        ).values("domain_pk")
+        historical_object_ids = WorkflowEvent.objects.filter(
+            workflow_case__content_type=content_type,
+        ).filter(
+            Q(from_assignee_id=user.pk) | Q(to_assignee_id=user.pk)
+        ).annotate(
+            domain_pk=Cast("workflow_case__object_id", BigIntegerField())
+        ).values("domain_pk")
+        legacy_ids = qs.filter(assigned_to_id=user.pk).exclude(
+            pk__in=workflow_cases.values("domain_pk")
+        ).values("pk")
+        assigned_scope = ServiceRequest.objects.filter(
+            Q(pk__in=current_object_ids)
+            | Q(pk__in=historical_object_ids)
+            | Q(pk__in=legacy_ids),
+            is_confidential=False,
+        )
+        role_scoped_ids = Q(pk__in=[])
 
-    if has_role(user, RoleAssignment.Role.INSURER_REP):
-        # Insurer-side access is limited to work explicitly referred to this user.
-        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
+        if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
+            specialist_lines = line_codes_for(
+                user, role=RoleAssignment.Role.INSURANCE_SPECIALIST
+            )
+            if "*" in specialist_lines:
+                role_scoped_ids |= Q(pk__in=assigned_scope.values("pk"))
+            elif "health" in specialist_lines:
+                role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                    kind__in=health_request_kinds
+                ).values("pk"))
+
+        insurer_ids = insurer_ids_for(user)
+        if insurer_ids:
+            from insurance.models import Contract, InsuranceLine
+            from django.utils import timezone as django_timezone
+
+            today = django_timezone.localdate()
+            insured_company_ids = Contract.objects.filter(
+                insurer_id__in=insurer_ids,
+                line=InsuranceLine.HEALTH,
+                is_active=True,
+                start_date__lte=today,
+                end_date__gte=today,
+            ).values("companies__pk")
+            role_scoped_ids |= Q(pk__in=assigned_scope.filter(
+                kind__in=health_request_kinds,
+                company_id__in=insured_company_ids,
+            ).values("pk"))
+
+        allowed |= role_scoped_ids
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         # Employees must still see their own requests when a company
@@ -174,13 +263,42 @@ def can_view_request(user, item):
 
 
 def can_process_request(user, item):
+    if (
+        not getattr(user, "is_authenticated", False)
+        or not getattr(user, "is_active", False)
+        or not item.pk
+    ):
+        return False
+
+    # A configured workflow owns every action once it exists. The legacy
+    # request form must never remain an alternate action path.
+    from django.contrib.contenttypes.models import ContentType
+    from workflow.models import WorkflowCase
+    content_type = ContentType.objects.get_for_model(item, for_concrete_model=False)
+    if WorkflowCase.objects.filter(
+        content_type=content_type, object_id=str(item.pk)
+    ).exists():
+        return False
+
     if has_global_access(user):
         return True
     if item.is_confidential:
         return False
+    from workflow.services import _scope_for_object
+    scope = _scope_for_object(item)
+    specialist_allowed = has_role(
+        user,
+        RoleAssignment.Role.INSURANCE_SPECIALIST,
+        # Unknown-line legacy requests require an explicit all-line assignment.
+        line_code=scope.get("line_code") or "*",
+    )
+    insurer_allowed = bool(scope.get("insurer_id")) and has_role(
+        user,
+        RoleAssignment.Role.INSURER_REP,
+        insurer_id=scope["insurer_id"],
+    )
     return (
-        has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
-        or has_role(user, RoleAssignment.Role.INSURER_REP)
+        specialist_allowed or insurer_allowed
     ) and item.assigned_to_id == user.pk
 
 

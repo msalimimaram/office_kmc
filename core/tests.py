@@ -250,6 +250,170 @@ class DemoSeedCommandSafetyTests(TestCase):
         self.assertFalse(Company.objects.filter(code="DEMO-B").exists())
 
 
+
+class SubsidiaryRepresentativeLineScopeTests(TestCase):
+    def setUp(self):
+        from datetime import date
+        from accounts.models import RoleAssignment, User
+        from claims.models import Claim
+        from insurance.models import Contract, Insurer, InsuranceLine
+        from organizations.models import Company, Person
+        from core.permissions import scoped_claims_for
+
+        self.scoped_claims_for = scoped_claims_for
+        self.company = Company.objects.create(
+            code="LINE-SCOPE-A",
+            name="شرکت دارای نمایندگی رشته‌ای",
+        )
+        self.other_company = Company.objects.create(
+            code="LINE-SCOPE-B",
+            name="شرکت خارج از محدوده",
+        )
+        self.insurer = Insurer.objects.create(name="بیمه‌گر ممیزی رشته")
+        self.person = Person.objects.create(
+            company=self.company,
+            national_id="9911223344",
+            first_name="بیمه‌شده",
+            last_name="آزمون",
+            birth_date=date(1990, 1, 1),
+        )
+
+        def contract(code, company, line):
+            item = Contract.objects.create(
+                code=code,
+                title=f"قرارداد {code}",
+                insurer=self.insurer,
+                line=line,
+                start_date=date(2026, 1, 1),
+                end_date=date(2028, 12, 31),
+                is_active=True,
+            )
+            item.companies.add(company)
+            return item
+
+        self.health_contract = contract(
+            "LINE-SCOPE-HEALTH", self.company, InsuranceLine.HEALTH
+        )
+        self.body_contract = contract(
+            "LINE-SCOPE-BODY", self.company, InsuranceLine.BODY
+        )
+        self.other_company_contract = contract(
+            "LINE-SCOPE-OTHER", self.other_company, InsuranceLine.HEALTH
+        )
+
+        self.health_claim = Claim.objects.create(
+            claim_number="LINE-SCOPE-CLAIM-HEALTH",
+            person=self.person,
+            company_snapshot=self.company,
+            contract=self.health_contract,
+            insurer=self.insurer,
+            service_type="خدمت درمانی",
+        )
+        self.body_claim = Claim.objects.create(
+            claim_number="LINE-SCOPE-CLAIM-BODY",
+            person=self.person,
+            company_snapshot=self.company,
+            contract=self.body_contract,
+            insurer=self.insurer,
+            service_type="خسارت خودرو",
+        )
+        self.other_company_claim = Claim.objects.create(
+            claim_number="LINE-SCOPE-CLAIM-OTHER",
+            person=self.person,
+            company_snapshot=self.other_company,
+            contract=self.other_company_contract,
+            insurer=self.insurer,
+            service_type="خدمت درمانی شرکت دیگر",
+        )
+
+    def test_line_limited_representative_sees_only_claims_in_their_company_and_line(self):
+        from accounts.models import RoleAssignment, User
+
+        representative = User.objects.create_user(
+            username="line-health-representative",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            reason="نماینده محدود به رشته درمان",
+        )
+
+        visible = set(self.scoped_claims_for(representative).values_list("pk", flat=True))
+        self.assertIn(self.health_claim.pk, visible)
+        self.assertNotIn(self.body_claim.pk, visible)
+        self.assertNotIn(self.other_company_claim.pk, visible)
+
+
+    def test_line_limited_representative_sees_only_unambiguously_scoped_request_types(self):
+        from accounts.models import RoleAssignment, User
+        from requests_portal.models import ServiceRequest
+        from core.permissions import scoped_requests_for
+
+        submitter = User.objects.create_user(
+            username="line-request-submitter",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        representative = User.objects.create_user(
+            username="line-request-representative",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            reason="نماینده درمان شرکت",
+        )
+        health_request = ServiceRequest.objects.create(
+            reference="LINE-REQ-HEALTH",
+            kind=ServiceRequest.Kind.ADD_COVERAGE,
+            submitted_by=submitter,
+            company=self.company,
+            title="افزایش پوشش درمان",
+            description="درخواست درمان",
+        )
+        ambiguous_request = ServiceRequest.objects.create(
+            reference="LINE-REQ-OTHER",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=submitter,
+            company=self.company,
+            title="درخواست با رشته نامشخص",
+            description="نوع درخواست فاقد رشته صریح است",
+        )
+
+        visible = set(
+            scoped_requests_for(representative).values_list("pk", flat=True)
+        )
+        self.assertIn(health_request.pk, visible)
+        self.assertNotIn(ambiguous_request.pk, visible)
+
+    def test_explicit_all_line_representative_sees_all_lines_but_not_other_companies(self):
+        from accounts.models import RoleAssignment, User
+
+        representative = User.objects.create_user(
+            username="line-all-representative",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            reason="نماینده کل شرکت",
+        )
+
+        visible = set(self.scoped_claims_for(representative).values_list("pk", flat=True))
+        self.assertIn(self.health_claim.pk, visible)
+        self.assertIn(self.body_claim.pk, visible)
+        self.assertNotIn(self.other_company_claim.pk, visible)
+
 class DatabaseSchemaVerificationTests(TestCase):
     def test_schema_verification_covers_all_managed_models(self):
         from io import StringIO
