@@ -1134,7 +1134,10 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
         case.current_step = transition.target_step
         case.current_assignee = target
         case.current_position_assignment = position_assignment
-        if case.delegation_id and case.delegation.delegate_to_id != target.pk:
+        # A delegation authorizes intake at the initial step only. Once the
+        # case advances, the destination step's own role/position grant must
+        # authorize its assignee, even when that assignee is the same person.
+        if case.delegation_id:
             case.delegation = None
         case.status = WorkflowCase.Status.WAITING
         case.closed_at = None

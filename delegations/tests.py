@@ -254,6 +254,83 @@ class DelegationRoutingTests(TestCase):
             rule.pk,
         )
 
+    def test_delegation_expires_when_case_advances_even_if_delegate_remains_assignee(self):
+        definition = WorkflowDefinition.objects.create(
+            code="delegation-same-recipient",
+            title="گردش آزمون پایان تفویض در مرحله بعد",
+            created_by=self.head,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="company-intake",
+            title="دریافت اولیه شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        specialist_step = WorkflowStep.objects.create(
+            definition=definition,
+            code="specialist-review",
+            title="بررسی تخصصی",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=specialist_step,
+            action_code="continue-with-specialist",
+            title="ادامه با کارشناس",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            recipient_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+        )
+        definition.approved_by = self.head
+        definition.is_active = True
+        definition.save()
+
+        rule = WorkDelegation.objects.create(
+            workflow_code=definition.code,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="پوشش مرحله آغازین تا ارجاع به مرحله تخصصی",
+            valid_from=timezone.localdate(),
+        )
+        item = ServiceRequest.objects.create(
+            reference="DELEGATION-SAME-RECIPIENT-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.representative,
+            company=self.company,
+            title="درخواست انتقال از مرحله تفویض",
+            description="پس از ورود به مرحله بعد باید مجوز نقش مقصد اعمال شود.",
+        )
+        case = start_workflow(
+            obj=item,
+            code=definition.code,
+            actor=self.representative,
+            assignee=self.specialist,
+            delegation=rule,
+        )
+        self.assertTrue(is_delegated_assignee(case, self.specialist))
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="continue-with-specialist",
+            recipient=self.specialist,
+            note="ارجاع به مرحله تخصصی با نقش واقعی کارشناس.",
+        )
+        case.refresh_from_db()
+        self.assertEqual(case.current_step_id, specialist_step.pk)
+        self.assertEqual(case.current_assignee_id, self.specialist.pk)
+        self.assertIsNone(case.delegation_id)
+        self.assertFalse(is_delegated_assignee(case, self.specialist))
+
+        from workflow.services import mark_case_opened
+        mark_case_opened(case_id=case.pk, actor=self.specialist)
+
     def test_more_specific_rule_wins_over_broader_rule(self):
         backup = User.objects.create_user(
             username="delegation.health.backup", password="TestPass!23456"
