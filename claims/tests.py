@@ -121,20 +121,56 @@ class ClaimVisibilityTests(TestCase):
             )
 
     def test_only_employee_or_company_representative_can_submit_claim_objection(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+
         claim = Claim.objects.get(claim_number="CL-1")
         claim.result_sent_at = timezone.now()
         claim.save(update_fields=["result_sent_at", "updated_at"])
+
+        # Objections are accepted only when the audited workflow and a valid
+        # first-stage specialist are configured.
+        RoleAssignment.objects.create(
+            user=self.admin,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="راه‌اندازی گردش اعتراض در آزمون",
+        )
+        specialist = User.objects.create_user(
+            username="claim-objection-intake-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="دریافت گردش اعتراض در آزمون",
+        )
+        call_command("seed_operational_workflows")
+
         client = Client()
         client.force_login(self.admin)
-        response = client.post(reverse("claim_detail", args=[claim.pk]), {"description": "اعتراض آزمایشی"})
-        self.assertEqual(response.status_code, 403)
+        forbidden = client.post(
+            reverse("claim_detail", args=[claim.pk]),
+            {"description": "اعتراض آزمایشی"},
+        )
+        self.assertEqual(forbidden.status_code, 403)
         self.assertEqual(ClaimObjection.objects.filter(claim=claim).count(), 0)
 
         client.force_login(self.employee)
-        response = client.post(reverse("claim_detail", args=[claim.pk]), {"description": "اعتراض از طرف بیمه‌شده"})
+        response = client.post(
+            reverse("claim_detail", args=[claim.pk]),
+            {"description": "اعتراض از طرف بیمه‌شده"},
+        )
         self.assertEqual(response.status_code, 302)
         objection = ClaimObjection.objects.get(claim=claim)
         self.assertEqual(objection.submitted_by, self.employee)
+        from workflow.models import WorkflowCase
+        self.assertTrue(WorkflowCase.objects.filter(
+            content_type__app_label="claims",
+            content_type__model="claimobjection",
+            object_id=str(objection.pk),
+        ).exists())
 
 
 class ClaimObjectionReviewFlowTests(TestCase):
@@ -180,67 +216,99 @@ class ClaimObjectionReviewFlowTests(TestCase):
             line_code="health", valid_from=today, is_active=True,
         )
 
+    def _start_workflow_case(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from workflow.services import start_workflow
+
+        RoleAssignment.objects.get_or_create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            defaults={"reason": "راه‌اندازی گردش اعتراض در آزمون"},
+        )
+        call_command("seed_operational_workflows")
+        return start_workflow(
+            obj=self.objection,
+            code="claim_objection",
+            actor=self.head,
+            assignee=self.specialist,
+            note="شروع گردش آزمون اعتراض",
+        )
+
     def test_department_head_can_review_answer_reopen_and_close_objection_with_history(self):
+        case = self._start_workflow_case()
         client = Client()
         client.force_login(self.head)
         detail = client.get(reverse("claim_detail", args=[self.claim.pk]))
         self.assertEqual(detail.status_code, 200)
-        self.assertContains(detail, reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]))
+        self.assertContains(
+            detail,
+            reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
+        )
 
-        first = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.IN_REVIEW, "response": "بررسی آغاز شد",
-        })
-        self.assertEqual(first.status_code, 302)
-        second = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.ANSWERED, "response": "نتیجه بررسی ثبت شد",
-        })
-        self.assertEqual(second.status_code, 302)
+        response = client.post(
+            reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
+            {"status": ClaimObjection.Status.ANSWERED, "response": "پاسخ خارج از گردش"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("workflow_case_detail", args=[case.pk]),
+        )
         self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.ANSWERED)
-        self.assertIn("بررسی آغاز شد", self.objection.response)
-        self.assertIn("نتیجه بررسی ثبت شد", self.objection.response)
-
-        close = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.CLOSED, "response": "",
-        })
-        self.assertEqual(close.status_code, 302)
-        self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.CLOSED)
+        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
+        self.assertEqual(self.objection.response, "")
 
     def test_specialist_can_answer_but_cannot_close_objection(self):
-        from claims.models import ClaimObjection
-        self.objection.status = ClaimObjection.Status.ANSWERED
-        self.objection.response = "پاسخ اولیه"
-        self.objection.save(update_fields=["status", "response", "updated_at"])
+        from workflow.models import WorkflowTransition
 
+        case = self._start_workflow_case()
         client = Client()
         client.force_login(self.specialist)
-        denied = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.CLOSED, "response": "",
-        })
-        self.assertEqual(denied.status_code, 403)
-        allowed = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.IN_REVIEW, "response": "مدرک تکمیلی درخواست شد",
-        })
-        self.assertEqual(allowed.status_code, 302)
+        response = client.post(
+            reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
+            {"status": ClaimObjection.Status.CLOSED, "response": "بستن مستقیم"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("workflow_case_detail", args=[case.pk]),
+        )
         self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.IN_REVIEW)
-        self.assertIn("پاسخ اولیه", self.objection.response)
-        self.assertIn("مدرک تکمیلی درخواست شد", self.objection.response)
+        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
+        self.assertEqual(self.objection.response, "")
+
+        close_transition = WorkflowTransition.objects.get(
+            definition=case.definition,
+            action_code="close_objection",
+        )
+        self.assertNotIn(
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            close_transition.allowed_roles,
+        )
 
     def test_employee_cannot_review_own_objection_and_invalid_jump_is_rejected(self):
+        case = self._start_workflow_case()
         client = Client()
         client.force_login(self.owner)
-        response = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.CLOSED, "response": "بستن",
-        })
+        response = client.post(
+            reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
+            {"status": ClaimObjection.Status.CLOSED, "response": "بستن"},
+        )
         self.assertEqual(response.status_code, 403)
 
         client.force_login(self.head)
-        response = client.post(reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]), {
-            "status": ClaimObjection.Status.CLOSED, "response": "پرش وضعیت",
-        })
-        self.assertEqual(response.status_code, 403)
+        response = client.post(
+            reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
+            {"status": ClaimObjection.Status.CLOSED, "response": "پرش وضعیت"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("workflow_case_detail", args=[case.pk]),
+        )
+        self.objection.refresh_from_db()
+        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
 
     def test_configured_objection_is_routed_through_generic_workflow(self):
         from accounts.models import RoleAssignment
