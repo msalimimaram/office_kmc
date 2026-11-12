@@ -95,6 +95,32 @@ class WorkflowEngineTests(TestCase):
         self.definition.is_active = True
         self.definition.save()
 
+    def test_initial_assignee_prefers_declared_specialist_priority_over_global_roles(self):
+        definition = WorkflowDefinition.objects.create(
+            code="test-initial-role-priority",
+            title="اولویت نقش در تخصیص آغازین",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="initial-review",
+            title="رسیدگی تخصصی",
+            order=1,
+            allowed_roles=[
+                RoleAssignment.Role.INSURANCE_SPECIALIST,
+                RoleAssignment.Role.DEPARTMENT_HEAD,
+                RoleAssignment.Role.SYSTEM_ADMIN,
+            ],
+            is_initial=True,
+        )
+
+        assignee = resolve_initial_assignee(
+            definition=definition,
+            obj=self.request,
+        )
+
+        self.assertEqual(assignee.pk, self.specialist.pk)
+
     def test_initial_assignee_infers_company_and_line_scope_from_object(self):
         representative = User.objects.create_user(
             username="workflow-scoped-company-rep",
