@@ -183,6 +183,165 @@ class WorkflowEngineTests(TestCase):
             case.current_position_assignment_id,
         )
 
+    def test_position_recipient_routing_respects_ancestor_unit_scope(self):
+        root = OrganizationalUnit.objects.create(
+            code="WF-ROUTE-ROOT",
+            name="ریاست رسیدگی",
+        )
+        health_unit = OrganizationalUnit.objects.create(
+            code="WF-ROUTE-HEALTH",
+            name="واحد درمان",
+            parent=root,
+        )
+        unrelated_root = OrganizationalUnit.objects.create(
+            code="WF-ROUTE-OTHER-ROOT",
+            name="واحد مستقل دیگر",
+        )
+        supervisor_position = OrganizationalPosition.objects.create(
+            unit=root,
+            code="WF-ROUTE-SUPERVISOR",
+            title="سرپرست بالادست",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        unrelated_position = OrganizationalPosition.objects.create(
+            unit=unrelated_root,
+            code="WF-ROUTE-OTHER-SUPERVISOR",
+            title="سرپرست واحد مستقل",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        PositionAssignment.objects.create(
+            user=self.specialist,
+            unit=health_unit,
+            position=OrganizationalPosition.objects.create(
+                unit=health_unit,
+                code="WF-ROUTE-HEALTH-SPECIALIST",
+                title="کارشناس واحد درمان",
+                level=OrganizationalPosition.Level.SPECIALIST,
+            ),
+            line_code="health",
+            reason="جایگاه سازمانی کارشناس مبنای ارجاع",
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-route-supervisor",
+            password="StrongPass!123",
+        )
+        supervisor_assignment = PositionAssignment.objects.create(
+            user=supervisor,
+            unit=root,
+            position=supervisor_position,
+            line_code="health",
+            reason="سرپرست واحد بالادست درمان",
+        )
+        unrelated_supervisor = User.objects.create_user(
+            username="workflow-route-unrelated-supervisor",
+            password="StrongPass!123",
+        )
+        PositionAssignment.objects.create(
+            user=unrelated_supervisor,
+            unit=unrelated_root,
+            position=unrelated_position,
+            line_code="health",
+            reason="سرپرست خارج از شاخه سازمانی پرونده",
+        )
+
+        definition = WorkflowDefinition.objects.create(
+            code="test-position-ancestor-route",
+            title="ارجاع سمت‌محور به سرپرست بالادست",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="specialist-review",
+            title="بررسی کارشناس",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+        )
+        supervisor_step = WorkflowStep.objects.create(
+            definition=definition,
+            code="supervisor-review",
+            title="بررسی سرپرست",
+            order=2,
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+        )
+        final = WorkflowStep.objects.create(
+            definition=definition,
+            code="head-review",
+            title="تصمیم رئیس اداره",
+            order=3,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=supervisor_step,
+            action_code="refer-to-supervisor",
+            title="ارجاع به سرپرست واحد بالادست",
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            recipient_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            position_route_scope=WorkflowTransition.PositionRouteScope.ANCESTORS,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=supervisor_step,
+            target_step=final,
+            action_code="refer-to-head",
+            title="ارجاع برای تصمیم رئیس اداره",
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+        case = start_workflow(
+            obj=self.request,
+            code=definition.code,
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=self.specialist,
+                action_code="refer-to-supervisor",
+                recipient=unrelated_supervisor,
+                note="ارجاع به سرپرست خارج از شاخه",
+            )
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=self.specialist,
+            action_code="refer-to-supervisor",
+            recipient=supervisor,
+            note="ارجاع به سرپرست واحد بالادست",
+        )
+        self.assertEqual(case.current_step_id, supervisor_step.pk)
+        self.assertEqual(case.current_position_assignment_id, supervisor_assignment.pk)
+        referral_event = case.events.latest("sent_at")
+        self.assertEqual(referral_event.to_position_assignment_id, supervisor_assignment.pk)
+
+        case = transition_case(
+            case_id=case.pk,
+            actor=supervisor,
+            action_code="refer-to-head",
+            recipient=self.department_head,
+            note="ارسال به رئیس اداره برای تصمیم",
+        )
+        self.assertEqual(case.current_step_id, final.pk)
+        self.assertIsNone(case.current_position_assignment_id)
+        final_event = case.events.latest("sent_at")
+        self.assertEqual(final_event.from_position_assignment_id, supervisor_assignment.pk)
+        self.assertIsNone(final_event.to_position_assignment_id)
+
     def test_position_grant_expiration_blocks_actions_and_preserves_provenance(self):
         unit = OrganizationalUnit.objects.create(
             code="WF-POS-EXPIRE-UNIT",
