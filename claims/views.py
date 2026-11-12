@@ -180,25 +180,28 @@ def claim_detail(request, pk):
                     definition = WorkflowDefinition.objects.filter(
                         code="claim_objection", is_active=True
                     ).order_by("-version").first()
-                    if definition:
-                        line_code = claim.contract.line if claim.contract_id else "health"
-                        initial_assignee, delegation = resolve_initial_assignee(
-                            definition=definition,
-                            obj=objection,
-                            return_delegation=True,
-                            company_id=claim.company_snapshot_id or claim.person.company_id,
-                            insurer_id=claim.insurer_id,
-                            line_code=line_code,
-                            owner_user_id=user.pk,
+                    if not definition:
+                        raise ValidationError(
+                            "گردش‌کار فعال claim_objection برای ثبت و رسیدگی به اعتراض خسارت پیکربندی نشده است."
                         )
-                        workflow_case = start_workflow(
-                            obj=objection,
-                            code="claim_objection",
-                            actor=user,
-                            assignee=initial_assignee,
-                            delegation=delegation,
-                            note="اعتراض به خسارت ثبت و برای رسیدگی ارجاع شد.",
-                        )
+                    line_code = claim.contract.line if claim.contract_id else "health"
+                    initial_assignee, delegation = resolve_initial_assignee(
+                        definition=definition,
+                        obj=objection,
+                        return_delegation=True,
+                        company_id=claim.company_snapshot_id or claim.person.company_id,
+                        insurer_id=claim.insurer_id,
+                        line_code=line_code,
+                        owner_user_id=user.pk,
+                    )
+                    workflow_case = start_workflow(
+                        obj=objection,
+                        code="claim_objection",
+                        actor=user,
+                        assignee=initial_assignee,
+                        delegation=delegation,
+                        note="اعتراض به خسارت ثبت و برای رسیدگی ارجاع شد.",
+                    )
                     record_event(
                         actor=user,
                         action="claim_objection_created",
@@ -263,6 +266,14 @@ def claim_objection_review(request, pk, objection_pk):
     workflow_case = _objection_workflow_case(objection)
     if workflow_case:
         return redirect("workflow_case_detail", pk=workflow_case.pk)
+    # Legacy objections without a case must not fall back to direct status
+    # mutation; all decisions and closure are owned by the workflow engine.
+    messages.error(
+        request,
+        "این اعتراض پروندهٔ گردش‌کار معتبر ندارد؛ بررسی مستقیم و بستن خارج از گردش‌کار مجاز نیست.",
+    )
+    return redirect("claim_detail", pk=claim.pk)
+
     form = ClaimObjectionReviewForm(request.POST)
     if not form.is_valid():
         messages.error(request, "اطلاعات رسیدگی به اعتراض معتبر نیست.")
