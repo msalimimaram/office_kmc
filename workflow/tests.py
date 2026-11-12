@@ -302,6 +302,12 @@ class WorkflowEngineTests(TestCase):
         self.assertNotIn("نام بیماری محرمانه", summary["title"])
         self.assertTrue(summary["is_confidential"])
 
+        owner_summary = build_workflow_presentation(
+            case, user=self.request.submitted_by
+        )
+        self.assertEqual(owner_summary["title"], self.request.title)
+        self.assertEqual(owner_summary["description"], self.request.description)
+
     def test_position_only_initial_step_routes_to_active_line_scoped_supervisor(self):
         unit = OrganizationalUnit.objects.create(
             code="WF-POS-UNIT",
