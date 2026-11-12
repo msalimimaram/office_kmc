@@ -160,8 +160,6 @@ def _has_any_role(
         # A Django superuser is a system administrator, not automatically a
         # specialist, company representative, or insurer representative.
         if getattr(user, "is_superuser", False):
-            if role == RoleAssignment.Role.SYSTEM_ADMIN and has_role(user, role):
-                return True
             if assignments.filter(role=role).exists():
                 return True
             continue
