@@ -174,6 +174,104 @@ class WorkflowEngineTests(TestCase):
         )
         self.assertEqual(case.current_step_id, initial.pk)
         self.assertEqual(case.current_assignee_id, supervisor.pk)
+        self.assertEqual(case.current_position_assignment_id, PositionAssignment.objects.get(
+            user=supervisor, position=position
+        ).pk)
+        start_event = case.events.get(event_type=WorkflowEvent.EventType.STARTED)
+        self.assertEqual(
+            start_event.to_position_assignment_id,
+            case.current_position_assignment_id,
+        )
+
+    def test_position_grant_expiration_blocks_actions_and_preserves_provenance(self):
+        unit = OrganizationalUnit.objects.create(
+            code="WF-POS-EXPIRE-UNIT",
+            name="واحد انقضای سمت",
+        )
+        position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="WF-POS-EXPIRE",
+            title="سرپرست منقضی‌شده",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-position-expiring",
+            password="StrongPass!123",
+        )
+        assignment = PositionAssignment.objects.create(
+            user=supervisor,
+            unit=unit,
+            position=position,
+            line_code="health",
+            reason="انتصاب موقت برای آزمون پایان اعتبار",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="test-position-expiration",
+            title="آزمون انقضای انتصاب",
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="supervisor-review",
+            title="بررسی سرپرست",
+            order=1,
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            is_initial=True,
+        )
+        final = WorkflowStep.objects.create(
+            definition=definition,
+            code="head-review",
+            title="بررسی رئیس اداره",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=final,
+            action_code="refer-to-head",
+            title="ارجاع به رئیس اداره",
+            allowed_roles=[],
+            allowed_position_levels=[
+                int(OrganizationalPosition.Level.SUPERVISOR)
+            ],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+        case = start_workflow(
+            obj=self.request,
+            code=definition.code,
+            actor=self.admin,
+            assignee=supervisor,
+        )
+        start_event = case.events.get(event_type=WorkflowEvent.EventType.STARTED)
+        self.assertEqual(start_event.to_position_assignment_id, assignment.pk)
+
+        assignment.is_active = False
+        assignment.save(update_fields=["is_active"])
+
+        with self.assertRaises(PermissionDenied):
+            transition_case(
+                case_id=case.pk,
+                actor=supervisor,
+                action_code="refer-to-head",
+                recipient=self.department_head,
+                note="اقدام پس از لغو انتصاب",
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(case.current_assignee_id, supervisor.pk)
+        self.assertEqual(case.current_position_assignment_id, assignment.pk)
+        self.assertEqual(
+            case.events.get(event_type=WorkflowEvent.EventType.STARTED)
+            .to_position_assignment_id,
+            assignment.pk,
+        )
 
     def test_position_only_workflow_actor_must_hold_active_matching_line_position(self):
         unit = OrganizationalUnit.objects.create(
