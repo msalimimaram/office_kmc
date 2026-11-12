@@ -435,10 +435,18 @@ class AssetPolicyPeriod(models.Model):
         """Expire an active policy after its final covered calendar day."""
         today = on_date or timezone.localdate()
         period = type(self).objects.select_for_update().get(pk=self.pk)
-        if period.status != self.Status.ACTIVE or not period.policy_end or period.policy_end >= today:
+        if period.status != self.Status.ACTIVE:
             self.status = period.status
             return False
-        period.status = self.Status.EXPIRED
+        if period.contract_id and period.contract.status == "terminated":
+            period.status = self.Status.TERMINATED
+        elif period.contract_id and period.contract.status == "expired":
+            period.status = self.Status.EXPIRED
+        elif not period.policy_end or period.policy_end >= today:
+            self.status = period.status
+            return False
+        else:
+            period.status = self.Status.EXPIRED
         period._workflow_sync = True
         try:
             period.save(update_fields=["status"])

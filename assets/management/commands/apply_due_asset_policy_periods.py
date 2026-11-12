@@ -13,15 +13,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         today = timezone.localdate()
-        expired_active = 0
-        active_ids = AssetPolicyPeriod.objects.filter(
+        expired_active = terminated_active = 0
+        active_ids = list(AssetPolicyPeriod.objects.filter(
             status=AssetPolicyPeriod.Status.ACTIVE,
-            policy_end__lt=today,
-        ).values_list("pk", flat=True)
-        for period_id in active_ids.iterator():
-            period = AssetPolicyPeriod.objects.get(pk=period_id)
+        ).filter(
+            models.Q(policy_end__lt=today)
+            | models.Q(contract__status__in=["expired", "terminated"])
+        ).values_list("pk", flat=True))
+        for period_id in active_ids:
+            period = AssetPolicyPeriod.objects.select_related("contract").get(pk=period_id)
             if period.expire_if_due(on_date=today):
-                expired_active += 1
+                if period.status == AssetPolicyPeriod.Status.TERMINATED:
+                    terminated_active += 1
+                else:
+                    expired_active += 1
 
         due_periods = AssetPolicyPeriod.objects.filter(
             status=AssetPolicyPeriod.Status.APPROVED,
@@ -29,7 +34,7 @@ class Command(BaseCommand):
             models.Q(policy_start__isnull=True) | models.Q(policy_start__lte=today)
         ).select_related("asset", "insurer", "contract")
         activated = expired_approved = terminated = 0
-        for period in due_periods.iterator():
+        for period in list(due_periods):
             if period.activate_if_due(on_date=today):
                 if period.status == AssetPolicyPeriod.Status.ACTIVE:
                     activated += 1
@@ -40,7 +45,8 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Asset policy periods processed for {today}: "
-                f"{expired_active} active periods expired, {activated} activated, "
-                f"{expired_approved} already expired, {terminated} terminated by contract."
+                f"{expired_active} active periods expired, {terminated_active} active periods terminated, "
+                f"{activated} activated, {expired_approved} approved periods expired, "
+                f"{terminated} approved periods terminated."
             )
         )
