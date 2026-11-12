@@ -46,6 +46,8 @@ def _manager_scope(user):
         is_active=True,
         valid_from__lte=today,
         position__level__in=[level_model.SUPERVISOR, level_model.RESPONSIBLE],
+        unit__company__isnull=True,
+        line_code__gt="",
     ).filter(
         Q(valid_until__isnull=True) | Q(valid_until__gte=today)
     ).select_related("position", "unit"))
@@ -68,14 +70,22 @@ def _manager_scope(user):
                 unit_ids.update(children)
                 frontier = children
 
-        subordinate_ids = PositionAssignment.objects.filter(
+        subordinate_scope = PositionAssignment.objects.filter(
             unit_id__in=unit_ids,
             is_active=True,
             valid_from__lte=today,
             position__level__gt=assignment.position.level,
+            line_code__gt="",
         ).filter(
             Q(valid_until__isnull=True) | Q(valid_until__gte=today)
-        ).exclude(user_id=user.pk).values("user_id")
+        )
+        if assignment.line_code != "*":
+            subordinate_scope = subordinate_scope.filter(
+                Q(line_code=assignment.line_code) | Q(line_code="*")
+            )
+        subordinate_ids = subordinate_scope.exclude(
+            user_id=user.pk
+        ).values("user_id")
         allowed |= Q(pk__in=subordinate_ids)
     return allowed
 
