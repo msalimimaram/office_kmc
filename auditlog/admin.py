@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from accounts.access import has_global_access
 from .models import AuditEvent
 
 
@@ -22,4 +23,9 @@ class AuditEventAdmin(admin.ModelAdmin):
         return False
 
     def has_view_permission(self, request, obj=None):
-        return bool(request.user and request.user.is_active and request.user.is_staff)
+        # is_staff is a technical Django flag, not a current business grant.
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and has_global_access(request.user)
+        )
