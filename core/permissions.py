@@ -123,8 +123,10 @@ def scoped_claims_for(user):
 
 
 def scoped_requests_for(user):
-    """Union the request scopes of all active roles held by the user."""
+    """Union request visibility scopes, using WorkflowCase for routed work."""
+    from django.contrib.contenttypes.models import ContentType
     from requests_portal.models import ServiceRequest
+    from workflow.models import WorkflowCase, WorkflowEvent
 
     qs = ServiceRequest.objects.select_related(
         "submitted_by", "company", "person", "assigned_to"
@@ -140,15 +142,44 @@ def scoped_requests_for(user):
     if company_ids:
         allowed |= Q(company_id__in=company_ids, is_confidential=False)
 
-    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
-        # Requests reach a specialist through an explicit workflow assignment.
-        # There is no shared unassigned queue: the representative/manager chooses
-        # the authorized recipient and the workflow transfers ownership.
-        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
-
-    if has_role(user, RoleAssignment.Role.INSURER_REP):
-        # Insurer-side access is limited to work explicitly referred to this user.
-        allowed |= Q(assigned_to_id=user.pk, is_confidential=False)
+    if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST) or has_role(
+        user, RoleAssignment.Role.INSURER_REP
+    ):
+        # WorkflowCase.current_assignee is the sole current-owner authority.
+        # Prior assignees retain read access to the audit trail, but never gain
+        # an action right from this visibility rule. The legacy assigned_to
+        # field is consulted only for records that predate workflow creation.
+        content_type = ContentType.objects.get_for_model(
+            ServiceRequest, for_concrete_model=False
+        )
+        workflow_cases = WorkflowCase.objects.filter(content_type=content_type)
+        workflow_object_ids = list(
+            workflow_cases.values_list("object_id", flat=True)
+        )
+        current_object_ids = list(
+            workflow_cases.filter(
+                current_assignee_id=user.pk,
+                status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
+            ).values_list("object_id", flat=True)
+        )
+        historical_object_ids = list(
+            WorkflowEvent.objects.filter(
+                workflow_case__content_type=content_type,
+            ).filter(
+                Q(from_assignee_id=user.pk) | Q(to_assignee_id=user.pk)
+            ).values_list("workflow_case__object_id", flat=True).distinct()
+        )
+        assigned_ids = {
+            int(value)
+            for value in (*current_object_ids, *historical_object_ids)
+            if str(value).isdigit()
+        }
+        legacy_ids = qs.filter(assigned_to_id=user.pk).exclude(
+            pk__in=workflow_object_ids
+        ).values_list("pk", flat=True)
+        assigned_ids.update(legacy_ids)
+        if assigned_ids:
+            allowed |= Q(pk__in=assigned_ids, is_confidential=False)
 
     if has_role(user, RoleAssignment.Role.INSURED_PERSON):
         # Employees must still see their own requests when a company
@@ -174,6 +205,23 @@ def can_view_request(user, item):
 
 
 def can_process_request(user, item):
+    if (
+        not getattr(user, "is_authenticated", False)
+        or not getattr(user, "is_active", False)
+        or not item.pk
+    ):
+        return False
+
+    # A configured workflow owns every action once it exists. The legacy
+    # request form must never remain an alternate action path.
+    from django.contrib.contenttypes.models import ContentType
+    from workflow.models import WorkflowCase
+    content_type = ContentType.objects.get_for_model(item, for_concrete_model=False)
+    if WorkflowCase.objects.filter(
+        content_type=content_type, object_id=str(item.pk)
+    ).exists():
+        return False
+
     if has_global_access(user):
         return True
     if item.is_confidential:
