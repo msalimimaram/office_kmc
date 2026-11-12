@@ -83,7 +83,10 @@ def _eligible_recipients(case, transition):
     for level in position_levels:
         position_user_ids.update(
             active_position_assignments_for_level(
-                level, line_code=scope["line_code"]
+                level,
+                line_code=scope["line_code"],
+                source_user=case.current_assignee,
+                route_scope=transition.position_route_scope,
             ).values_list("user_id", flat=True)
         )
 
