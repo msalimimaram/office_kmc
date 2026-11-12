@@ -184,6 +184,63 @@ class WorkflowEngineTests(TestCase):
             case.current_position_assignment_id,
         )
 
+    def test_initial_position_routing_rejects_supervisor_in_unrelated_unit(self):
+        from django.core.exceptions import ValidationError
+        from accounts.models import OrganizationalPosition, OrganizationalUnit, PositionAssignment
+        from requests_portal.models import ServiceRequest
+
+        source_unit = OrganizationalUnit.objects.create(
+            code="WF-INITIAL-SOURCE", name="واحد مبدأ گزارش"
+        )
+        source_position = OrganizationalPosition.objects.create(
+            unit=source_unit, code="WF-INITIAL-SOURCE-SPECIALIST",
+            title="کارشناس تهیه گزارش", level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        PositionAssignment.objects.create(
+            user=self.specialist, unit=source_unit, position=source_position,
+            line_code="health", reason="سمت مبدأ برای آزمون ارجاع اولیه",
+        )
+        other_unit = OrganizationalUnit.objects.create(
+            code="WF-INITIAL-OTHER", name="واحد نامرتبط"
+        )
+        supervisor_position = OrganizationalPosition.objects.create(
+            unit=other_unit, code="WF-INITIAL-OTHER-SUPERVISOR",
+            title="سرپرست نامرتبط", level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        supervisor = User.objects.create_user(
+            username="workflow-initial-unrelated-supervisor",
+            password="StrongPass!123",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=supervisor, unit=other_unit, position=supervisor_position,
+            line_code="health", reason="سمت خارج از شاخه مبدأ",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="test-position-initial-scope",
+            title="کنترل محدوده ارجاع اولیه",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=definition, code="supervisor-review", title="بررسی سرپرست",
+            order=1, allowed_roles=[],
+            allowed_position_levels=[int(OrganizationalPosition.Level.SUPERVISOR)],
+            is_initial=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+        item = ServiceRequest.objects.create(
+            reference="IB-WF-INITIAL-SCOPE-1",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.specialist,
+            company=self.company,
+            title="درخواست مبدأ سمت‌محور",
+            description="آزمون محدودیت واحد سازمانی",
+        )
+        with self.assertRaises(ValidationError):
+            resolve_initial_assignee(definition=definition, obj=item)
+
     def test_position_recipient_routing_respects_ancestor_unit_scope(self):
         root = OrganizationalUnit.objects.create(
             code="WF-ROUTE-ROOT",
