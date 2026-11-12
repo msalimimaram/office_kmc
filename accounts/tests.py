@@ -781,3 +781,117 @@ class LegacyRoleAssignmentMigrationCommandTests(TestCase):
                 self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
                 self.assertIn("حذف شده", output.getvalue())
 
+
+
+
+class AssignmentAuthorizationHardeningTests(TestCase):
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.user = User.objects.create_user(
+            username="position-hardening-user",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.unit = OrganizationalUnit.objects.create(
+            code="AUTH-HARDENING-UNIT",
+            name="واحد آزمون کنترل دسترسی",
+        )
+        self.position = OrganizationalPosition.objects.create(
+            unit=self.unit,
+            code="AUTH-HARDENING-POS",
+            title="سمت آزمون",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+
+    def test_inactive_unit_never_produces_an_active_position_assignment(self):
+        assignment = PositionAssignment.objects.create(
+            user=self.user, unit=self.unit, position=self.position,
+            line_code="health", valid_from=self.today,
+            reason="آزمون فیلتر واحد غیرفعال",
+        )
+        self.unit.is_active = False
+        self.unit.save(update_fields=["is_active"])
+        from accounts.access import active_position_assignments
+        self.assertFalse(active_position_assignments(self.user).filter(pk=assignment.pk).exists())
+
+    def test_inactive_position_never_produces_an_active_position_assignment(self):
+        assignment = PositionAssignment.objects.create(
+            user=self.user, unit=self.unit, position=self.position,
+            line_code="health", valid_from=self.today,
+            reason="آزمون فیلتر سمت غیرفعال",
+        )
+        self.position.is_active = False
+        self.position.save(update_fields=["is_active"])
+        from accounts.access import active_position_assignments
+        self.assertFalse(active_position_assignments(self.user).filter(pk=assignment.pk).exists())
+
+    def test_new_active_assignment_cannot_target_inactive_unit_or_position(self):
+        self.unit.is_active = False
+        self.unit.save(update_fields=["is_active"])
+        with self.assertRaises(ValidationError):
+            PositionAssignment.objects.create(
+                user=self.user, unit=self.unit, position=self.position,
+                line_code="health", valid_from=self.today,
+                reason="نباید به واحد غیرفعال منتسب شود",
+            )
+
+    def test_cross_company_exception_cannot_be_approved_by_its_grantor(self):
+        company_a = Company.objects.create(code="AUTH-APPROVAL-A", name="شرکت الف")
+        company_b = Company.objects.create(code="AUTH-APPROVAL-B", name="شرکت ب")
+        representative = User.objects.create_user(
+            username="auth-approval-representative", password="StrongPass!2026",
+            company=company_a, must_change_password=False,
+        )
+        administrator = User.objects.create_user(
+            username="auth-approval-admin", password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=administrator, role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=self.today, reason="مدیر سامانه برای آزمون تأیید مستقل",
+        )
+        RoleAssignment.objects.create(
+            user=representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company_a, line_code="health", valid_from=self.today,
+            valid_until=self.today + timedelta(days=10),
+            reason="انتصاب اولیه در شرکت الف",
+        )
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=representative, role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=company_b, line_code="motor",
+                valid_from=self.today + timedelta(days=1),
+                valid_until=self.today + timedelta(days=20),
+                reason="استثنای چندشرکتی با محدوده و تاریخ مشخص",
+                granted_by=administrator, approved_by=administrator,
+            )
+        self.assertIn("approved_by", raised.exception.message_dict)
+
+
+class AuditLogAuthorizationHardeningTests(TestCase):
+    def test_staff_flag_without_global_business_role_cannot_view_audit_log(self):
+        from auditlog.admin import AuditEventAdmin
+        user = User.objects.create_user(
+            username="audit-staff-without-role", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        request = RequestFactory().get("/admin/auditlog/auditevent/")
+        request.user = user
+        model_admin = AuditEventAdmin(AuditEvent, admin.site)
+        self.assertFalse(model_admin.has_view_permission(request))
+
+    def test_active_global_business_role_can_view_audit_log(self):
+        from auditlog.admin import AuditEventAdmin
+        user = User.objects.create_user(
+            username="audit-global-role", password="StrongPass!2026",
+            is_staff=True, must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=user, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=timezone.localdate(),
+            reason="رئیس اداره برای آزمون مشاهده گزارش رویدادها",
+        )
+        request = RequestFactory().get("/admin/auditlog/auditevent/")
+        request.user = user
+        model_admin = AuditEventAdmin(AuditEvent, admin.site)
+        self.assertTrue(model_admin.has_view_permission(request))
