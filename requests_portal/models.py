@@ -54,6 +54,19 @@ class ServiceRequest(models.Model):
         if self.kind == self.Kind.MEDICAL_ASSISTANCE:
             self.is_confidential = True
 
+    def sync_workflow_assignee(self, *, assignee):
+        """Mirror the workflow's single current owner into the legacy field.
+
+        WorkflowCase.current_assignee is the authorization source of truth.
+        This field remains synchronized for compatibility with older screens
+        and integrations while those callers are migrated.
+        """
+        assignee_id = getattr(assignee, "pk", None)
+        if self.assigned_to_id == assignee_id:
+            return
+        self.assigned_to = assignee
+        self.save(update_fields=["assigned_to", "updated_at"])
+
     def save(self, *args, **kwargs):
         # Enforce confidentiality for every normal model save, including admin edits.
         if self.kind == self.Kind.MEDICAL_ASSISTANCE:
