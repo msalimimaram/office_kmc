@@ -255,77 +255,21 @@ def claim_detail(request, pk):
 @login_required
 @require_POST
 def claim_objection_review(request, pk, objection_pk):
+    """Compatibility endpoint: all objection decisions belong to WorkflowCase."""
     claim = get_object_or_404(scoped_claims_for(request.user), pk=pk)
     if not can_decide_claim(request.user, claim):
         raise PermissionDenied
 
-    objection = get_object_or_404(
-        claim.objections.select_related("submitted_by"),
-        pk=objection_pk,
-    )
+    objection = get_object_or_404(claim.objections, pk=objection_pk)
     workflow_case = _objection_workflow_case(objection)
     if workflow_case:
         return redirect("workflow_case_detail", pk=workflow_case.pk)
-    # Legacy objections without a case must not fall back to direct status
-    # mutation; all decisions and closure are owned by the workflow engine.
+
     messages.error(
         request,
         "این اعتراض پروندهٔ گردش‌کار معتبر ندارد؛ بررسی مستقیم و بستن خارج از گردش‌کار مجاز نیست.",
     )
     return redirect("claim_detail", pk=claim.pk)
-
-    form = ClaimObjectionReviewForm(request.POST)
-    if not form.is_valid():
-        messages.error(request, "اطلاعات رسیدگی به اعتراض معتبر نیست.")
-        return redirect("claim_detail", pk=claim.pk)
-
-    target_status = form.cleaned_data["status"]
-    response_text = (form.cleaned_data.get("response") or "").strip()
-    allowed_transitions = {
-        ClaimObjection.Status.OPEN: {ClaimObjection.Status.IN_REVIEW},
-        ClaimObjection.Status.IN_REVIEW: {ClaimObjection.Status.ANSWERED},
-        ClaimObjection.Status.ANSWERED: {ClaimObjection.Status.IN_REVIEW, ClaimObjection.Status.CLOSED},
-        ClaimObjection.Status.CLOSED: set(),
-    }
-    if target_status not in allowed_transitions.get(objection.status, set()):
-        raise PermissionDenied("انتقال وضعیت اعتراض از مرحله فعلی مجاز نیست.")
-    if target_status == ClaimObjection.Status.CLOSED:
-        if not has_global_access(request.user):
-            raise PermissionDenied("بستن نهایی اعتراض فقط برای رئیس اداره یا مدیر سامانه مجاز است.")
-        if not objection.response.strip():
-            raise PermissionDenied("اعتراض بدون پاسخ ثبت‌شده قابل بستن نیست.")
-
-    with transaction.atomic():
-        objection = claim.objections.select_for_update().get(pk=objection.pk)
-        previous_status = objection.status
-        previous_response = objection.response
-        if response_text:
-            stamp = timezone.localtime().strftime("%Y-%m-%d %H:%M")
-            actor_name = request.user.get_full_name() or request.user.get_username()
-            entry = f"[{stamp} | {actor_name} | {target_status}]\n{response_text}"
-            objection.response = f"{objection.response.rstrip()}\n\n{entry}".strip() if objection.response else entry
-        objection.status = target_status
-        objection.save(update_fields=["status", "response", "updated_at"])
-        record_event(
-            actor=request.user,
-            action="claim_objection_reviewed",
-            obj=claim,
-            summary=f"وضعیت اعتراض خسارت به {target_status} تغییر کرد",
-            before_data={
-                "objection_id": objection.pk,
-                "status": previous_status,
-                "response": previous_response,
-            },
-            after_data={
-                "objection_id": objection.pk,
-                "status": objection.status,
-                "response": objection.response,
-            },
-            request=request,
-        )
-    messages.success(request, "وضعیت اعتراض به‌روزرسانی شد.")
-    return redirect("claim_detail", pk=claim.pk)
-
 
 
 @login_required
