@@ -149,6 +149,10 @@ class Claim(models.Model):
             raise ValidationError(
                 "پیش از ارجاع برای تصمیم نهایی، ارزیابی مبلغ و توضیحات غیرپزشکی باید ثبت شود."
             )
+        # Approved/rejected are durable business decisions. Do not expose the
+        # domain result until the authorized final-close transition commits.
+        if step_code in {"approved", "rejected"} and not closed:
+            return
         if self.status == target:
             return
         self.status = target

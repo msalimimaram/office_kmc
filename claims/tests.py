@@ -551,6 +551,16 @@ class ManualClaimWorkflowTests(TestCase):
             action_code="approve",
             note="ارزیابی بررسی و تأیید شد.",
         )
+        claim.refresh_from_db()
+        case.refresh_from_db()
+        self.assertEqual(claim.status, Claim.Status.PENDING_DECISION)
+        self.assertNotEqual(case.status, WorkflowCase.Status.CLOSED)
+
+        # The applicant result must remain unavailable before final closure.
+        client.force_login(self.head)
+        premature_result = client.post(reverse("claim_result_send", args=[claim.pk]))
+        self.assertEqual(premature_result.status_code, 403)
+
         transition_case(
             case_id=case.pk,
             actor=self.head,
