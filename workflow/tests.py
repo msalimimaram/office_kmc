@@ -368,6 +368,7 @@ class WorkflowEngineTests(TestCase):
         supervisor = User.objects.create_user(
             username="workflow-monitor-supervisor",
             password="StrongPass!123",
+            must_change_password=False,
         )
         PositionAssignment.objects.create(
             user=supervisor,

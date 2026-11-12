@@ -648,7 +648,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         ("DEMO-ASSET-PROP-002", InsuredAsset.Type.PROPERTY, company_d, None, line_contracts[InsuranceLine.FIRE], "انبار نمونه"),
         ("DEMO-ASSET-EQ-001", InsuredAsset.Type.EQUIPMENT, company_c, None, line_contracts[InsuranceLine.FIRE], "تجهیزات خط تولید نمونه"),
         ("DEMO-ASSET-OTH-001", InsuredAsset.Type.OTHER, company_b, None, line_contracts[InsuranceLine.OTHER], "دارایی متفرقه نمونه"),
-        ("DEMO-ASSET-PER-001", InsuredAsset.Type.OTHER, None, employee_a, line_contracts[InsuranceLine.HEALTH], "دارایی شخصی بیمه‌شده نمونه"),
+        ("DEMO-ASSET-PER-001", InsuredAsset.Type.OTHER, None, employee_a, line_contracts[InsuranceLine.OTHER], "دارایی شخصی بیمه‌شده نمونه"),
         ("DEMO-ASSET-VEH-003", InsuredAsset.Type.VEHICLE, company_c, None, line_contracts[InsuranceLine.THIRD_PARTY], "خودروی واحد عملیاتی نمونه"),
     )
     assets = []

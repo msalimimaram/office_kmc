@@ -227,10 +227,10 @@ class SpecialistAssetImportTests(TestCase):
         self.company = Company.objects.create(code="AST-XLS-A", name="شرکت نمونه دارایی")
         self.insurer = Insurer.objects.create(name="بیمه‌گر نمونه دارایی")
         self.contract = Contract.objects.create(
-            code="AST-XLS-FIRE-01",
-            title="قرارداد آتش‌سوزی نمونه",
+            code="AST-XLS-BODY-01",
+            title="قرارداد بدنه نمونه",
             insurer=self.insurer,
-            line=InsuranceLine.FIRE,
+            line=InsuranceLine.BODY,
             start_date=date(2026, 1, 1),
             end_date=date(2028, 12, 29),
             status=Contract.Status.ACTIVE,
@@ -239,15 +239,15 @@ class SpecialistAssetImportTests(TestCase):
         self.contract.companies.set([self.company])
 
         self.specialist = User.objects.create_user(
-            username="asset-fire-specialist",
+            username="asset-body-specialist",
             password="StrongPass!2026",
             must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.specialist,
             role=RoleAssignment.Role.INSURANCE_SPECIALIST,
-            line_code=InsuranceLine.FIRE,
-            reason="کارشناس آتش‌سوزی برای آزمون ورود دارایی",
+            line_code=InsuranceLine.BODY,
+            reason="کارشناس بدنه برای آزمون ورود دارایی",
         )
         self.reviewer = User.objects.create_user(
             username="asset-import-reviewer",

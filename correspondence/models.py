@@ -72,12 +72,17 @@ class Correspondence(models.Model):
             errors["insurer"] = "بیمه‌گر مکاتبه باید با بیمه‌گر قرارداد یکسان باشد."
         if self.contract_id and self.company_id and not self.contract.companies.filter(pk=self.company_id).exists():
             errors["contract"] = "قرارداد برای شرکت انتخاب‌شده تعریف نشده است."
-        if not self.internal_number:
+        # ModelForms validate before the transactional numbering service runs.
+        # Permit that transient unsaved state, but never persist it without a
+        # serial issued by the central counter.
+        if not self.internal_number and not self._state.adding:
             errors["internal_number"] = "شماره داخلی باید از شمارنده مرکزی صادر شود."
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not self.internal_number:
+            raise ValidationError({"internal_number": "شماره داخلی باید از شمارنده مرکزی صادر شود."})
         self.full_clean()
         return super().save(*args, **kwargs)
 
