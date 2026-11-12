@@ -155,6 +155,45 @@ class OrganizationalTaskScopeTests(TestCase):
             reason="انتصاب تخصصی خارج از واحد",
         )
 
+    def test_company_declared_supervisor_title_does_not_grant_internal_task_management(self):
+        from django.urls import reverse
+        from accounts.access import is_unit_manager
+        from tasks.views import _can_manage_tasks
+
+        company = Company.objects.create(
+            code="TASK-COMPANY-POS",
+            name="شرکت دارای سمت‌های اعلامی",
+        )
+        company_unit = OrganizationalUnit.objects.create(
+            code="TASK-COMPANY-UNIT",
+            name="ساختار داخلی شرکت",
+            company=company,
+        )
+        company_supervisor_position = OrganizationalPosition.objects.create(
+            unit=company_unit,
+            code="TASK-COMPANY-SUPERVISOR",
+            title="سرپرست شرکت",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        company_representative = User.objects.create_user(
+            username="task-company-supervisor-title",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        PositionAssignment.objects.create(
+            user=company_representative,
+            unit=company_unit,
+            position=company_supervisor_position,
+            line_code="*",
+            reason="سمت اعلامی داخل شرکت؛ نه سمت اداره بیمه",
+        )
+
+        self.assertFalse(is_unit_manager(company_representative))
+        self.assertFalse(_can_manage_tasks(company_representative))
+        client = Client()
+        client.force_login(company_representative)
+        self.assertEqual(client.get(reverse("task_create")).status_code, 403)
+
     def test_supervisor_can_assign_only_to_active_subordinates_in_descendant_units(self):
         form = InternalTaskForm(user=self.manager)
         choices = set(form.fields["assignees"].queryset.values_list("pk", flat=True))
