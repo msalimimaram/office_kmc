@@ -521,6 +521,10 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
     source_user = User.objects.filter(
         pk=owner_user_id, is_active=True
     ).first() if owner_user_id else None
+    if position_levels and source_user is None:
+        raise ValidationError(
+            "ارجاع سمت‌محور بدون مبدأ سازمانی معتبر مجاز نیست؛ مالک/درخواست‌کننده پرونده مشخص نشده است."
+        )
     for level in position_levels:
         position_user_ids = active_position_assignments_for_level(
             level,
@@ -843,6 +847,10 @@ def start_workflow(*, obj, code, actor, assignee, calendar=None, note="", delega
         source_user = User.objects.filter(
             pk=scope.get("owner_user_id"), is_active=True
         ).first() if scope.get("owner_user_id") else None
+        if initial.allowed_position_levels and source_user is None:
+            raise ValidationError(
+                "شروع گردش سمت‌محور بدون مبدأ سازمانی معتبر مجاز نیست."
+            )
         position_assignment = _validate_recipient(
             assignee,
             initial.allowed_roles,
