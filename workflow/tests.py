@@ -1089,6 +1089,20 @@ class WorkflowEngineTests(TestCase):
         self.assertFalse(can_process_request(self.specialist, self.request))
         self.assertFalse(can_process_request(self.department_head, self.request))
 
+        # A former participant must be routed to the privacy-safe timeline,
+        # never the unrestricted legacy request detail.
+        from django.urls import reverse
+        client = Client()
+        client.force_login(self.specialist)
+        detail_response = client.get(
+            reverse("request_detail", args=[self.request.pk])
+        )
+        self.assertEqual(detail_response.status_code, 302)
+        self.assertEqual(
+            detail_response.url,
+            reverse("workflow_case_detail", args=[case.pk]),
+        )
+
         with self.assertRaises(PermissionDenied):
             transition_case(
                 case_id=case.pk,
