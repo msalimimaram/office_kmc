@@ -142,16 +142,17 @@ class InsuredAsset(models.Model):
                 self.insurer = contract.insurer
             elif contract.insurer_id != self.insurer_id:
                 errors["insurer"] = "بیمه‌گر دارایی باید با بیمه‌گر قرارداد یکسان باشد."
-            if self.company_id and not contract.companies.filter(pk=self.company_id).exists():
-                errors["contract"] = "قرارداد انتخاب‌شده برای شرکت این دارایی تعریف نشده است."
-            if self.person_id:
+            # Validate the owner/contract relationship when the snapshot is
+            # first created. Later employment transfers must not invalidate
+            # an immutable historical policy snapshot.
+            if self._state.adding:
                 owner_company_id = asset_owner_company_id(self)
                 if not owner_company_id:
-                    errors["contract"] = "شرکت محل اشتغال معتبر برای مالک شخصی دارایی پیدا نشد؛ قرارداد قابل اتصال نیست."
+                    errors["contract"] = "شرکت محل اشتغال معتبر برای مالک دارایی پیدا نشد؛ قرارداد قابل اتصال نیست."
                 elif not contract.companies.filter(pk=owner_company_id).exists():
-                    errors["contract"] = "قرارداد انتخاب‌شده برای شرکت محل اشتغال فعلی مالک شخصی تعریف نشده است."
-            if contract.line not in allowed_asset_lines(self.asset_type):
-                errors["contract"] = "رشته قرارداد با نوع دارایی انتخاب‌شده سازگار نیست."
+                    errors["contract"] = "قرارداد برای شرکت مالک/محل اشتغال فعلی دارایی تعریف نشده است."
+                if contract.line not in allowed_asset_lines(self.asset_type):
+                    errors["contract"] = "رشته قرارداد با نوع دارایی انتخاب‌شده سازگار نیست."
         if errors:
             raise ValidationError(errors)
 
@@ -329,11 +330,11 @@ class AssetPolicyPeriod(models.Model):
         super().clean()
         if self.policy_start and self.policy_end and self.policy_end < self.policy_start:
             raise ValidationError({"policy_end": "پایان پوشش نمی‌تواند قبل از شروع باشد."})
-        if self.contract_id:
+        if self.contract_id and self._state.adding:
             contract = self.contract
             if contract.insurer_id != self.insurer_id:
                 raise ValidationError({"insurer": "بیمه‌گر دوره باید با بیمه‌گر قرارداد یکسان باشد."})
-            if self._state.adding and (contract.status != "active" or not contract.is_active):
+            if contract.status != "active" or not contract.is_active:
                 raise ValidationError({"contract": "فقط قرارداد فعال و تأییدشده برای ایجاد دوره بیمه‌نامه قابل انتخاب است."})
             if self.policy_start and self.policy_start < contract.start_date:
                 raise ValidationError({"policy_start": "شروع پوشش نمی‌تواند قبل از شروع اعتبار قرارداد باشد."})
