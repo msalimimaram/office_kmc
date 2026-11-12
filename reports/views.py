@@ -180,49 +180,51 @@ def report_detail(request, pk):
             raise PermissionDenied("ثبت نسخه جدید فقط برای تهیه‌کننده گزارش بازگشتی مجاز است.")
         if form.is_valid():
             try:
-            with transaction.atomic():
-                locked_report = Report.objects.select_for_update().get(pk=report.pk)
-                locked_case = WorkflowCase.objects.select_for_update().get(pk=case.pk)
-                next_number = (locked_report.versions.aggregate(value=models.Max("version_number"))["value"] or 0) + 1
-                version = ReportVersion.objects.create(
-                    report=locked_report,
-                    version_number=next_number,
-                    summary=form.cleaned_data["summary"].strip(),
-                    body=form.cleaned_data["body"].strip(),
-                    created_by=request.user,
-                )
-                definition = WorkflowDefinition.objects.filter(
-                    code="management_report_approval", is_active=True
-                ).order_by("-version").first()
-                if not definition:
-                    raise ValidationError("گردش‌کار گزارش مدیریتی فعال نیست.")
-                assignee = resolve_initial_assignee(
-                    definition=definition,
-                    obj=locked_report,
-                    line_code=locked_report.line_code,
-                    owner_user_id=request.user.pk,
-                    allow_delegation=False,
-                )
-                transition_case(
-                    case_id=locked_case.pk,
-                    actor=request.user,
-                    action_code="resubmit",
-                    recipient=assignee,
-                    note=version.summary,
-                )
-                record_event(
-                    actor=request.user,
-                    action="management_report_revision_submitted",
-                    obj=locked_report,
-                    summary=f"نسخه {version.version_number} گزارش برای بررسی مجدد ارسال شد.",
-                    after_data={"version_id": version.pk, "workflow_case_id": locked_case.pk},
-                    request=request,
-                )
-        except (ValidationError, PermissionDenied) as exc:
-            form.add_error(None, exc)
-        else:
-            messages.success(request, "نسخه جدید ثبت و دوباره به مسیر بررسی ارسال شد.")
-            return redirect("report_detail", pk=report.pk)
+                with transaction.atomic():
+                    locked_report = Report.objects.select_for_update().get(pk=report.pk)
+                    locked_case = WorkflowCase.objects.select_for_update().get(pk=case.pk)
+                    next_number = (
+                        locked_report.versions.aggregate(value=models.Max("version_number"))["value"] or 0
+                    ) + 1
+                    version = ReportVersion.objects.create(
+                        report=locked_report,
+                        version_number=next_number,
+                        summary=form.cleaned_data["summary"].strip(),
+                        body=form.cleaned_data["body"].strip(),
+                        created_by=request.user,
+                    )
+                    definition = WorkflowDefinition.objects.filter(
+                        code="management_report_approval", is_active=True
+                    ).order_by("-version").first()
+                    if not definition:
+                        raise ValidationError("گردش‌کار گزارش مدیریتی فعال نیست.")
+                    assignee = resolve_initial_assignee(
+                        definition=definition,
+                        obj=locked_report,
+                        line_code=locked_report.line_code,
+                        owner_user_id=request.user.pk,
+                        allow_delegation=False,
+                    )
+                    transition_case(
+                        case_id=locked_case.pk,
+                        actor=request.user,
+                        action_code="resubmit",
+                        recipient=assignee,
+                        note=version.summary,
+                    )
+                    record_event(
+                        actor=request.user,
+                        action="management_report_revision_submitted",
+                        obj=locked_report,
+                        summary=f"نسخه {version.version_number} گزارش برای بررسی مجدد ارسال شد.",
+                        after_data={"version_id": version.pk, "workflow_case_id": locked_case.pk},
+                        request=request,
+                    )
+            except (ValidationError, PermissionDenied) as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, "نسخه جدید ثبت و دوباره به مسیر بررسی ارسال شد.")
+                return redirect("report_detail", pk=report.pk)
 
     return render(request, "reports/report_detail.html", {
         "report": report,
