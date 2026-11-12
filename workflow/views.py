@@ -104,10 +104,22 @@ def workflow_case_list(request):
 @login_required
 def workflow_case_detail(request, pk):
     case = get_object_or_404(_visible_cases(request.user), pk=pk)
+    scope = _scope_for_object(case.content_object)
+    current_step = case.current_step
     can_act = (
-        case.current_assignee_id == request.user.pk
+        current_step is not None
+        and case.current_assignee_id == request.user.pk
         and not case.is_locked
         and case.status in {WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING}
+        and (
+            is_delegated_assignee(case, request.user)
+            or _has_any_role(
+                request.user,
+                current_step.allowed_roles,
+                position_levels=current_step.allowed_position_levels,
+                **scope,
+            )
+        )
     )
     can_lock = _has_any_role(request.user, [RoleAssignment.Role.SYSTEM_ADMIN])
 
@@ -143,12 +155,20 @@ def workflow_case_detail(request, pk):
     events = case.events.select_related("actor", "from_step", "to_step", "from_assignee", "to_assignee")
     transitions = []
     if can_act:
-        scope = _scope_for_object(case.content_object)
         for item in WorkflowTransition.objects.filter(
             definition=case.definition, source_step=case.current_step
         ).select_related("target_step"):
             roles = item.allowed_roles or case.current_step.allowed_roles
-            if has_global_access(request.user) or is_delegated_assignee(case, request.user) or _has_any_role(request.user, roles, **scope):
+            position_levels = (
+                item.allowed_position_levels
+                or case.current_step.allowed_position_levels
+            )
+            if is_delegated_assignee(case, request.user) or _has_any_role(
+                request.user,
+                roles,
+                position_levels=position_levels,
+                **scope,
+            ):
                 transitions.append((item, _eligible_recipients(case, item)))
     return render(request, "workflow/workflow_case_detail.html", {
         "case": case,
