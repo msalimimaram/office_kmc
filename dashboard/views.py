@@ -16,10 +16,15 @@ from workflow.services import is_delegated_assignee
 
 def _capabilities_for(user):
     capabilities = set()
-    if has_global_access(user):
+    if has_role(user, RoleAssignment.Role.SYSTEM_ADMIN):
         return {
             "claims", "requests", "tasks", "assets", "contracts", "people",
             "correspondence", "imports", "review", "reports", "admin_settings",
+        }
+    if has_role(user, RoleAssignment.Role.DEPARTMENT_HEAD):
+        return {
+            "claims", "requests", "tasks", "assets", "contracts", "people",
+            "correspondence", "imports", "review", "reports",
         }
 
     if has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST):
@@ -57,6 +62,8 @@ def home(request):
     else:
         tasks = InternalTask.objects.none()
 
+    is_system_admin = has_role(user, RoleAssignment.Role.SYSTEM_ADMIN)
+    is_department_head = has_role(user, RoleAssignment.Role.DEPARTMENT_HEAD)
     is_management = has_global_access(user)
     is_insured_dashboard = has_role(user, RoleAssignment.Role.INSURED_PERSON) and not is_management
     delegated_cases = WorkflowCase.objects.filter(
@@ -86,10 +93,14 @@ def home(request):
         "recent_requests": requests.select_related("person", "submitted_by").order_by("-created_at", "-pk")[:8],
         "recent_tasks": tasks.select_related("created_by").order_by("due_at", "-pk")[:8],
         "is_unit_manager": is_unit_manager(user),
+        "is_system_admin": is_system_admin,
+        "is_department_head": is_department_head and not is_system_admin,
         "position_titles": list(
             user.position_assignments.filter(
                 is_active=True,
                 valid_from__lte=timezone.localdate(),
+                unit__company__isnull=True,
+                line_code__gt="",
             ).filter(
                 Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())
             ).values_list("position__title", flat=True).distinct()
