@@ -145,6 +145,41 @@ class Command(BaseCommand):
                 ):
                     errors.append(f"{code}: تأیید دارایی فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
+            if code in set(ServiceRequest.Kind.values):
+                by_action = {item.action_code: item for item in transitions}
+                required_roles = {
+                    "accept_for_review": (RoleAssignment.Role.SUBSIDIARY_REP, specialist_role),
+                    "request_information": (specialist_role,),
+                    "refer_to_insurer": (specialist_role, insurer_role),
+                    "submit_information": (RoleAssignment.Role.INSURED_PERSON, specialist_role),
+                    "return_from_insurer": (insurer_role, specialist_role),
+                }
+                for action_code, roles in required_roles.items():
+                    transition = by_action.get(action_code)
+                    if transition is None:
+                        errors.append(f"{code}: اقدام ضروری {action_code} تعریف نشده است.")
+                        continue
+                    allowed = set(transition.allowed_roles or transition.source_step.allowed_roles)
+                    recipients = set(
+                        transition.recipient_roles
+                        or (transition.target_step.allowed_roles if transition.target_step else [])
+                    )
+                    if not set(roles).issubset(allowed):
+                        errors.append(f"{code}/{action_code}: نقش اقدام با مسیر کسب‌وکار سازگار نیست.")
+                    if not set(roles).issubset(recipients):
+                        errors.append(f"{code}/{action_code}: گیرنده مرحله بعد با مسیر کسب‌وکار سازگار نیست.")
+                submitted = next((step for step in steps if step.code == ServiceRequest.Status.SUBMITTED), None)
+                if not submitted or RoleAssignment.Role.SUBSIDIARY_REP not in (submitted.allowed_roles or []):
+                    errors.append(f"{code}: مرحله ثبت اولیه باید به نماینده همان شرکت تخصیص یابد.")
+                referred = next((step for step in steps if step.code == ServiceRequest.Status.REFERRED), None)
+                if not referred or insurer_role not in (referred.allowed_roles or []):
+                    errors.append(f"{code}: مرحله ارجاع‌شده باید فقط به نقش بیمه‌گر مجاز باشد.")
+                for transition in transitions:
+                    if transition.closes_case:
+                        closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
+                        if not closing_roles or not closing_roles.issubset(global_roles):
+                            errors.append(f"{code}/{transition.action_code}: بستن درخواست عمومی فقط برای رئیس اداره/مدیر سامانه مجاز است.")
+
             if code == "claim_review":
                 if not initial_steps or initial_steps[0].code != Claim.Status.UNDER_REVIEW:
                     errors.append("claim_review: مرحله آغازین باید under_review باشد.")

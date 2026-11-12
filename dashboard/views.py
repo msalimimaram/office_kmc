@@ -70,7 +70,16 @@ def home(request):
     is_system_admin = has_role(user, RoleAssignment.Role.SYSTEM_ADMIN)
     is_department_head = has_role(user, RoleAssignment.Role.DEPARTMENT_HEAD)
     is_management = has_global_access(user)
-    is_insured_dashboard = has_role(user, RoleAssignment.Role.INSURED_PERSON) and not is_management
+    has_insured_role = has_role(user, RoleAssignment.Role.INSURED_PERSON)
+    has_other_operational_role = any(
+        has_role(user, role)
+        for role in (
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            RoleAssignment.Role.SUBSIDIARY_REP,
+            RoleAssignment.Role.INSURER_REP,
+        )
+    ) or is_unit_manager(user)
+    is_insured_dashboard = has_insured_role and not is_management and not has_other_operational_role
     delegated_cases = WorkflowCase.objects.filter(
         current_assignee=user,
         delegation__status="active",
@@ -97,9 +106,11 @@ def home(request):
     ).select_related(
         "definition", "current_step", "current_assignee",
         "current_position_assignment", "delegation", "content_type",
-    ).order_by("sla_due_at", "opened_at")[:500]
+    ).order_by("sla_due_at", "opened_at")
     assigned_rows = []
-    for case in assigned_candidates:
+    assigned_total = 0
+    assigned_overdue = 0
+    for case in assigned_candidates.iterator(chunk_size=200):
         authorized = (
             is_delegated_assignee(case, user)
             if case.delegation_id
@@ -115,8 +126,12 @@ def home(request):
             )
         )
         if authorized:
-            case.domain_presentation = build_workflow_presentation(case, user=user)
-            assigned_rows.append(case)
+            assigned_total += 1
+            if case.sla_due_at and case.sla_due_at < timezone.now():
+                assigned_overdue += 1
+            if len(assigned_rows) < 8:
+                case.domain_presentation = build_workflow_presentation(case, user=user)
+                assigned_rows.append(case)
 
     unit_workflow_rows = []
     if is_unit_manager(user) and not is_management:
@@ -132,10 +147,15 @@ def home(request):
         ).select_related(
             "definition", "current_step", "current_assignee",
             "current_position_assignment", "delegation", "content_type",
-        ).order_by("sla_due_at", "opened_at")[:100]
-        for case in subordinate_cases:
-            case.domain_presentation = build_workflow_presentation(case, user=user)
-            unit_workflow_rows.append(case)
+        ).order_by("sla_due_at", "opened_at")
+        unit_workflow_total = 0
+        for case in subordinate_cases.iterator(chunk_size=200):
+            unit_workflow_total += 1
+            if len(unit_workflow_rows) < 8:
+                case.domain_presentation = build_workflow_presentation(case, user=user)
+                unit_workflow_rows.append(case)
+    else:
+        unit_workflow_total = 0
 
     oversight_workflow_count = (
         WorkflowCase.objects.filter(status__in=active_statuses, is_locked=False).count()
@@ -166,6 +186,8 @@ def home(request):
                 is_active=True,
                 valid_from__lte=timezone.localdate(),
                 unit__company__isnull=True,
+                unit__is_active=True,
+                position__is_active=True,
                 line_code__gt="",
             ).filter(
                 Q(valid_until__isnull=True) | Q(valid_until__gte=timezone.localdate())
@@ -196,12 +218,10 @@ def home(request):
         "delegated_work_cases": delegated_case_rows[:5],
         "delegated_work_count": len(delegated_case_rows),
         "workflow_action_cases": assigned_rows[:8],
-        "workflow_action_count": len(assigned_rows),
-        "workflow_overdue_count": sum(
-            1 for case in assigned_rows if case.sla_due_at and case.sla_due_at < timezone.now()
-        ),
-        "unit_workflow_cases": unit_workflow_rows[:8],
-        "unit_workflow_count": len(unit_workflow_rows),
+        "workflow_action_count": assigned_total,
+        "workflow_overdue_count": assigned_overdue,
+        "unit_workflow_cases": unit_workflow_rows,
+        "unit_workflow_count": unit_workflow_total,
         "oversight_workflow_count": oversight_workflow_count,
         "oversight_overdue_count": oversight_overdue_count,
     }

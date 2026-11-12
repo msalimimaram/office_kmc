@@ -155,6 +155,22 @@ class RoleDashboardTests(TestCase):
         self.assertNotContains(response, "قراردادهای بیمه")
         self.assertNotContains(response, "ورود اطلاعات از اکسل")
 
+    def test_multi_role_insured_user_gets_combined_not_employee_only_dashboard(self):
+        RoleAssignment.objects.create(
+            user=self.employee,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="*",
+            reason="انتصاب هم‌زمان برای آزمون داشبورد",
+        )
+        client = Client()
+        client.force_login(self.employee)
+        response = client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["is_employee_dashboard"])
+        self.assertIn("people", response.context["capabilities"])
+        self.assertIn("requests", response.context["capabilities"])
+
     def test_employee_dashboard_does_not_show_another_users_request(self):
         ServiceRequest.objects.create(
             reference="IB-DASH-OWN", kind=ServiceRequest.Kind.OTHER,
