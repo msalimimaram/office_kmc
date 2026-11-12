@@ -441,8 +441,6 @@ class PositionAssignment(models.Model):
             raise ValidationError({"unit": "انتصاب فعال به واحد سازمانی غیرفعال مجاز نیست."})
         if self.is_active and self.position_id and not self.position.is_active:
             raise ValidationError({"position": "انتصاب فعال به سمت غیرفعال مجاز نیست."})
-        if self.is_active and self.unit_id and self.unit.company_id is not None:
-            raise ValidationError({"unit": "انتصاب سمت اداره بیمه باید به واحد داخلی متصل باشد."})
 
     def save(self, *args, **kwargs):
         with transaction.atomic():
