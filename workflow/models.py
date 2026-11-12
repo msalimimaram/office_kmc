@@ -222,6 +222,13 @@ class WorkflowStep(models.Model):
 
 
 class WorkflowTransition(models.Model):
+    class PositionRouteScope(models.TextChoices):
+        LINE_WIDE = "line_wide", "تمام واحدهای همان رشته"
+        SAME_UNIT = "same_unit", "همان واحد سازمانی"
+        ANCESTORS = "ancestors", "واحدهای بالادست"
+        DESCENDANTS = "descendants", "واحدهای زیرمجموعه"
+        RELATED_UNITS = "related_units", "واحدهای مرتبط در همان شاخه"
+
     objects = PublishedWorkflowChildQuerySet.as_manager()
 
     definition = models.ForeignKey(WorkflowDefinition, on_delete=models.PROTECT, related_name="transitions")
@@ -236,6 +243,13 @@ class WorkflowTransition(models.Model):
     recipient_roles = models.JSONField("نقش‌های عملیاتی مجاز گیرنده", default=list, blank=True)
     recipient_position_levels = models.JSONField(
         "سطوح سمت سازمانی مجاز گیرنده", default=list, blank=True
+    )
+    position_route_scope = models.CharField(
+        "محدوده سازمانی گیرنده سمت‌محور",
+        max_length=20,
+        choices=PositionRouteScope.choices,
+        default=PositionRouteScope.RELATED_UNITS,
+        help_text="برای گیرندگان سمت‌محور؛ علاوه بر رشته بیمه، ارتباط واحد سازمانی نیز کنترل می‌شود.",
     )
     requires_note = models.BooleanField("توضیح اجباری", default=False)
     is_return = models.BooleanField("اقدام بازگشت", default=False)
