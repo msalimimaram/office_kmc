@@ -260,6 +260,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
         self.assertEqual(self.objection.response, "")
 
     def test_specialist_can_answer_but_cannot_close_objection(self):
+        from accounts.models import RoleAssignment
         from workflow.models import WorkflowTransition
 
         case = self._start_workflow_case()
