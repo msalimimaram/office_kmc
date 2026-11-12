@@ -304,6 +304,42 @@ class RoleAssignment(models.Model):
                             errors["approved_by"] = (
                                 "تأیید استثنای چندشرکتی فقط توسط مدیر سامانه فعال مجاز است."
                             )
+
+                # A normal company representative must be an employee or a
+                # registered dependent of that company for the full appointment
+                # period. The approved multi-company exception is the only
+                # cross-company bypass and remains explicitly time/reason bound.
+                if not has_other_company_overlap and self.user_id and self.company_id:
+                    from organizations.models import Person, PersonEmployment
+                    linked_person = Person.objects.filter(user_id=self.user_id).select_related(
+                        "employee"
+                    ).first()
+                    if linked_person:
+                        primary_employee = linked_person.employee if linked_person.employee_id else linked_person
+                        employment_rows = PersonEmployment.objects.filter(person_id=primary_employee.pk)
+                        if employment_rows.exists():
+                            assignment_end = self.valid_until or date.max
+                            employment_covers_assignment = employment_rows.filter(
+                                company_id=self.company_id,
+                            ).filter(
+                                models.Q(valid_from__isnull=True)
+                                | models.Q(valid_from__lte=self.valid_from)
+                            ).filter(
+                                models.Q(valid_until__isnull=True)
+                                | models.Q(valid_until__gte=assignment_end)
+                            ).exists()
+                            if not employment_covers_assignment:
+                                errors["company"] = (
+                                    "اعتبار نمایندگی باید به‌طور کامل داخل سابقه اشتغال معتبر بیمه‌شده اصلی در همان شرکت باشد."
+                                )
+                        elif primary_employee.company_id != self.company_id:
+                            errors["company"] = (
+                                "نماینده باید کارمند یا فرد تحت تکفلِ کارمند همان شرکت باشد."
+                            )
+                    elif self.user.company_id != self.company_id:
+                        errors["company"] = (
+                            "برای انتصاب نماینده، سابقه شخص/اشتغال همان شرکت یا پیوند سازمانی معتبر حساب کاربری الزامی است."
+                        )
         elif self.role == self.Role.INSURER_REP:
             if not self.insurer_id:
                 errors["insurer"] = "نماینده بیمه‌گر باید به یک شرکت بیمه مشخص متصل باشد."
