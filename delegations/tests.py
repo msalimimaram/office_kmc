@@ -346,18 +346,7 @@ class DelegationRoutingTests(TestCase):
             line_code="",
             valid_from=today,
         )
-        health_rep = User.objects.create_user(
-            username="delegation.rep.health-only",
-            password="TestPass!23456",
-            must_change_password=False,
-        )
-        RoleAssignment.objects.create(
-            user=health_rep,
-            role=RoleAssignment.Role.SUBSIDIARY_REP,
-            company=self.company,
-            line_code="health",
-            valid_from=today,
-        )
+        health_rep = self.representative
         all_lines_rep = User.objects.create_user(
             username="delegation.rep.all-lines",
             password="TestPass!23456",
@@ -413,18 +402,7 @@ class DelegationRoutingTests(TestCase):
             line_code="",
             valid_from=today,
         )
-        health_rep = User.objects.create_user(
-            username="delegation.form.health",
-            password="TestPass!23456",
-            must_change_password=False,
-        )
-        RoleAssignment.objects.create(
-            user=health_rep,
-            role=RoleAssignment.Role.SUBSIDIARY_REP,
-            company=self.company,
-            line_code="health",
-            valid_from=today,
-        )
+        health_rep = self.representative
         all_lines_rep = User.objects.create_user(
             username="delegation.form.all-lines",
             password="TestPass!23456",
