@@ -60,9 +60,16 @@ class AssetScopeTests(TestCase):
             line_code="fire",
             reason="نماینده رشته آتش‌سوزی",
         )
+        fire_asset = InsuredAsset.objects.create(
+            asset_code="ASSET-A-FIRE",
+            name="ساختمان تحت پوشش آتش‌سوزی",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            company=self.company_a,
+            created_by=self.rep,
+        )
         scoped = _asset_scope(fire_rep)
         self.assertFalse(scoped.filter(pk=other_asset.pk).exists())
-        self.assertTrue(scoped.filter(asset_code="ASSET-A1").exists())
+        self.assertTrue(scoped.filter(pk=fire_asset.pk).exists())
 
     def test_company_representative_can_see_dependent_personal_asset_of_active_employee(self):
         from datetime import timedelta
