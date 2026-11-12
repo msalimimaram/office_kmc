@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("title", models.CharField(max_length=240, verbose_name="عنوان گزارش")),
                 ("report_type", models.CharField(choices=[("claims", "خسارت‌ها"), ("contracts", "قراردادها"), ("assets", "دارایی‌ها"), ("operations", "عملیات اداره بیمه"), ("custom", "گزارش سفارشی")], max_length=20, verbose_name="نوع گزارش")),
-                ("line_code", models.CharField(choices=[("health", "درمان تکمیلی"), ("life", "عمر و حوادث"), ("third_party", "شخص ثالث"), ("body", "بدنه"), ("liability", "مسئولیت"), ("fire", "آتش‌سوزی"), ("other", "سایر")], max_length=40, verbose_name="رشته بیمه")),
+                ("line_code", models.CharField(choices=[("health", "درمان تکمیلی"), ("life", "عمر و حوادث"), ("liability", "مسئولیت"), ("fire", "آتش‌سوزی و اموال"), ("third_party", "شخص ثالث"), ("body", "بدنه خودرو"), ("other", "سایر")], max_length=40, verbose_name="رشته بیمه")),
                 ("period_start", models.DateField(verbose_name="شروع دوره گزارش")),
                 ("period_end", models.DateField(verbose_name="پایان دوره گزارش")),
                 ("status", models.CharField(choices=[("draft", "پیش‌نویس"), ("supervisor_review", "بررسی سرپرست"), ("responsible_review", "بررسی مسئول"), ("head_review", "بررسی رئیس اداره"), ("returned", "بازگشت برای اصلاح"), ("approved", "تأییدشده"), ("rejected", "ردشده"), ("closed", "مختومه")], default="draft", max_length=24, verbose_name="وضعیت")),
