@@ -766,7 +766,7 @@ def transition_case(*, case_id, actor, action_code, recipient=None, note="", cal
 
 @transaction.atomic
 def set_final_lock(*, case_id, actor, reason):
-    if not has_role(actor, RoleAssignment.Role.SYSTEM_ADMIN):
+    if not _has_any_role(actor, [RoleAssignment.Role.SYSTEM_ADMIN]):
         raise PermissionDenied("قفل نهایی فقط در اختیار مدیر سامانه است.")
     if not reason.strip():
         raise ValidationError({"reason": "ثبت دلیل قفل نهایی الزامی است."})
