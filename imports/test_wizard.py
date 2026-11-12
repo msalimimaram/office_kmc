@@ -20,7 +20,7 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.company_b = Company.objects.create(code="XLS-B", name="شرکت نمونه Excel ب")
         self.representative = User.objects.create_user(
             username="excel-company-rep", password="StrongPass!2026",
-            must_change_password=False
+            must_change_password=False, company=self.company_a
         )
         RoleAssignment.objects.create(
             user=self.representative,
