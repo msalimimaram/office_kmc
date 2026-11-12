@@ -295,6 +295,10 @@ class RoleAssignment(models.Model):
                         errors["approved_by"] = (
                             "نمایندگی هم‌زمان چند شرکت نیازمند تأیید مدیر سامانه است."
                         )
+                    elif self.approved_by_id in {self.user_id, self.granted_by_id}:
+                        errors["approved_by"] = (
+                            "تأییدکننده باید مستقل از نماینده و ثبت‌کننده انتصاب باشد."
+                        )
                     else:
                         from accounts.access import has_role
                         if not has_role(
@@ -433,10 +437,23 @@ class PositionAssignment(models.Model):
             raise ValidationError({"valid_until": "پایان اعتبار نمی‌تواند قبل از شروع باشد."})
         if self.position_id and self.unit_id and self.position.unit_id != self.unit_id:
             raise ValidationError({"position": "سمت انتخاب‌شده متعلق به واحد سازمانی دیگری است."})
+        if self.is_active and self.unit_id and not self.unit.is_active:
+            raise ValidationError({"unit": "انتصاب فعال به واحد سازمانی غیرفعال مجاز نیست."})
+        if self.is_active and self.position_id and not self.position.is_active:
+            raise ValidationError({"position": "انتصاب فعال به سمت غیرفعال مجاز نیست."})
+        if self.is_active and self.unit_id and self.unit.company_id is not None:
+            raise ValidationError({"unit": "انتصاب سمت اداره بیمه باید به واحد داخلی متصل باشد."})
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        return super().save(*args, **kwargs)
+        with transaction.atomic():
+            if self.user_id:
+                User.objects.select_for_update().filter(pk=self.user_id).only("pk").first()
+            if self.unit_id:
+                OrganizationalUnit.objects.select_for_update().filter(pk=self.unit_id).only("pk").first()
+            if self.position_id:
+                OrganizationalPosition.objects.select_for_update().filter(pk=self.position_id).only("pk").first()
+            self.full_clean()
+            return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.user} — {self.position}"
