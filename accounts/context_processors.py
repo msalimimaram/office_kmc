@@ -2,7 +2,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from accounts.access import has_global_access, has_role, is_insurance_staff, is_unit_manager, active_position_assignments
-from accounts.models import PositionAssignment, RoleAssignment, UserNotification
+from accounts.models import RoleAssignment, UserNotification
 
 
 def access_flags(request):
