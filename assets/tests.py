@@ -698,6 +698,62 @@ class AssetPolicyLifecycleTests(TestCase):
         self.assertEqual(asset.contract_id, self.new_contract.pk)
         self.assertEqual(asset.policy_number, "NEW-POLICY")
 
+    def test_approved_period_does_not_activate_after_contract_expiration(self):
+        from datetime import timedelta
+        from assets.models import AssetPolicyPeriod
+        from insurance.models import Contract
+
+        asset = InsuredAsset.objects.create(
+            asset_code="AS-LIFE-CONTRACT-EXPIRED",
+            name="دارایی قرارداد منقضی",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            company=self.company,
+            created_by=self.user,
+        )
+        period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=self.insurer,
+            contract=self.new_contract,
+            policy_number="CONTRACT-EXPIRED-POLICY",
+            policy_start=self.today,
+            policy_end=self.today + timedelta(days=90),
+            status=AssetPolicyPeriod.Status.APPROVED,
+            created_by=self.user,
+        )
+        self.new_contract.status = Contract.Status.EXPIRED
+        self.new_contract.save()
+        self.assertTrue(period.activate_if_due(on_date=self.today))
+        period.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.EXPIRED)
+
+    def test_active_period_is_terminated_when_its_contract_is_terminated(self):
+        from datetime import timedelta
+        from assets.models import AssetPolicyPeriod
+        from insurance.models import Contract
+
+        asset = InsuredAsset.objects.create(
+            asset_code="AS-LIFE-CONTRACT-TERMINATED",
+            name="دارایی قرارداد فسخ‌شده",
+            asset_type=InsuredAsset.Type.PROPERTY,
+            company=self.company,
+            created_by=self.user,
+        )
+        period = AssetPolicyPeriod.objects.create(
+            asset=asset,
+            insurer=self.insurer,
+            contract=self.new_contract,
+            policy_number="CONTRACT-TERMINATED-POLICY",
+            policy_start=self.today,
+            policy_end=self.today + timedelta(days=90),
+            status=AssetPolicyPeriod.Status.ACTIVE,
+            created_by=self.user,
+        )
+        self.new_contract.status = Contract.Status.TERMINATED
+        self.new_contract.save()
+        self.assertTrue(period.expire_if_due(on_date=self.today))
+        period.refresh_from_db()
+        self.assertEqual(period.status, AssetPolicyPeriod.Status.TERMINATED)
+
     def test_person_asset_contract_scope_uses_current_employment_not_legacy_company(self):
         from datetime import timedelta
         from organizations.models import Person, PersonEmployment
