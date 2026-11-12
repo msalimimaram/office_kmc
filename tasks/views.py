@@ -138,6 +138,15 @@ def task_update(request, pk):
             if not is_manager and not locked.assignees.filter(pk=request.user.pk).exists():
                 raise PermissionDenied
             previous = locked.status
+            is_assignee = locked.assignees.filter(pk=request.user.pk).exists()
+            if (
+                status != previous
+                and not is_assignee
+                and not has_global_access(request.user)
+            ):
+                raise PermissionDenied(
+                    "سرپرست/مسئول می‌تواند وظیفه زیرمجموعه را نظارت و یادداشت‌گذاری کند؛ تغییر وضعیت فقط برای مجری یا رئیس/مدیر اداره مجاز است."
+                )
             if status != previous and status not in TASK_TRANSITIONS.get(previous, set()):
                 messages.error(request, "این تغییر وضعیت با گردش کار وظیفه سازگار نیست.")
                 return redirect("task_update", pk=locked.pk)

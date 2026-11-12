@@ -235,6 +235,26 @@ class OrganizationalTaskScopeTests(TestCase):
                 self.assertFalse(form.fields["assignees"].queryset.exists())
                 self.assertEqual(client.get(reverse("task_create")).status_code, 403)
 
+    def test_supervisor_can_monitor_but_cannot_complete_unassigned_subordinate_task(self):
+        from django.urls import reverse
+
+        task = InternalTask.objects.create(
+            title="وظیفه برای کنترل اختیار سرپرست",
+            description="سرپرست فقط ناظر است",
+            created_by=self.subordinate,
+        )
+        task.assignees.add(self.subordinate)
+        client = Client()
+        client.force_login(self.manager)
+        response = client.post(reverse("task_update", args=[task.pk]), {
+            "status": InternalTask.Status.DONE,
+            "note": "بستن غیرمجاز توسط سرپرست",
+        })
+        self.assertEqual(response.status_code, 403)
+        task.refresh_from_db()
+        self.assertEqual(task.status, InternalTask.Status.OPEN)
+        self.assertFalse(task.events.filter(event_type=TaskEvent.EventType.STATUS).exists())
+
     def test_supervisor_sees_subordinate_tasks_but_not_independent_unit_tasks(self):
         from tasks.views import _visible_tasks
 
