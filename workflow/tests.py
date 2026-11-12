@@ -177,6 +177,7 @@ class WorkflowEngineTests(TestCase):
         requester = User.objects.create_user(
             username="workflow-end-user-requester",
             password="StrongPass!123",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=requester,
@@ -286,9 +287,19 @@ class WorkflowEngineTests(TestCase):
     def test_confidential_medical_request_summary_never_exposes_free_text_or_description(self):
         from types import SimpleNamespace
 
+        # The operational recipient must be distinct from the requester;
+        # otherwise the test simultaneously expects and denies owner access.
+        requester = User.objects.create_user(
+            username="workflow-medical-request-owner",
+            password="StrongPass!123",
+            must_change_password=False,
+        )
+        self.request.submitted_by = requester
         self.request.title = "نام بیماری محرمانه در عنوان آزاد"
         self.request.description = "شرح پزشکی محرمانه و تشخیص"
-        self.request.save(update_fields=["title", "description", "updated_at"])
+        self.request.save(update_fields=[
+            "submitted_by", "title", "description", "updated_at"
+        ])
         case = SimpleNamespace(
             content_object=self.request,
             definition=SimpleNamespace(title="گردش کمک‌هزینه درمان"),
