@@ -1319,6 +1319,83 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         self.assertIn("baseline-route-v2", current.description)
         self.assertEqual(old.steps.count(), 1)
 
+    def test_seed_command_rebases_open_cases_to_new_definition_and_preserves_history(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from organizations.models import Company
+        from requests_portal.models import ServiceRequest
+        from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep
+        from workflow.services import start_workflow
+
+        head = User.objects.create_user(
+            username="workflow-rebase-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای مهاجرت گردش",
+        )
+        company = Company.objects.create(code="WF-REBASE-COMP", name="شرکت مهاجرت گردش")
+        representative = User.objects.create_user(
+            username="workflow-rebase-rep",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company,
+            line_code="*",
+            reason="نماینده شرکت برای مهاجرت گردش",
+        )
+        old = WorkflowDefinition.objects.create(
+            code=ServiceRequest.Kind.OTHER,
+            title="گردش قدیمی سایر درخواست‌ها",
+            version=1,
+            created_by=head,
+            description="نسخه قدیمی",
+        )
+        WorkflowStep.objects.create(
+            definition=old,
+            code=ServiceRequest.Status.SUBMITTED,
+            title="ثبت‌شده",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        old.approved_by = head
+        old.is_active = True
+        old.save()
+        item = ServiceRequest.objects.create(
+            reference="IB-WF-REBASE-1",
+            kind=ServiceRequest.Kind.OTHER,
+            submitted_by=representative,
+            company=company,
+            title="درخواست در حال گردش",
+            description="آزمون حفظ تاریخچه نسخه",
+        )
+        case = start_workflow(
+            obj=item,
+            code=ServiceRequest.Kind.OTHER,
+            actor=head,
+            assignee=representative,
+        )
+        previous_event_count = case.events.count()
+
+        call_command("seed_operational_workflows")
+        case.refresh_from_db()
+        active = WorkflowDefinition.objects.get(code=ServiceRequest.Kind.OTHER, is_active=True)
+        self.assertEqual(case.definition_id, active.pk)
+        self.assertEqual(case.current_step.code, ServiceRequest.Status.SUBMITTED)
+        self.assertEqual(case.current_assignee_id, representative.pk)
+        self.assertEqual(case.events.count(), previous_event_count + 1)
+        self.assertTrue(case.events.filter(action_code="workflow_version_migrated").exists())
+        self.assertEqual(WorkflowCase.objects.filter(
+            definition=active, content_type=case.content_type, object_id=case.object_id
+        ).count(), 1)
+
     def test_seed_command_publishes_all_operational_workflows_idempotently(self):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
