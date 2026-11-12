@@ -240,6 +240,42 @@ class CorrespondenceFollowUpFlowTests(TestCase):
             ).exists()
         )
 
+    def test_follow_up_cannot_skip_or_reopen_without_a_new_due_date(self):
+        from django.urls import reverse
+        from correspondence.models import Correspondence
+
+        client = Client()
+        client.force_login(self.creator)
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "follow_up",
+            "follow_up_status": Correspondence.FollowUp.COMPLETED,
+            "follow_up_due": "",
+            "note": "پیگیری تکمیل شد",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.follow_up_status, Correspondence.FollowUp.COMPLETED)
+
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "follow_up",
+            "follow_up_status": Correspondence.FollowUp.NOT_REQUIRED,
+            "follow_up_due": "",
+            "note": "پرش نامعتبر وضعیت",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.follow_up_status, Correspondence.FollowUp.COMPLETED)
+
+        response = client.post(reverse("correspondence_detail", args=[self.item.pk]), {
+            "action": "follow_up",
+            "follow_up_status": Correspondence.FollowUp.PENDING,
+            "follow_up_due": "",
+            "note": "شروع مجدد بدون مهلت",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.follow_up_status, Correspondence.FollowUp.COMPLETED)
+
     def test_sender_cannot_act_after_correspondence_is_assigned_to_another_user(self):
         from correspondence.models import Correspondence
 

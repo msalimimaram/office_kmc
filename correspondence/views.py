@@ -345,8 +345,41 @@ def correspondence_detail(request, pk):
                     locked = get_object_or_404(_scope(user).select_for_update(), pk=pk)
                     before_status = locked.follow_up_status
                     before_due = locked.follow_up_due
-                    locked.follow_up_status = follow_up_form.cleaned_data["follow_up_status"]
-                    locked.follow_up_due = follow_up_form.cleaned_data["follow_up_due"]
+                    next_status = follow_up_form.cleaned_data["follow_up_status"]
+                    next_due = follow_up_form.cleaned_data["follow_up_due"]
+                    allowed_transitions = {
+                        Correspondence.FollowUp.PENDING: {
+                            Correspondence.FollowUp.COMPLETED,
+                            Correspondence.FollowUp.NOT_REQUIRED,
+                        },
+                        Correspondence.FollowUp.COMPLETED: {
+                            Correspondence.FollowUp.PENDING,
+                        },
+                        Correspondence.FollowUp.NOT_REQUIRED: {
+                            Correspondence.FollowUp.PENDING,
+                        },
+                    }
+                    if next_status != before_status and next_status not in allowed_transitions.get(before_status, set()):
+                        follow_up_form.add_error(
+                            "follow_up_status",
+                            "تغییر وضعیت پیگیری با چرخه مکاتبه سازگار نیست؛ برای شروع مجدد از وضعیت در انتظار استفاده کنید.",
+                        )
+                    if next_status == Correspondence.FollowUp.PENDING and not next_due:
+                        follow_up_form.add_error("follow_up_due", "برای پیگیری در انتظار، تعیین مهلت الزامی است.")
+                    if next_status != Correspondence.FollowUp.PENDING and next_due:
+                        follow_up_form.add_error("follow_up_due", "برای پیگیری تکمیل‌شده یا غیرضروری، مهلت باز نباید ثبت شود.")
+                    if follow_up_form.errors:
+                        messages.error(request, "وضعیت یا مهلت پیگیری معتبر نیست.")
+                        return render(request, "correspondence/correspondence_detail.html", {
+                            "item": locked,
+                            "events": locked.events.select_related("actor").all(),
+                            "links": locked.links.select_related("content_type", "created_by").all(),
+                            "form": follow_up_form,
+                            "link_form": link_form,
+                            "can_manage": can_manage,
+                        })
+                    locked.follow_up_status = next_status
+                    locked.follow_up_due = next_due
                     locked.save(update_fields=["follow_up_status", "follow_up_due", "updated_at"])
                     event_type = (
                         CorrespondenceEvent.EventType.STATUS_CHANGED
