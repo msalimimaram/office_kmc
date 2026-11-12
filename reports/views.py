@@ -3,15 +3,14 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from accounts.access import has_global_access, has_role, is_unit_manager, line_codes_for
+from accounts.access import active_internal_position_assignments, has_global_access, has_role, is_unit_manager, line_codes_for
 from accounts.models import OrganizationalPosition, RoleAssignment, User
 from auditlog.services import record_event
-from core.permissions import active_internal_position_assignments
 from tasks.forms import _manager_scope
 from workflow.models import WorkflowCase, WorkflowDefinition
 from workflow.services import (
