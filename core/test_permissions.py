@@ -45,14 +45,24 @@ class ConfidentialRequestScopeTests(TestCase):
             title="عنوان پزشکی محرمانه", description="شرح پزشکی محرمانه",
             is_confidential=True,
         )
+        approver = User.objects.create_user(
+            username="scope-workflow-approver",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=approver,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="تأیید گردش کار در آزمون محدوده محرمانه",
+        )
         definition = WorkflowDefinition.objects.create(
-            code="scope-medical", title="گردش محرمانه", created_by=specialist,
+            code="scope-medical", title="گردش محرمانه", created_by=approver,
         )
         step = WorkflowStep.objects.create(
             definition=definition, code="review", title="بررسی درمان", order=1,
             allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST], is_initial=True,
         )
-        definition.approved_by = specialist
+        definition.approved_by = approver
         definition.is_active = True
         definition.save()
         from django.contrib.contenttypes.models import ContentType
