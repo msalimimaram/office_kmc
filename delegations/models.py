@@ -123,6 +123,18 @@ class WorkDelegation(models.Model):
                 raise ValidationError(
                     "محدوده تفویض ثبت‌شده قابل بازنویسی نیست؛ تفویض قبلی را لغو و تفویض جدید ثبت کنید."
                 )
+
+            state_fields = {
+                "status", "revoked_at", "revoked_by_id", "revocation_reason",
+            }
+            state_changed = any(
+                getattr(previous, name) != getattr(self, name)
+                for name in state_fields
+            )
+            if state_changed and not getattr(self, "_allow_state_transition", False):
+                raise ValidationError(
+                    "تغییر وضعیت تفویض فقط از مسیر سرویس کنترل‌شده و همراه با رویداد ممیزی مجاز است."
+                )
         self.full_clean()
         return super().save(*args, **kwargs)
 

@@ -434,7 +434,11 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
     else:
         raise ValidationError("عملیات وضعیت تفویض معتبر نیست.")
     delegation.revocation_reason = (reason or "").strip()
-    delegation.save(update_fields=["status", "revoked_at", "revoked_by", "revocation_reason", "updated_at"])
+    delegation._allow_state_transition = True
+    try:
+        delegation.save(update_fields=["status", "revoked_at", "revoked_by", "revocation_reason", "updated_at"])
+    finally:
+        del delegation._allow_state_transition
     DelegationEvent.objects.create(
         delegation=delegation, actor=actor, event_type=event_type,
         summary=(reason or event_type.label).strip()[:1000],
@@ -481,7 +485,11 @@ def synchronize_delegations(*, delegate_to=None):
                 delegation, conflict_counter=report
             )
             continue
-        delegation.save(update_fields=["status", "revocation_reason", "updated_at"])
+        delegation._allow_state_transition = True
+        try:
+            delegation.save(update_fields=["status", "revocation_reason", "updated_at"])
+        finally:
+            del delegation._allow_state_transition
         DelegationEvent.objects.create(
             delegation=delegation,
             actor=delegation.granted_by,

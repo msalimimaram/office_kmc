@@ -998,3 +998,67 @@ class DelegationRoutingTests(TestCase):
                 definition=self.definition, company_id=self.company.pk,
                 line_code="health", item_type="iban",
             )
+
+class WorkDelegationStateMutationTests(TestCase):
+    def test_status_changes_require_controlled_service_and_audit_event(self):
+        today = timezone.localdate()
+        head = User.objects.create_user(
+            username="delegation-state.head",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=today,
+            reason="رئیس اداره برای آزمون تغییر وضعیت تفویض",
+        )
+        specialist = User.objects.create_user(
+            username="delegation-state.specialist",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            valid_from=today,
+            reason="کارشناس درمان برای آزمون تفویض",
+        )
+        delegation = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            item_type="iban",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=specialist,
+            granted_by=head,
+            line_code="health",
+            reason="تفویض کنترل‌شده برای آزمون ممیزی",
+            valid_from=today,
+        )
+
+        delegation.status = WorkDelegation.Status.SUSPENDED
+        with self.assertRaises(ValidationError):
+            delegation.save(update_fields=["status", "updated_at"])
+
+        delegation.refresh_from_db()
+        self.assertEqual(delegation.status, WorkDelegation.Status.ACTIVE)
+        self.assertFalse(delegation.events.exists())
+
+        update_delegation_status(
+            delegation_id=delegation.pk,
+            actor=head,
+            action="suspend",
+            reason="تعلیق کنترل‌شده برای آزمون ممیزی",
+        )
+        delegation.refresh_from_db()
+        self.assertEqual(delegation.status, WorkDelegation.Status.SUSPENDED)
+        self.assertEqual(
+            delegation.revocation_reason,
+            "تعلیق کنترل‌شده برای آزمون ممیزی",
+        )
+        event = delegation.events.get(
+            event_type="suspended",
+        )
+        self.assertEqual(event.actor_id, head.pk)
+        self.assertEqual(event.summary, "تعلیق کنترل‌شده برای آزمون ممیزی")
+
