@@ -119,6 +119,91 @@ class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
             )
         self.assertIn("company", raised.exception.message_dict)
 
+    def test_dependent_representative_requires_active_employment_status(self):
+        from organizations.models import PersonEmployment
+
+        employee = Person.objects.create(
+            company=self.company_a,
+            national_id="3333333333",
+            first_name="کارمند",
+            last_name="دارای سابقه غیر فعال",
+            birth_date=self.today - timedelta(days=12000),
+        )
+        dependent_user = self._user("rep-dependent-transferred")
+        Person.objects.create(
+            company=self.company_a,
+            user=dependent_user,
+            employee=employee,
+            relationship=Person.Relationship.SPOUSE,
+            national_id="4444444444",
+            first_name="همسر",
+            last_name="کارمند",
+            birth_date=self.today - timedelta(days=11000),
+        )
+        PersonEmployment.objects.create(
+            person=employee,
+            company=self.company_a,
+            valid_from=self.today - timedelta(days=30),
+            valid_until=self.today + timedelta(days=30),
+            status=PersonEmployment.Status.TRANSFERRED,
+        )
+
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=dependent_user,
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a,
+                line_code="health",
+                valid_from=self.today,
+                valid_until=self.today + timedelta(days=10),
+                reason="تلاش برای انتصاب بر اساس سابقه منتقل‌شده",
+            )
+        self.assertIn("company", raised.exception.message_dict)
+
+    def test_dependent_representative_requires_relationship_valid_for_full_appointment(self):
+        from organizations.models import PersonEmployment, PersonRelationship
+
+        employee = Person.objects.create(
+            company=self.company_a,
+            national_id="5555555555",
+            first_name="کارمند",
+            last_name="اصلی",
+            birth_date=self.today - timedelta(days=12000),
+        )
+        PersonEmployment.objects.create(
+            person=employee,
+            company=self.company_a,
+            valid_from=self.today - timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        dependent_user = self._user("rep-dependent-ended")
+        dependent = Person.objects.create(
+            company=self.company_a,
+            user=dependent_user,
+            employee=employee,
+            relationship=Person.Relationship.CHILD,
+            national_id="6666666666",
+            first_name="فرزند",
+            last_name="کارمند",
+            birth_date=self.today - timedelta(days=5000),
+        )
+        relationship = PersonRelationship.objects.get(dependent_person=dependent)
+        relationship.status = PersonRelationship.Status.ENDED
+        relationship.valid_until = self.today - timedelta(days=1)
+        relationship.save()
+
+        with self.assertRaises(ValidationError) as raised:
+            RoleAssignment.objects.create(
+                user=dependent_user,
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a,
+                line_code="health",
+                valid_from=self.today,
+                valid_until=self.today + timedelta(days=10),
+                reason="تلاش برای انتصاب پس از پایان رابطه تحت تکفل",
+            )
+        self.assertIn("user", raised.exception.message_dict)
+
     def test_company_limit_counts_distinct_users_not_line_assignments(self):
         first = self._user("rep-limit-first")
         second = self._user("rep-limit-second")

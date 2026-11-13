@@ -340,7 +340,11 @@ class RoleAssignment(models.Model):
                 # period. The approved multi-company exception is the only
                 # cross-company bypass and remains explicitly time/reason bound.
                 if not has_other_company_overlap and self.user_id and self.company_id:
-                    from organizations.models import Person, PersonEmployment
+                    from organizations.models import (
+                        Person,
+                        PersonEmployment,
+                        PersonRelationship,
+                    )
                     linked_person = Person.objects.filter(user_id=self.user_id).select_related(
                         "employee"
                     ).first()
@@ -353,11 +357,30 @@ class RoleAssignment(models.Model):
                                 "نماینده‌ای که بیمه‌شده اصلی نیست باید به رابطه تحت تکفلِ کارمند اصلی متصل باشد."
                             )
                         primary_employee = linked_person.employee if linked_person.employee_id else linked_person
+                        assignment_end = self.valid_until or date.max
+                        if linked_person.employee_id:
+                            active_relationship = PersonRelationship.objects.filter(
+                                dependent_person_id=linked_person.pk,
+                                primary_person_id=primary_employee.pk,
+                                relationship_type=linked_person.relationship,
+                                status=PersonRelationship.Status.ACTIVE,
+                            ).filter(
+                                models.Q(valid_from__isnull=True)
+                                | models.Q(valid_from__lte=self.valid_from)
+                            ).filter(
+                                models.Q(valid_until__isnull=True)
+                                | models.Q(valid_until__gte=assignment_end)
+                            ).exists()
+                            if not active_relationship:
+                                errors["user"] = (
+                                    "نماینده تحت تکفل باید در تمام بازه انتصاب، رابطه معتبر و فعال با بیمه‌شده اصلی داشته باشد."
+                                )
+
                         employment_rows = PersonEmployment.objects.filter(person_id=primary_employee.pk)
                         if employment_rows.exists():
-                            assignment_end = self.valid_until or date.max
                             employment_covers_assignment = employment_rows.filter(
                                 company_id=self.company_id,
+                                status=PersonEmployment.Status.ACTIVE,
                             ).filter(
                                 models.Q(valid_from__isnull=True)
                                 | models.Q(valid_from__lte=self.valid_from)
@@ -367,7 +390,7 @@ class RoleAssignment(models.Model):
                             ).exists()
                             if not employment_covers_assignment:
                                 errors["company"] = (
-                                    "اعتبار نمایندگی باید به‌طور کامل داخل سابقه اشتغال معتبر بیمه‌شده اصلی در همان شرکت باشد."
+                                    "اعتبار نمایندگی باید به‌طور کامل داخل سابقه اشتغال فعال بیمه‌شده اصلی در همان شرکت باشد."
                                 )
                         elif primary_employee.company_id != self.company_id:
                             errors["company"] = (
