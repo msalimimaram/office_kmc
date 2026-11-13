@@ -895,3 +895,93 @@ class AuditLogAuthorizationHardeningTests(TestCase):
         request.user = user
         model_admin = AuditEventAdmin(AuditEvent, admin.site)
         self.assertTrue(model_admin.has_view_permission(request))
+
+class AuthorizationAssignmentBulkWriteGuardTests(TestCase):
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.user = User.objects.create_user(
+            username="assignment-write-guard",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        self.role_assignment = RoleAssignment.objects.create(
+            user=self.user,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=self.today,
+            reason="انتصاب برای آزمون محافظت از نوشتن گروهی",
+        )
+        self.unit = OrganizationalUnit.objects.create(
+            code="WRITE-GUARD-UNIT",
+            name="واحد آزمون محافظت نوشتن",
+        )
+        self.position = OrganizationalPosition.objects.create(
+            unit=self.unit,
+            code="WRITE-GUARD-POS",
+            title="سمت آزمون",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        self.position_assignment = PositionAssignment.objects.create(
+            user=self.user,
+            unit=self.unit,
+            position=self.position,
+            line_code="health",
+            valid_from=self.today,
+            reason="انتصاب سمت برای آزمون محافظت از نوشتن گروهی",
+        )
+
+    def test_role_assignment_rejects_bulk_mutation_and_deletion(self):
+        with self.assertRaises(ValidationError):
+            RoleAssignment.objects.filter(pk=self.role_assignment.pk).update(
+                is_active=False,
+            )
+        with self.assertRaises(ValidationError):
+            RoleAssignment.objects.bulk_update(
+                [self.role_assignment],
+                ["is_active"],
+            )
+        with self.assertRaises(ValidationError):
+            RoleAssignment.objects.bulk_create([
+                RoleAssignment(
+                    user=self.user,
+                    role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+                    line_code="health",
+                    valid_from=self.today,
+                    reason="نباید از مسیر bulk ساخته شود",
+                )
+            ])
+        with self.assertRaises(ValidationError):
+            RoleAssignment.objects.filter(pk=self.role_assignment.pk).delete()
+        with self.assertRaises(ValidationError):
+            self.role_assignment.delete()
+
+        self.role_assignment.refresh_from_db()
+        self.assertTrue(self.role_assignment.is_active)
+
+    def test_position_assignment_rejects_bulk_mutation_and_deletion(self):
+        with self.assertRaises(ValidationError):
+            PositionAssignment.objects.filter(pk=self.position_assignment.pk).update(
+                is_active=False,
+            )
+        with self.assertRaises(ValidationError):
+            PositionAssignment.objects.bulk_update(
+                [self.position_assignment],
+                ["is_active"],
+            )
+        with self.assertRaises(ValidationError):
+            PositionAssignment.objects.bulk_create([
+                PositionAssignment(
+                    user=self.user,
+                    unit=self.unit,
+                    position=self.position,
+                    line_code="health",
+                    valid_from=self.today,
+                    reason="نباید از مسیر bulk ساخته شود",
+                )
+            ])
+        with self.assertRaises(ValidationError):
+            PositionAssignment.objects.filter(pk=self.position_assignment.pk).delete()
+        with self.assertRaises(ValidationError):
+            self.position_assignment.delete()
+
+        self.position_assignment.refresh_from_db()
+        self.assertTrue(self.position_assignment.is_active)

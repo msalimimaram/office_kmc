@@ -124,8 +124,34 @@ class OrganizationalPosition(models.Model):
         return f"{self.title} — {self.unit.name}"
 
 
+class ProtectedAuthorizationAssignmentQuerySet(models.QuerySet):
+    """Require authorization assignments to pass model validation on every write."""
+
+    def update(self, **kwargs):
+        raise ValidationError(
+            "انتصاب‌های دسترسی فقط از مسیر ذخیره‌سازی اعتبارسنجی‌شده تغییر می‌کنند."
+        )
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError(
+            "ایجاد گروهی انتصاب دسترسی مجاز نیست؛ هر انتصاب باید جداگانه اعتبارسنجی شود."
+        )
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError(
+            "ویرایش گروهی انتصاب دسترسی مجاز نیست؛ هر تغییر باید جداگانه اعتبارسنجی شود."
+        )
+
+    def delete(self):
+        raise ValidationError(
+            "سوابق انتصاب دسترسی حذف نمی‌شوند؛ دسترسی را با پایان اعتبار یا غیرفعال‌سازی خاتمه دهید."
+        )
+
+
 class RoleAssignment(models.Model):
     """Time-bounded, scoped operational authorization for a user."""
+
+    objects = ProtectedAuthorizationAssignmentQuerySet.as_manager()
 
     class Role(models.TextChoices):
         SYSTEM_ADMIN = "system_admin", "مدیر سامانه"
@@ -386,6 +412,11 @@ class RoleAssignment(models.Model):
                     User.objects.filter(pk=self.user_id, is_staff=False).update(is_staff=True)
             return result
 
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "سوابق انتصاب دسترسی حذف نمی‌شوند؛ دسترسی را با پایان اعتبار یا غیرفعال‌سازی خاتمه دهید."
+        )
+
     def is_valid_on(self, on_date=None):
         on_date = on_date or timezone.localdate()
         return (
@@ -401,6 +432,8 @@ class RoleAssignment(models.Model):
 
 class PositionAssignment(models.Model):
     """Time-bounded position in the insurance department hierarchy."""
+
+    objects = ProtectedAuthorizationAssignmentQuerySet.as_manager()
 
     user = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="position_assignments")
     unit = models.ForeignKey(OrganizationalUnit, on_delete=models.PROTECT, related_name="position_assignments")
@@ -452,6 +485,11 @@ class PositionAssignment(models.Model):
                 OrganizationalPosition.objects.select_for_update().filter(pk=self.position_id).only("pk").first()
             self.full_clean()
             return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "سوابق انتصاب سمت حذف نمی‌شوند؛ دسترسی را با پایان اعتبار یا غیرفعال‌سازی خاتمه دهید."
+        )
 
     def __str__(self):
         return f"{self.user} — {self.position}"
