@@ -457,7 +457,13 @@ def resolve_initial_assignee(*, definition, company_id=None, insurer_id=None, li
         role__in=roles,
         is_active=True,
         valid_from__lte=today,
-    ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
+    ).filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=today)
+    ).filter(
+        ~Q(role=RoleAssignment.Role.SUBSIDIARY_REP) | Q(company__is_active=True)
+    ).filter(
+        ~Q(role=RoleAssignment.Role.INSURER_REP) | Q(insurer__is_active=True)
+    )
 
     scope = Q()
     for role in roles:

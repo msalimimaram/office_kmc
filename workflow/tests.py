@@ -1803,3 +1803,83 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             WorkflowDefinition.objects.filter(code__in=expected, is_active=True).count(),
             len(expected),
         )
+
+    def test_initial_routing_rejects_inactive_company_and_insurer_scopes(self):
+        today = timezone.localdate()
+
+        inactive_company = Company.objects.create(
+            code="WF-INACTIVE-ROUTE-CO",
+            name="شرکت غیرفعال برای آزمون ارجاع",
+        )
+        company_rep = User.objects.create_user(
+            username="workflow-inactive-company-rep",
+            password="StrongPass!123",
+            company=inactive_company,
+        )
+        RoleAssignment.objects.create(
+            user=company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=inactive_company,
+            line_code="health",
+            valid_from=today,
+            reason="انتصاب پیش از غیرفعال‌سازی شرکت",
+        )
+        inactive_company.is_active = False
+        inactive_company.save(update_fields=["is_active"])
+
+        company_definition = WorkflowDefinition.objects.create(
+            code="test-inactive-company-routing",
+            title="عدم ارجاع به نماینده شرکت غیرفعال",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=company_definition,
+            code="company-review",
+            title="بررسی شرکت",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            is_initial=True,
+        )
+        with self.assertRaises(ValidationError):
+            resolve_initial_assignee(
+                definition=company_definition,
+                company_id=inactive_company.pk,
+                line_code="health",
+            )
+
+        inactive_insurer = Insurer.objects.create(
+            name="بیمه‌گر غیرفعال برای آزمون ارجاع",
+        )
+        insurer_rep = User.objects.create_user(
+            username="workflow-inactive-insurer-rep",
+            password="StrongPass!123",
+        )
+        RoleAssignment.objects.create(
+            user=insurer_rep,
+            role=RoleAssignment.Role.INSURER_REP,
+            insurer=inactive_insurer,
+            valid_from=today,
+            reason="انتصاب پیش از غیرفعال‌سازی بیمه‌گر",
+        )
+        inactive_insurer.is_active = False
+        inactive_insurer.save(update_fields=["is_active"])
+
+        insurer_definition = WorkflowDefinition.objects.create(
+            code="test-inactive-insurer-routing",
+            title="عدم ارجاع به نماینده بیمه‌گر غیرفعال",
+            created_by=self.admin,
+        )
+        WorkflowStep.objects.create(
+            definition=insurer_definition,
+            code="insurer-review",
+            title="بررسی بیمه‌گر",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURER_REP],
+            is_initial=True,
+        )
+        with self.assertRaises(ValidationError):
+            resolve_initial_assignee(
+                definition=insurer_definition,
+                insurer_id=inactive_insurer.pk,
+                line_code="health",
+            )
