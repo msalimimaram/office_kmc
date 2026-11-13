@@ -225,3 +225,28 @@ python manage.py test --verbosity 2
 - فهرست شاخه‌های GitHub پس از پیمایش کامل، فقط `main` را برگرداند.
 - تمام commitهای این بسته مستقیماً روی `main` ثبت شده‌اند؛ PR، شاخهٔ جدید و GitHub Actions ایجاد نشده است.
 - آخرین commit ثبت‌شده در زمان این یادداشت: `78177f4772a8aa7a35bab160d1ca5825c19661f3`.
+
+## بستهٔ یکپارچگی تفویض و انتصاب — 2026-11-13
+
+**HEAD کد پیش از ثبت این یادداشت:** `ae3fb84ba25d216783695e72f4bd3db19c5cce5d`.
+
+### اصلاحات ثبت‌شده روی `main`
+- تغییر وضعیت، زمان لغو، لغوکننده و دلیل وضعیت `WorkDelegation` دیگر از `Model.save()` عادی قابل انجام نیست؛ مسیرهای کنترل‌شدهٔ تغییر وضعیت و همگام‌سازی، تغییر را همراه با `DelegationEvent` و در تراکنش ثبت می‌کنند.
+- آزمون رگرسیون، تغییر مستقیم وضعیت را رد می‌کند و ثبت رویداد در مسیر تعلیق و همگام‌سازی را بررسی می‌کند.
+- `RoleAssignment` و `PositionAssignment` در سطح QuerySet عملیات `update`، `bulk_create`، `bulk_update` و حذف را رد می‌کنند؛ حذف مستقیم instance نیز مسدود است تا اعتبارسنجی مدل و سابقهٔ انتصاب دور زده نشود.
+- مسیر تخصیص اولیهٔ گردش‌کار دیگر نمایندهٔ شرکت یا بیمه‌گر غیرفعال را به‌عنوان گیرنده انتخاب نمی‌کند؛ برای هر دو حالت آزمون رگرسیون اضافه شده است.
+
+### اعتبارسنجی و محدودیت
+- در این محیط checkout اجرایی و محیط Django پروژه در دسترس نبود؛ بنابراین هیچ‌یک از تست‌های جدید، تست کامل، `manage.py check` یا `makemigrations --check` اجرا نشده‌اند. وضعیت سبز اعلام نمی‌شود.
+- هیچ migration، seed، reset یا تغییری روی دیتابیس محلی/مالک انجام نشده است.
+- تست‌های افزوده‌شده:
+  - `delegations.tests.WorkDelegationStateMutationTests`
+  - `accounts.tests.AuthorizationAssignmentBulkWriteGuardTests`
+  - `workflow.tests.WorkflowEngineTests.test_initial_routing_rejects_inactive_company_and_insurer_scopes`
+- اجرای focused tests و سپس کل suite روی همین HEAD برای تأیید سازگاری ضروری است.
+
+### وضعیت شاخه و انتشار
+- فهرست زندهٔ شاخه‌های GitHub فقط `main` را نشان می‌دهد.
+- هیچ شاخه، PR یا GitHub Actions جدیدی ایجاد نشده است.
+- وضعیت Production همچنان **No-Go** است تا تست‌های HEAD جدید، بازبینی امنیتی نهایی و آزمون‌های staging ثبت شوند.
+
