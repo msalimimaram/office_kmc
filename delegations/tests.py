@@ -1062,3 +1062,51 @@ class WorkDelegationStateMutationTests(TestCase):
         self.assertEqual(event.actor_id, head.pk)
         self.assertEqual(event.summary, "تعلیق کنترل‌شده برای آزمون ممیزی")
 
+    def test_synchronization_uses_the_controlled_state_transition_path(self):
+        today = timezone.localdate()
+        head = User.objects.create_user(
+            username="delegation-sync.head",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=today,
+            reason="رئیس اداره برای آزمون همگام‌سازی تفویض",
+        )
+        specialist = User.objects.create_user(
+            username="delegation-sync.specialist",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        specialist_assignment = RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            valid_from=today,
+            reason="کارشناس درمان برای آزمون همگام‌سازی",
+        )
+        delegation = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            item_type="iban",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=specialist,
+            granted_by=head,
+            line_code="health",
+            reason="تفویض برای آزمون همگام‌سازی",
+            valid_from=today,
+        )
+
+        specialist_assignment.is_active = False
+        specialist_assignment.save(update_fields=["is_active"])
+
+        report = synchronize_delegations()
+
+        delegation.refresh_from_db()
+        self.assertEqual(delegation.status, WorkDelegation.Status.SUSPENDED)
+        self.assertEqual(report["suspended"], 1)
+        event = delegation.events.get(event_type="suspended")
+        self.assertEqual(event.actor_id, head.pk)
+        self.assertIn("انتصاب معتبر گیرنده", event.summary)
+
