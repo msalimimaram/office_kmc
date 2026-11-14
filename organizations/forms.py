@@ -118,12 +118,42 @@ class CompanyLeadershipTitleForm(forms.ModelForm):
         else:
             company_ids = company_ids_for(user, role=RoleAssignment.Role.SUBSIDIARY_REP)
         today = timezone.localdate()
-        employed_ids = PersonEmployment.objects.filter(company_id__in=company_ids).filter(
+        employment_history_ids = PersonEmployment.objects.values_list(
+            "person_id", flat=True
+        )
+        active_employment_ids = PersonEmployment.objects.filter(
+            company_id__in=company_ids,
+            status=PersonEmployment.Status.ACTIVE,
+        ).filter(
+            Q(valid_from__isnull=True) | Q(valid_from__lte=today)
+        ).filter(
             Q(valid_until__isnull=True) | Q(valid_until__gte=today)
         ).values_list("person_id", flat=True)
+        # The legacy Person.company pointer is a fallback only when the
+        # primary employee has no employment history. A stale pointer must
+        # not expose a person in a former company's title-entry form.
+        legacy_people = Person.objects.filter(
+            company_id__in=company_ids,
+            is_active=True,
+        ).filter(
+            Q(employee__isnull=True) | Q(employee__is_active=True)
+        ).exclude(
+            pk__in=employment_history_ids
+        ).exclude(
+            employee_id__in=employment_history_ids
+        )
         self.fields["company"].queryset = Company.objects.filter(pk__in=company_ids, is_active=True)
         self.fields["person"].queryset = Person.objects.filter(
-            Q(company_id__in=company_ids) | Q(pk__in=employed_ids),
+            Q(
+                pk__in=active_employment_ids,
+                relationship=Person.Relationship.EMPLOYEE,
+                employee__isnull=True,
+            )
+            | Q(
+                employee_id__in=active_employment_ids,
+                employee__is_active=True,
+            )
+            | Q(pk__in=legacy_people.values("pk")),
             is_active=True,
         ).distinct()
         self.fields["position"].queryset = CompanyLeadershipPosition.objects.filter(

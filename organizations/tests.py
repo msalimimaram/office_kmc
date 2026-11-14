@@ -215,6 +215,21 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         self.assertNotContains(people, "مدیرعامل شرکت ب")
 
 
+    def test_title_form_does_not_offer_person_with_employment_only_in_another_company(self):
+        PersonEmployment.objects.create(
+            person=self.person_a,
+            company=self.company_b,
+            valid_from=date(2025, 1, 1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+
+        from organizations.forms import CompanyLeadershipTitleForm
+        form = CompanyLeadershipTitleForm(user=self.rep)
+        self.assertFalse(
+            form.fields["person"].queryset.filter(pk=self.person_a.pk).exists()
+        )
+
+
     def test_stale_person_company_pointer_cannot_override_other_company_employment_history(self):
         PersonEmployment.objects.create(
             person=self.person_a,
