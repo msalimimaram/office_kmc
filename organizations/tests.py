@@ -857,11 +857,14 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertContains(detail, "09121111111")
 
     def test_insured_user_who_is_also_only_company_rep_can_receive_own_request(self):
-        RoleAssignment.objects.filter(
+        previous_assignments = RoleAssignment.objects.filter(
             user__in=[self.company_rep, self.other_company_rep],
             role=RoleAssignment.Role.SUBSIDIARY_REP,
             company=self.company,
-        ).update(is_active=False)
+        )
+        for assignment in previous_assignments:
+            assignment.is_active = False
+            assignment.save(update_fields=["is_active"])
         RoleAssignment.objects.create(
             user=self.insured,
             role=RoleAssignment.Role.SUBSIDIARY_REP,

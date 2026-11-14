@@ -358,7 +358,10 @@ class ServiceRequestTests(TestCase):
         item.save(update_fields=["assigned_to", "updated_at"])
         response = client.get(reverse("request_detail", args=[item.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "رسیدگی به درخواست")
+        # Explicit legacy assignment grants read visibility only. Processing
+        # and status changes are exclusively handled by the workflow engine.
+        self.assertContains(response, "درخواست عادی")
+        self.assertNotContains(response, "رسیدگی به درخواست")
         response = client.post(reverse("request_detail", args=[item.pk]), {
             "status": ServiceRequest.Status.IN_REVIEW, "response": "شروع بررسی"
         })

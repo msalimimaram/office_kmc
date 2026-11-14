@@ -764,8 +764,8 @@ class WorkflowEngineTests(TestCase):
 
         client = Client()
         client.force_login(supervisor)
-        with self.assertRaises(PermissionDenied):
-            client.get(reverse("workflow_case_detail", args=[case.pk]))
+        denied_detail = client.get(reverse("workflow_case_detail", args=[case.pk]))
+        self.assertEqual(denied_detail.status_code, 403)
 
         with self.assertRaises(PermissionDenied):
             transition_case(
@@ -1728,8 +1728,8 @@ class WorkflowSatisfactionTests(TestCase):
 
         client = Client()
         client.force_login(self.other)
-        with self.assertRaises(PermissionDenied):
-            client.get(reverse("workflow_satisfaction_submit", args=[self.case.pk]))
+        response = client.get(reverse("workflow_satisfaction_submit", args=[self.case.pk]))
+        self.assertEqual(response.status_code, 403)
 
 
 class OperationalWorkflowSeedCommandTests(TestCase):
