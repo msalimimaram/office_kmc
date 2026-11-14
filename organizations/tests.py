@@ -215,6 +215,25 @@ class CompanyLeadershipTitleFlowTests(TestCase):
         self.assertNotContains(people, "مدیرعامل شرکت ب")
 
 
+    def test_stale_person_company_pointer_cannot_override_other_company_employment_history(self):
+        PersonEmployment.objects.create(
+            person=self.person_a,
+            company=self.company_b,
+            valid_from=date(2025, 1, 1),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+
+        with self.assertRaises(ValidationError) as raised:
+            CompanyLeadershipTitle.objects.create(
+                company=self.company_a,
+                person=self.person_a,
+                title="عنوان مبتنی بر شرکت قدیمی",
+                valid_from=date(2025, 1, 1),
+                declared_by=self.head,
+            )
+        self.assertIn("person", raised.exception.message_dict)
+
+
     def test_company_representative_does_not_see_another_company_title_for_a_visible_person(self):
         PersonEmployment.objects.create(
             person=self.person_a,

@@ -411,21 +411,28 @@ class CompanyLeadershipTitle(models.Model):
                 and not self.person.employee_id
             ):
                 errors["person"] = "برای ثبت سمت مدیریتی فرد تحت تکفل، ارتباط او با کارمند اصلی الزامی است."
-            employment_rows = PersonEmployment.objects.filter(
-                person_id=primary_employee.pk, company_id=self.company_id
+            employment_history = PersonEmployment.objects.filter(
+                person_id=primary_employee.pk
             )
-            if employment_rows.exists():
-                appointment_start = self.valid_from or timezone.localdate()
-                appointment_end = self.valid_until or date.max
-                employed = employment_rows.filter(
-                    models.Q(valid_from__isnull=True)
-                    | models.Q(valid_from__lte=appointment_start)
-                ).filter(
-                    models.Q(valid_until__isnull=True)
-                    | models.Q(valid_until__gte=appointment_end)
-                ).exists()
-                if not employed:
-                    errors["person"] = "اعتبار سمت باید به‌طور کامل داخل سابقه اشتغال معتبر کارمند اصلی در همان شرکت باشد."
+            employment_rows = employment_history.filter(company_id=self.company_id)
+            if employment_history.exists():
+                # Once historical employment exists, it is authoritative.
+                # Never fall back to a stale Person.company pointer when the
+                # history belongs only to another company.
+                if not employment_rows.exists():
+                    errors["person"] = "سوابق اشتغال این شخص به شرکت انتخاب‌شده تعلق ندارد."
+                else:
+                    appointment_start = self.valid_from or timezone.localdate()
+                    appointment_end = self.valid_until or date.max
+                    employed = employment_rows.filter(
+                        models.Q(valid_from__isnull=True)
+                        | models.Q(valid_from__lte=appointment_start)
+                    ).filter(
+                        models.Q(valid_until__isnull=True)
+                        | models.Q(valid_until__gte=appointment_end)
+                    ).exists()
+                    if not employed:
+                        errors["person"] = "اعتبار سمت باید به‌طور کامل داخل سابقه اشتغال معتبر کارمند اصلی در همان شرکت باشد."
             elif primary_employee.company_id != self.company_id:
                 errors["person"] = "این شخص در سوابق اشتغال به شرکت انتخاب‌شده متصل نیست."
         if errors:
