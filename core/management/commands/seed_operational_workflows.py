@@ -236,7 +236,7 @@ class Command(BaseCommand):
                 definition=definition, source_step=steps[source],
                 target_step=None if closes else steps[target], action_code=action,
                 title=title, allowed_roles=roles, allowed_position_levels=levels,
-                recipient_roles=list(recipient_roles or []), recipient_position_levels=recipient_levels,
+                recipient_roles=list(recipient_roles or []), recipient_position_levels=list(recipient_levels or []),
                 requires_note=note, is_return=returned, closes_case=closes,
             )
 
