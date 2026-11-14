@@ -62,6 +62,10 @@ class CorrespondenceForm(forms.ModelForm):
         self.fields["insurer"].queryset = Insurer.objects.filter(is_active=True)
         self.fields["contract"].queryset = Contract.objects.filter(is_active=True).select_related("insurer")
         self.fields["assigned_to"].queryset = _eligible_internal_assignees()
+        # An unchecked checkbox is a legitimate False value, not a missing
+        # required field. Keep this explicit for ModelForm validation.
+        if "is_confidential" in self.fields:
+            self.fields["is_confidential"].required = False
         if is_unit_manager(user) and not has_global_access(user):
             from tasks.forms import _manager_scope
             subordinate_ids = User.objects.filter(_manager_scope(user)).values("pk")
