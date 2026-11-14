@@ -349,6 +349,10 @@ class RoleAssignment(models.Model):
                         "employee"
                     ).first()
                     if linked_person:
+                        if not linked_person.is_active:
+                            errors["user"] = (
+                                "شخص غیرفعال نمی‌تواند نماینده فعال شرکت باشد."
+                            )
                         if (
                             linked_person.relationship != Person.Relationship.EMPLOYEE
                             and not linked_person.employee_id
@@ -357,6 +361,10 @@ class RoleAssignment(models.Model):
                                 "نماینده‌ای که بیمه‌شده اصلی نیست باید به رابطه تحت تکفلِ کارمند اصلی متصل باشد."
                             )
                         primary_employee = linked_person.employee if linked_person.employee_id else linked_person
+                        if not primary_employee.is_active:
+                            errors["company"] = (
+                                "بیمه‌شده اصلی غیرفعال نمی‌تواند مبنای نمایندگی فرد تحت تکفل باشد."
+                            )
                         assignment_end = self.valid_until or date.max
                         if linked_person.employee_id:
                             active_relationship = PersonRelationship.objects.filter(

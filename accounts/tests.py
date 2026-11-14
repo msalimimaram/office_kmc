@@ -119,6 +119,75 @@ class SubsidiaryRepresentativeAssignmentIntegrityTests(TestCase):
             )
         self.assertIn("company", raised.exception.message_dict)
 
+    def test_inactive_person_or_primary_employee_cannot_hold_company_representative_assignment(self):
+        from organizations.models import PersonEmployment
+
+        inactive_employee_user = self._user("rep-inactive-employee")
+        inactive_employee = Person.objects.create(
+            company=self.company_a,
+            user=inactive_employee_user,
+            national_id="7777777777",
+            first_name="کارمند",
+            last_name="غیرفعال",
+            birth_date=self.today - timedelta(days=12000),
+            is_active=False,
+        )
+        PersonEmployment.objects.create(
+            person=inactive_employee,
+            company=self.company_a,
+            valid_from=self.today - timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        with self.assertRaises(ValidationError) as inactive_person_error:
+            RoleAssignment.objects.create(
+                user=inactive_employee_user,
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a,
+                line_code="health",
+                valid_from=self.today,
+                reason="تلاش برای انتصاب شخص غیرفعال",
+            )
+        self.assertIn("user", inactive_person_error.exception.message_dict)
+
+        primary_employee = Person.objects.create(
+            company=self.company_a,
+            national_id="8888888888",
+            first_name="کارمند",
+            last_name="اصلی غیرفعال‌شده",
+            birth_date=self.today - timedelta(days=12000),
+        )
+        PersonEmployment.objects.create(
+            person=primary_employee,
+            company=self.company_a,
+            valid_from=self.today - timedelta(days=30),
+            status=PersonEmployment.Status.ACTIVE,
+        )
+        dependent_user = self._user("rep-inactive-primary")
+        Person.objects.create(
+            company=self.company_a,
+            user=dependent_user,
+            employee=primary_employee,
+            relationship=Person.Relationship.SPOUSE,
+            national_id="9999999999",
+            first_name="همسر",
+            last_name="کارمند",
+            birth_date=self.today - timedelta(days=11000),
+        )
+        primary_employee.is_active = False
+        primary_employee.save(update_fields=["is_active"])
+
+        with self.assertRaises(ValidationError) as inactive_primary_error:
+            RoleAssignment.objects.create(
+                user=dependent_user,
+                role=RoleAssignment.Role.SUBSIDIARY_REP,
+                company=self.company_a,
+                line_code="health",
+                valid_from=self.today,
+                reason="تلاش برای انتصاب بر پایه کارمند اصلی غیرفعال",
+            )
+        self.assertIn("company", inactive_primary_error.exception.message_dict)
+
+
     def test_dependent_representative_requires_active_employment_status(self):
         from organizations.models import PersonEmployment
 
