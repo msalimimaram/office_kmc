@@ -29,7 +29,8 @@ User = get_user_model()
 class WorkflowEngineTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
-            username="workflow-admin", password="StrongPass!123", is_superuser=True, is_staff=True
+            username="workflow-admin", password="StrongPass!123", is_superuser=True,
+            is_staff=True, must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.admin,
@@ -39,6 +40,7 @@ class WorkflowEngineTests(TestCase):
         self.department_head = User.objects.create_user(
             username="workflow-department-head",
             password="StrongPass!123",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.department_head,
@@ -46,7 +48,8 @@ class WorkflowEngineTests(TestCase):
             reason="رئیس اداره آزمون",
         )
         self.specialist = User.objects.create_user(
-            username="workflow-specialist", password="StrongPass!123"
+            username="workflow-specialist", password="StrongPass!123",
+            must_change_password=False,
         )
         RoleAssignment.objects.create(
             user=self.specialist,
@@ -343,6 +346,22 @@ class WorkflowEngineTests(TestCase):
             position=position,
             line_code="health",
             reason="انتصاب سرپرست درمان",
+        )
+        # Position-only routing is intentionally constrained to the requester's
+        # organizational branch. Give the request owner a real source assignment
+        # so the test exercises same-branch routing rather than an unscoped fallback.
+        source_position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="WF-POS-SOURCE-SPECIALIST",
+            title="کارشناس مبدأ رسیدگی درمان",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        PositionAssignment.objects.create(
+            user=self.specialist,
+            unit=unit,
+            position=source_position,
+            line_code="health",
+            reason="انتصاب مبدأ سازمانی درخواست آزمایشی",
         )
         definition = WorkflowDefinition.objects.create(
             code="test-position-only-initial",
@@ -684,6 +703,7 @@ class WorkflowEngineTests(TestCase):
         supervisor = User.objects.create_user(
             username="workflow-position-expiring",
             password="StrongPass!123",
+            must_change_password=False,
         )
         assignment = PositionAssignment.objects.create(
             user=supervisor,
