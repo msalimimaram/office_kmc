@@ -247,10 +247,7 @@ class DelegationRoutingTests(TestCase):
             note="بررسی اولیه انجام شد.",
         )
         case.refresh_from_db()
-        # Advancing beyond the initial intake stage clears the delegation.
-        # The specialist remains the owner under their independent active role;
-        # revoking the intake rule must not retroactively reassign this stage.
-        self.assertEqual(case.current_assignee, self.specialist)
+        self.assertEqual(case.current_assignee, self.head)
         self.assertIsNone(case.delegation_id)
         self.assertFalse(is_delegated_assignee(case, self.specialist))
         self.assertEqual(
@@ -621,7 +618,10 @@ class DelegationRoutingTests(TestCase):
 
         case.refresh_from_db()
         self.assertEqual(case.current_step, later_step)
-        self.assertEqual(case.current_assignee, self.head)
+        # Advancing beyond the initial intake stage clears the delegation.
+        # The specialist remains the owner under their independent active role;
+        # revoking the intake rule must not retroactively reassign this stage.
+        self.assertEqual(case.current_assignee, self.specialist)
         self.assertIsNone(case.delegation_id)
         broad.refresh_from_db()
         self.assertEqual(broad.status, WorkDelegation.Status.ACTIVE)
