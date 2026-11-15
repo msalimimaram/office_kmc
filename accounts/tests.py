@@ -665,6 +665,33 @@ class UserNotificationTests(TestCase):
         self.notification.refresh_from_db()
         self.assertIsNotNone(self.notification.read_at)
 
+    def test_notification_rejects_backslash_based_external_target(self):
+        notification = UserNotification(
+            recipient=self.recipient,
+            actor=self.other,
+            title="مقصد نامعتبر",
+            body="آزمون جلوگیری از open redirect",
+            target_url="/\\\\evil.example/path",
+        )
+        with self.assertRaises(ValidationError):
+            notification.full_clean()
+
+    def test_legacy_notification_with_unsafe_target_falls_back_to_inbox(self):
+        # Simulate a pre-validation or out-of-band row. The view must still
+        # reject it even when the notification is already marked as read.
+        models.QuerySet.update(
+            UserNotification.objects.filter(pk=self.notification.pk),
+            target_url="/\\\\evil.example/path",
+            read_at=timezone.now(),
+        )
+        client = Client()
+        client.force_login(self.recipient)
+        response = client.post(
+            reverse("notification_mark_read", args=[self.notification.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("notification_list"))
+
     def test_other_user_cannot_read_or_mutate_another_users_notification(self):
         client = Client()
         client.force_login(self.other)

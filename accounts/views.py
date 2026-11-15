@@ -59,7 +59,15 @@ def notification_mark_read(request, pk):
     )
     notification.mark_read(user=request.user)
     target = notification.target_url
-    if target.startswith("/") and not target.startswith("//"):
+    if (
+        target.startswith("/")
+        and not target.startswith("//")
+        and url_has_allowed_host_and_scheme(
+            target,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        )
+    ):
         return redirect(target)
     return redirect("notification_list")
 

@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 
 class User(AbstractUser):
@@ -577,6 +578,10 @@ class UserNotification(models.Model):
         if self.target_url and (
             not self.target_url.startswith("/")
             or self.target_url.startswith("//")
+            or not url_has_allowed_host_and_scheme(
+                self.target_url,
+                allowed_hosts=set(),
+            )
         ):
             raise ValidationError({"target_url": "مقصد اعلان باید یک مسیر داخلی معتبر باشد."})
 
