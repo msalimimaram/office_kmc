@@ -261,33 +261,33 @@ class DemoSeedCommandSafetyTests(TestCase):
             self.assertEqual(model.objects.count(), count, model._meta.label)
         self.assertFalse(User.objects.filter(username="head.demo").exists())
 
-    def test_seed_never_assigns_a_password_to_an_existing_unusable_account(self):
-        from django.core.management import call_command
+    def test_presentation_seed_never_assigns_a_password_to_an_existing_unusable_account(self):
         from django.core.management.base import CommandError
         from accounts.models import User
-        from organizations.models import Company
+        from core.management.commands.presentation_expansion import _ensure_user
 
-        existing_admin = User.objects.create(
-            username="Admin",
+        existing_user = User.objects.create(
+            username="presentation-existing",
             role=User.Role.SYSTEM_ADMIN,
             first_name="مدیر",
             last_name="سامانه",
             is_active=True,
-            is_staff=True,
         )
-        existing_admin.set_unusable_password()
-        existing_admin.save(update_fields=["password"])
-        must_change_before = existing_admin.must_change_password
+        existing_user.set_unusable_password()
+        existing_user.save(update_fields=["password"])
+        must_change_before = existing_user.must_change_password
 
         with patch.dict("os.environ", {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}):
             with self.assertRaises(CommandError) as raised:
-                call_command("seed_demo")
+                _ensure_user(
+                    username="presentation-existing",
+                    role=User.Role.SYSTEM_ADMIN,
+                )
 
-        self.assertIn("empty, disposable database", str(raised.exception))
-        existing_admin.refresh_from_db()
-        self.assertFalse(existing_admin.has_usable_password())
-        self.assertEqual(existing_admin.must_change_password, must_change_before)
-        self.assertFalse(Company.objects.filter(code="DEMO-A").exists())
+        self.assertIn("no usable password", str(raised.exception))
+        existing_user.refresh_from_db()
+        self.assertFalse(existing_user.has_usable_password())
+        self.assertEqual(existing_user.must_change_password, must_change_before)
 
     def test_seed_requires_empty_database_and_preserves_existing_company(self):
         from django.core.management import call_command
