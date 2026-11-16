@@ -1222,15 +1222,32 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         )
 
         policy_status = policy_statuses[(index - 1) % len(policy_statuses)]
-        if policy_status in {AssetPolicyPeriod.Status.EXPIRED, AssetPolicyPeriod.Status.TERMINATED, AssetPolicyPeriod.Status.SUPERSEDED}:
-            policy_start = today - timedelta(days=400)
-            policy_end = today - timedelta(days=30)
+        # Policy coverage must always remain inside the selected contract's
+        # validity window, including historical/expired presentation states.
+        # Keep model validation authoritative; derive fixture dates from the
+        # persisted contract instead of weakening AssetPolicyPeriod.clean().
+        if policy_status in {
+            AssetPolicyPeriod.Status.EXPIRED,
+            AssetPolicyPeriod.Status.TERMINATED,
+            AssetPolicyPeriod.Status.SUPERSEDED,
+        }:
+            policy_start = contract.start_date
+            policy_end = min(today - timedelta(days=30), contract.end_date)
         elif policy_status == AssetPolicyPeriod.Status.APPROVED:
-            policy_start = today + timedelta(days=30)
-            policy_end = today + timedelta(days=395)
+            policy_start = max(today + timedelta(days=30), contract.start_date)
+            policy_end = min(today + timedelta(days=395), contract.end_date)
         else:
-            policy_start = today - timedelta(days=30)
-            policy_end = today + timedelta(days=335)
+            policy_start = max(today - timedelta(days=30), contract.start_date)
+            policy_end = min(today + timedelta(days=335), contract.end_date)
+
+        if policy_end < policy_start:
+            raise CommandError(
+                "Invalid synthetic asset policy dates: "
+                f"contract={contract.code}, status={policy_status}, "
+                f"contract_window={contract.start_date}..{contract.end_date}, "
+                f"policy_window={policy_start}..{policy_end}. "
+                "The fixture must be corrected; model validation remains enabled."
+            )
         period = ensure(
             AssetPolicyPeriod,
             {"policy_number": f"DEMO-PRES-ASSET-POL-{index:04d}"},
