@@ -210,35 +210,64 @@ class StaticAndPrivateMediaUrlTests(SimpleTestCase):
 
 @override_settings(DEBUG=True)
 class DemoSeedCommandSafetyTests(TestCase):
-    def test_seed_is_idempotent_and_never_resets_existing_user_password(self):
+    def test_seed_is_one_shot_and_rerun_fails_without_mutating_existing_data(self):
+        from django.apps import apps
         from django.core.management import call_command
+        from django.core.management.base import CommandError
         from accounts.models import User
-        from claims.models import Claim, ClaimPayment
-        from organizations.models import Company, Person
-        from requests_portal.models import ServiceRequest
 
         seed_environment = {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}
         with patch.dict("os.environ", seed_environment):
             call_command("seed_demo")
+
         employee = User.objects.get(username="employee.a")
         employee.set_password("LocallyChosen!Password2026")
         employee.save(update_fields=["password"])
 
-        model_counts = {
-            model: model.objects.count()
-            for model in (Company, Person, User, Claim, ClaimPayment, ServiceRequest)
-        }
+        managed_models = [
+            model for model in apps.get_models(include_auto_created=True)
+            if model._meta.managed and not model._meta.proxy and not model._meta.swapped
+        ]
+        model_counts = {model: model.objects.count() for model in managed_models}
 
         with patch.dict("os.environ", seed_environment):
-            call_command("seed_demo")
+            with self.assertRaises(CommandError) as raised:
+                call_command("seed_demo")
 
+        self.assertIn("Unsafe seed reuse", str(raised.exception))
         employee.refresh_from_db()
         self.assertTrue(employee.check_password("LocallyChosen!Password2026"))
         for model, count in model_counts.items():
             self.assertEqual(model.objects.count(), count, model._meta.label)
-        head = User.objects.get(username="Shahamat")
-        self.assertTrue(head.check_password(seed_environment["DEMO_SEED_PASSWORD"]))
         self.assertFalse(User.objects.filter(username="head.demo").exists())
+
+    def test_seed_never_assigns_a_password_to_an_existing_unusable_account(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import User
+        from organizations.models import Company
+
+        existing_admin = User.objects.create(
+            username="Admin",
+            role=User.Role.SYSTEM_ADMIN,
+            first_name="مدیر",
+            last_name="سامانه",
+            is_active=True,
+            is_staff=True,
+        )
+        existing_admin.set_unusable_password()
+        existing_admin.save(update_fields=["password"])
+        must_change_before = existing_admin.must_change_password
+
+        with patch.dict("os.environ", {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}):
+            with self.assertRaises(CommandError) as raised:
+                call_command("seed_demo")
+
+        self.assertIn("no usable password", str(raised.exception))
+        existing_admin.refresh_from_db()
+        self.assertFalse(existing_admin.has_usable_password())
+        self.assertEqual(existing_admin.must_change_password, must_change_before)
+        self.assertFalse(Company.objects.filter(code="DEMO-A").exists())
 
     def test_seed_collision_aborts_without_overwriting_or_partial_creation(self):
         from django.core.management import call_command
