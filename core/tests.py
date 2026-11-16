@@ -211,7 +211,6 @@ class StaticAndPrivateMediaUrlTests(SimpleTestCase):
 @override_settings(DEBUG=True)
 class DemoSeedCommandSafetyTests(TestCase):
     def test_seed_guard_allows_only_pristine_migration_bootstrap_calendar(self):
-        from django.core.management import call_command
         from workflow.models import BusinessCalendar
         from core.management.commands.seed_demo import _assert_empty_disposable_database
 
