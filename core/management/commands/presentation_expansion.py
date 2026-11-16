@@ -66,13 +66,17 @@ def _ensure_user(*, username, role, company=None, insurer=None, national_id="", 
         user.save()
         return user
 
-    for field in ("role", "company", "insurer", "is_active", "national_id",
-                  "first_name", "last_name", "mobile", "is_staff"):
+    for field in ("role", "company", "insurer", "is_active"):
         if getattr(user, field) != defaults[field]:
             raise CommandError(
                 f"Demo account collision: {username}.{field} does not match "
-                "its declared fixture identity; the existing account was not changed."
+                "its declared fixture scope; the existing account was not changed."
             )
+    if national_id and user.national_id != national_id:
+        raise CommandError(
+            f"Demo account collision: {username} has a different or missing national ID; "
+            "the existing account was not changed."
+        )
     if not user.has_usable_password():
         raise CommandError(
             f"Demo account collision: {username} has no usable password; "
