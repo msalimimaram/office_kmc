@@ -66,27 +66,18 @@ def _ensure_user(*, username, role, company=None, insurer=None, national_id="", 
         user.save()
         return user
 
-    for field in ("role", "company", "insurer", "is_active"):
+    for field in ("role", "company", "insurer", "is_active", "national_id",
+                  "first_name", "last_name", "mobile", "is_staff"):
         if getattr(user, field) != defaults[field]:
-            raise CommandError(f"Demo account collision: {username}.{field} does not match its declared presentation scope.")
-    changed = []
-    if national_id and not user.national_id:
-        user.national_id = national_id
-        changed.append("national_id")
-    elif national_id and user.national_id != national_id:
-        raise CommandError(f"Demo account collision: {username} has a different national ID.")
-    for field in ("first_name", "last_name", "mobile"):
-        if not getattr(user, field) and defaults[field]:
-            setattr(user, field, defaults[field])
-            changed.append(field)
+            raise CommandError(
+                f"Demo account collision: {username}.{field} does not match "
+                "its declared fixture identity; the existing account was not changed."
+            )
     if not user.has_usable_password():
-        user.set_password(password)
-        changed.append("password")
-    if user.must_change_password:
-        user.must_change_password = False
-        changed.append("must_change_password")
-    if changed:
-        user.save(update_fields=changed)
+        raise CommandError(
+            f"Demo account collision: {username} has no usable password; "
+            "seed setup will not change existing credentials."
+        )
     return user
 
 
@@ -327,8 +318,9 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     start_date = date(2026, 1, 1)
     end_date = date(2028, 12, 29)
 
-    def ensure(model, lookup, defaults, verify_fields=None):
-        return record(model, lookup, defaults, verify_fields)[0]
+    def ensure(model, lookup, defaults, verify_fields=None, *, return_created=False):
+        obj, created = record(model, lookup, defaults, verify_fields)
+        return (obj, created) if return_created else obj
 
     # 1) Enterprise scope: one parent, 49 subsidiaries, 50 insurers and
     # named company/insurer representatives. This makes scoping visible.
@@ -627,7 +619,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         insurer_for_company = insurers[(company_number - 1) % len(insurers)]
         for line, line_code in line_specs:
             code = f"DEMO-PRES-{company_number:03d}-{line_code.upper()}"
-            contract = ensure(
+            contract, contract_created = ensure(
                 Contract,
                 {"code": code},
                 {
@@ -642,8 +634,15 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                     "is_active": True,
                 },
                 verify_fields=("insurer", "line", "start_date", "end_date"),
+                return_created=True,
             )
-            contract.companies.add(company)
+            if contract_created:
+                contract.companies.set([company])
+            elif set(contract.companies.values_list("pk", flat=True)) != {company.pk}:
+                raise CommandError(
+                    f"Seed collision in Contract ({code}): company scope differs; "
+                    "the existing many-to-many relation was not changed."
+                )
             contracts_by_company_line[(company.pk, line)] = contract
         health_contracts[company.pk] = contracts_by_company_line[(company.pk, InsuranceLine.HEALTH)]
 
@@ -669,7 +668,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         else:
             start_at = today
             end_at = today + timedelta(days=365)
-        lifecycle_contract = ensure(
+        lifecycle_contract, lifecycle_created = ensure(
             Contract,
             {"code": f"DEMO-PRES-LIFECYCLE-{status.upper()}"},
             {
@@ -684,8 +683,16 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "is_active": status == Contract.Status.ACTIVE,
             },
             verify_fields=("status", "start_date", "end_date", "insurer", "line"),
+            return_created=True,
         )
-        lifecycle_contract.companies.add(companies[(index - 1) % len(companies)])
+        lifecycle_company = companies[(index - 1) % len(companies)]
+        if lifecycle_created:
+            lifecycle_contract.companies.set([lifecycle_company])
+        elif set(lifecycle_contract.companies.values_list("pk", flat=True)) != {lifecycle_company.pk}:
+            raise CommandError(
+                f"Seed collision in lifecycle contract ({lifecycle_contract.code}): "
+                "company scope differs; the existing relation was not changed."
+            )
 
     # A distinct contract revision for each state; every unapplied revision
     # belongs to a different contract to respect the one-open-revision rule.
@@ -1387,7 +1394,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     while InternalTask.objects.count() < MINIMUM_PER_MODEL:
         index = InternalTask.objects.count() + 1
         actor = health_lead if index % 2 else health_specialist
-        task = ensure(
+        task, task_created = ensure(
             InternalTask,
             {"title": f"وظیفه ارائه {index:04d}"},
             {
@@ -1399,9 +1406,17 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 "related_request": ServiceRequest.objects.order_by("pk")[(index - 1) % ServiceRequest.objects.count()],
             },
             verify_fields=(),
+            return_created=True,
         )
         assignee = (health_lead, health_specialist, fire_specialist, motor_specialist)[index % 4]
-        task.assignees.add(assignee)
+        existing_assignees = set(task.assignees.values_list("pk", flat=True))
+        if task_created:
+            task.assignees.add(assignee)
+        elif assignee.pk not in existing_assignees:
+            raise CommandError(
+                f"Seed collision in InternalTask ({task.title}): "
+                "the expected assignee is missing; the existing task was not changed."
+            )
         ensure(
             TaskEvent,
             {"task": task, "event_type": TaskEvent.EventType.CREATED, "note": f"ایجاد وظیفه نمایشی {index:04d}"},
