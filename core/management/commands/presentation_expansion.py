@@ -308,13 +308,14 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     from imports.models import ImportBatch
     from insurance.models import Contract, ContractRevision, InsuranceLine, Insurer
     from organizations.models import (
-        Company, CompanyLeadershipTitle, Person, PersonChangeRequest, PersonEmployment,
+        Company, CompanyLeadershipPosition, CompanyLeadershipTitle,
+        Person, PersonChangeRequest, PersonEmployment,
     )
     from requests_portal.models import ServiceRequest
     from tasks.models import InternalTask, TaskEvent
     from workflow.models import (
         BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
-        WorkflowEvent, WorkflowStep, WorkflowTransition,
+        WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowStep, WorkflowTransition,
     )
 
     admin = users["admin.demo"]
@@ -601,6 +602,21 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         "معاون منابع انسانی", "مدیر منابع انسانی", "نماینده سلامت و درمان",
         "نماینده بیمه خودرو", "مسئول بیمه اموال",
     )
+    # Each company owns its own selectable leadership-title catalog. Keep the
+    # catalog records separate from a person's dated appointment, and link
+    # appointments to the matching company-scoped option below.
+    leadership_positions_by_company = {}
+    for company in companies:
+        positions = {}
+        for title_index, title in enumerate(company_titles, start=1):
+            positions[title_index] = ensure(
+                CompanyLeadershipPosition,
+                {"company": company, "code": f"demo-title-{title_index:02d}"},
+                {"title": title, "is_active": True},
+                verify_fields=("title", "is_active"),
+            )
+        leadership_positions_by_company[company.pk] = positions
+
     for index, company in enumerate(companies, start=1):
         person = persons_by_company[company.pk]
         for title_index, title in enumerate(company_titles, start=1):
@@ -624,15 +640,17 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 valid_from = historical_employment.valid_from
                 valid_until = historical_employment.valid_until
 
+            position = leadership_positions_by_company[title_company.pk][title_index]
             ensure(
                 CompanyLeadershipTitle,
                 {"company": title_company, "person": person, "title": title},
                 {
+                    "position": position,
                     "valid_from": valid_from,
                     "valid_until": valid_until,
                     "declared_by": company_representatives[title_company.pk],
                 },
-                verify_fields=(),
+                verify_fields=("position",),
             )
 
     # All insurance lines have active contracts for each company. This keeps
@@ -1091,6 +1109,84 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         },
         verify_fields=(),
     )
+
+    # Satisfaction answers must belong to genuinely completed workflow cases
+    # and to the request's actual submitter. Create a distinct completed
+    # request/case pair for each respondent so the model's ownership and
+    # one-response-per-case constraints remain authoritative.
+    for index in range(1, MINIMUM_PER_MODEL + 1):
+        company = companies[(index - 1) % len(companies)]
+        respondent = company_representatives[company.pk]
+        request = ensure(
+            ServiceRequest,
+            {"reference": f"DEMO-PRES-SURVEY-{index:04d}"},
+            {
+                "kind": ServiceRequest.Kind.OTHER,
+                "submitted_by": respondent,
+                "person": persons_by_company[company.pk],
+                "company": company,
+                "title": f"درخواست تکمیل‌شده برای ارزیابی رضایت {index:04d}",
+                "description": "درخواست ساختگی تکمیل‌شده برای نمایش ارزیابی رضایت از رسیدگی.",
+                "status": ServiceRequest.Status.COMPLETED,
+                "assigned_to": None,
+                "is_confidential": False,
+            },
+            verify_fields=("kind", "submitted_by", "person", "company", "status"),
+        )
+        survey_case = ensure(
+            WorkflowCase,
+            {
+                "definition": completed_definition,
+                "content_type": request_content_type,
+                "object_id": str(request.pk),
+            },
+            {
+                "current_step": None,
+                "current_assignee": None,
+                "status": WorkflowCase.Status.COMPLETED,
+                "opened_at": now - timedelta(days=4, minutes=index),
+                "first_viewed_at": now - timedelta(days=3, minutes=index),
+                "first_action_at": now - timedelta(days=2, minutes=index),
+                "sla_due_at": None,
+                "closed_at": now - timedelta(days=1, minutes=index),
+                "is_locked": False,
+                "locked_by": None,
+            },
+            verify_fields=("status", "current_step", "current_assignee"),
+        )
+        ensure(
+            WorkflowEvent,
+            {
+                "workflow_case": survey_case,
+                "event_type": WorkflowEvent.EventType.ACTION,
+                "action_code": "presentation_completed_snapshot",
+                "note": f"تکمیل درخواست نمایشی نظرسنجی {index:04d}",
+            },
+            {
+                "actor": admin,
+                "from_step": completed_definition.steps.filter(is_initial=True).first(),
+                "to_step": None,
+                "from_assignee": admin,
+                "to_assignee": None,
+                "acted_at": now - timedelta(days=1, minutes=index),
+                "sent_at": now - timedelta(days=1, minutes=index),
+                "metadata": {
+                    "fixture": "DEMO-PRESENTATION",
+                    "lifecycle": "completed",
+                    "survey_sample": index,
+                },
+            },
+            verify_fields=(),
+        )
+        ensure(
+            WorkflowSatisfactionSurvey,
+            {"workflow_case": survey_case, "respondent": respondent},
+            {
+                "rating": (index - 1) % 5 + 1,
+                "comment": f"ارزیابی رضایت ساختگی شماره {index:04d} برای آزمون نمایش و گزارش‌گیری.",
+            },
+            verify_fields=("rating", "comment"),
+        )
 
     # Fifty active, versioned workflow definitions with two steps and explicit
     # approval/closure transitions. The first definitions are the real domain
