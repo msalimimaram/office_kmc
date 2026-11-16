@@ -198,10 +198,10 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         "Saman2", User.Role.INSURER, insurer_obj=insurer_b
     )
     company_c_rep = demo_user(
-        "Namayande3", User.Role.SUBSIDIARY_REP, company=company_c
+        "Namayande3", User.Role.SUBSIDIARY_REP, company=company_c, national_id="9820000003"
     )
     company_d_rep = demo_user(
-        "Namayande4", User.Role.SUBSIDIARY_REP, company=company_d
+        "Namayande4", User.Role.SUBSIDIARY_REP, company=company_d, national_id="9820000004"
     )
     users.update({
         "specialist.fire.demo": fire_specialist,
