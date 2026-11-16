@@ -25,6 +25,7 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 - [طرح معماری و مهاجرت چندنقشی](docs/MULTI_ROLE_IMPLEMENTATION_PLAN.md)
 - [سند جامع زنده و ممیزی اجزای پروژه](docs/PROJECT_MASTER.md)
 - [فهرست سایر مستندات](docs/README.md)
+- [چک‌لیست اولویت‌دار فاز صفر: تثبیت خط مبنا و آمادگی پذیرش](docs/PHASE0_BASELINE_CHECKLIST.md)
 
 قواعد تأییدشده در اسناد کسب‌وکار و ماتریس دسترسی، مرجع طراحی محصول هستند. کد فعلی در همه بخش‌ها هنوز با این مدل هدف هم‌راستا نشده است.
 
@@ -61,7 +62,7 @@ python manage.py test
 python manage.py runserver
 ```
 
-**ساخت داده نمایشی فقط پس از سبز شدن کل تست‌ها و روی دیتابیس محلیِ جدا از داده واقعی مجاز است.** فرمان `seed_demo` فقط در `DEBUG=True` اجرا می‌شود و متغیر محیطی `DEMO_SEED_PASSWORD` را برای حساب‌های تازه‌ساخته‌شده لازم دارد. در PowerShell:
+**ساخت داده نمایشی فقط پس از سبز شدن کل تست‌ها و روی یک دیتابیس محلیِ تازه و دورریختنی مجاز است.** فرمان `seed_demo` فقط در `DEBUG=True` اجرا می‌شود و متغیر محیطی `DEMO_SEED_PASSWORD` را برای حساب‌های تازه‌ساخته‌شده لازم دارد. این فرمان یک‌باره است: برخورد با fixture موجود و فاقد فهرست راستی‌آزمایی کامل، یا حساب موجودِ فاقد رمز قابل استفاده، باعث توقف و rollback می‌شود. حساب موجود هرگز با seed اصلاح یا بازنشانی نمی‌شود. برای ساخت مجدد سناریوی نمایشی، دیتابیس آزمایشی تازه بسازید؛ seed را روی دیتابیس حاوی داده‌ای که باید حفظ شود اجرا نکنید. در PowerShell:
 
 ```powershell
 $secure = Read-Host "Enter a new demo password" -AsSecureString
@@ -71,7 +72,7 @@ python manage.py seed_demo
 Remove-Item Env:DEMO_SEED_PASSWORD
 ```
 
-فرمان داده ساختگی مرتبط و گردش‌کارهای پایه را ایجاد می‌کند؛ اجرای جداگانه `seed_operational_workflows` پس از آن لازم نیست. حساب‌های واقعی ساخته‌شده توسط seed عبارت‌اند از `Admin`, `Shahamat`, `Salimi`, `Amiri`, `Delbari`, `Mahbod`, `Namayande1` تا `Namayande4`, `employee.a`, `employee.b`, `Saman` و `Saman2`. حساب‌های جدید از رمز محیطی استفاده می‌کنند و رمز قابل‌استفاده حساب موجود بازنویسی نمی‌شود. این حساب‌ها و رمز مشترک صرفاً برای داده ساختگی محلی‌اند؛ پیش از staging/production آن‌ها را غیرفعال یا بازتنظیم کنید و هرگز `DEMO_SEED_PASSWORD` را در Git ثبت نکنید. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با `python manage.py createsuperuser` بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود.
+فرمان داده ساختگی مرتبط و گردش‌کارهای پایه را ایجاد می‌کند؛ اجرای جداگانه `seed_operational_workflows` پس از آن لازم نیست. اجرای عادی `scripts/final_preflight.ps1` به‌صورت پیش‌فرض seed را اجرا نمی‌کند؛ فقط گزینه صریح `-SeedDemo` در اجرای محلی و روی دیتابیس تازه، آن را پس از موفقیت تست‌ها اجرا می‌کند. حساب‌های نمایشی ساخته‌شده توسط seed عبارت‌اند از `Admin`, `Shahamat`, `Salimi`, `Amiri`, `Delbari`, `Mahbod`, `Namayande1` تا `Namayande4`, `employee.a`, `employee.b`, `Saman` و `Saman2`. حساب‌های جدید از رمز محیطی استفاده می‌کنند و رمز قابل‌استفاده حساب موجود بازنویسی نمی‌شود. این حساب‌ها و رمز مشترک صرفاً برای داده ساختگی محلی‌اند؛ پیش از staging/production آن‌ها را غیرفعال یا بازتنظیم کنید و هرگز `DEMO_SEED_PASSWORD` را در Git ثبت نکنید. برای اجرای پنل Django Admin با دسترسی کامل می‌توانید یک superuser جداگانه با `python manage.py createsuperuser` بسازید. قبل از هر تغییر مدل، migration باید جداگانه طراحی، بازبینی و نسخه‌بندی شود.
 
 ## تنظیمات محیط
 
