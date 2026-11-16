@@ -1254,17 +1254,29 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
 
     # A minimum of 50 calendars and 50 serial-date counters make SLA and
     # correspondence numbering demonstrations visible across time windows.
-    base_calendar, _ = BusinessCalendar.objects.get_or_create(
+    calendar_defaults = {
+        "title": "تقویم کاری نمونه مجموعه",
+        "timezone_name": "Asia/Tehran",
+        "working_weekdays": [5, 6, 0, 1, 2, 3],
+        "start_time": datetime.strptime("08:00", "%H:%M").time(),
+        "end_time": datetime.strptime("16:00", "%H:%M").time(),
+        "is_active": True,
+    }
+    base_calendar, calendar_created = BusinessCalendar.objects.get_or_create(
         code="demo-iran-calendar",
-        defaults={
-            "title": "تقویم کاری نمونه مجموعه",
-            "timezone_name": "Asia/Tehran",
-            "working_weekdays": [5, 6, 0, 1, 2, 3],
-            "start_time": datetime.strptime("08:00", "%H:%M").time(),
-            "end_time": datetime.strptime("16:00", "%H:%M").time(),
-            "is_active": True,
-        },
+        defaults=calendar_defaults,
     )
+    if not calendar_created:
+        calendar_mismatches = [
+            field for field, expected in calendar_defaults.items()
+            if getattr(base_calendar, field) != expected
+        ]
+        if calendar_mismatches:
+            raise CommandError(
+                "Demo calendar collision: existing demo-iran-calendar differs for "
+                + ", ".join(calendar_mismatches)
+                + "; the existing calendar was not changed."
+            )
     while BusinessCalendar.objects.count() < MINIMUM_PER_MODEL:
         index = BusinessCalendar.objects.count() + 1
         ensure(
