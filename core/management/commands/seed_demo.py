@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 
 from django.conf import settings
@@ -29,6 +29,30 @@ def _assert_empty_disposable_database():
             or model._meta.swapped
         ):
             continue
+
+        # workflow.0001_initial deliberately creates one platform bootstrap
+        # calendar. It is configuration infrastructure, not user/business
+        # data. Allow only that exact singleton and reject any modified or
+        # additional calendar rows.
+        if model._meta.label_lower == "workflow.businesscalendar":
+            calendars = model._default_manager.all()
+            calendar_count = calendars.count()
+            if calendar_count == 0:
+                continue
+            if calendar_count == 1:
+                calendar = calendars.first()
+                is_pristine_bootstrap = (
+                    calendar.code == "iran-default"
+                    and calendar.title == "تقویم کاری مجموعه"
+                    and calendar.timezone_name == "Asia/Tehran"
+                    and calendar.working_weekdays == [5, 6, 0, 1, 2, 3]
+                    and calendar.start_time == time(8, 0)
+                    and calendar.end_time == time(16, 0)
+                    and calendar.is_active is True
+                )
+                if is_pristine_bootstrap:
+                    continue
+
         if model._default_manager.exists():
             populated.append(model._meta.label)
     if populated:
