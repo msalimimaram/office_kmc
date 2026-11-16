@@ -231,7 +231,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                 "reason": "انتصاب تکمیلی داده نمونه",
                 "granted_by": admin, "approved_by": head,
             },
-            verify_fields=(),
+            verify_fields=("valid_from", "valid_until", "is_active", "granted_by", "approved_by"),
         )
 
     # Contracts cover every insurance line and are linked to realistic company groups.
