@@ -102,6 +102,11 @@ class Claim(models.Model):
     def objection_deadline(self):
         return self.result_sent_at + timedelta(days=60) if self.result_sent_at else None
 
+    @property
+    def line_code(self):
+        """Use the contract line, retaining health scope for legacy claims without contracts."""
+        return self.contract.line if self.contract_id else "health"
+
     def clean(self):
         super().clean()
         errors = {}
