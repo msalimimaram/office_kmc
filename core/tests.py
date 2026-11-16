@@ -279,15 +279,13 @@ class DemoSeedCommandSafetyTests(TestCase):
         ).select_related("person", "company", "declared_by")
         self.assertTrue(historical_titles.exists())
         for appointment in historical_titles:
-            self.assertTrue(
-                PersonEmployment.objects.filter(
-                    person=appointment.person,
-                    company=appointment.company,
-                    valid_from__lte=appointment.valid_from,
-                    valid_until__gte=appointment.valid_until,
-                ).exists(),
-                f"Historical appointment {appointment.pk} is not covered by employment history.",
+            employment = PersonEmployment.objects.get(
+                person=appointment.person,
+                company=appointment.company,
+                source_reference__startswith="DEMO-PRES-HISTORY-",
             )
+            self.assertEqual(appointment.valid_from, employment.valid_from)
+            self.assertEqual(appointment.valid_until, employment.valid_until)
             self.assertEqual(appointment.declared_by.company_id, appointment.company_id)
 
         dependent_c = Person.objects.get(national_id="0012345685")
