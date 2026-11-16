@@ -158,12 +158,11 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                         f"Seed collision in User ({username}): {field} differs; account untouched."
                     )
             if not user.has_usable_password():
-                demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
-                if not demo_password:
-                    raise CommandError("DEMO_SEED_PASSWORD is required for demo accounts.")
-                user.set_password(demo_password)
-                user.must_change_password = False
-                user.save(update_fields=["password", "must_change_password"])
+                raise CommandError(
+                    f"Seed collision in accounts.User ({username}): "
+                    "the existing account has no usable password. "
+                    "Existing credentials and account state were not changed."
+                )
             return user
         demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
         if not demo_password:
@@ -311,18 +310,18 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         raise CommandError("Seed collision: dependent DEMO person 0012345684 has a different primary insured.")
     dependent_c = Person.objects.get(national_id="0012345685")
     parent_c = Person.objects.get(national_id="0012345682")
-    if dependent_c.employee_id is None:
-        dependent_c.employee = parent_c
-        dependent_c.save(update_fields=["employee"])
-    elif dependent_c.employee_id != parent_c.pk:
-        raise CommandError("Seed collision: dependent DEMO person 0012345685 has a different primary insured.")
+    if dependent_c.employee_id != parent_c.pk:
+        raise CommandError(
+            "Seed collision: dependent DEMO person 0012345685 does not already have "
+            "the expected primary insured. Existing person data was not changed."
+        )
     dependent_d = Person.objects.get(national_id="0012345686")
     parent_d = Person.objects.get(national_id="0012345683")
-    if dependent_d.employee_id is None:
-        dependent_d.employee = parent_d
-        dependent_d.save(update_fields=["employee"])
-    elif dependent_d.employee_id != parent_d.pk:
-        raise CommandError("Seed collision: dependent DEMO person 0012345686 has a different primary insured.")
+    if dependent_d.employee_id != parent_d.pk:
+        raise CommandError(
+            "Seed collision: dependent DEMO person 0012345686 does not already have "
+            "the expected primary insured. Existing person data was not changed."
+        )
 
     # Internal organizational chart and multiple position assignments.
     unit_hq = ensure(
@@ -804,21 +803,31 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         ("سند قابل بایگانی نمونه", "بایگانی", company_c, None, DocumentRecord.SecurityLevel.INTERNAL, False),
         ("سند باطل‌شده نمونه", "باطل‌شده", company_d, None, DocumentRecord.SecurityLevel.CONFIDENTIAL, False),
     )
+    existing_demo_documents = [
+        (title, category)
+        for title, category, *_ in document_specs
+        if DocumentRecord.objects.filter(title=title, category=category).exists()
+    ]
+    if existing_demo_documents:
+        raise CommandError(
+            "Unsafe demo document reuse detected for "
+            + ", ".join(f"{title}/{category}" for title, category in existing_demo_documents)
+            + ". Existing documents are never versioned, archived, voided or accessed by seed_demo."
+        )
+
     documents = []
     for index, (title, category, company, person, security, medical) in enumerate(document_specs, start=1):
-        document = DocumentRecord.objects.filter(title=title, category=category).first()
-        if not document:
-            document = create_document(
-                title=title,
-                category=category,
-                upload=_content(f"demo-document-{index:02d}.pdf", b"%PDF-1.4\nSynthetic office_kmc demo document\n%%EOF"),
-                uploaded_by=specialist,
-                company=company,
-                person=person,
-                security_level=security,
-                is_medical=medical,
-                change_reason="نسخه اولیه داده نمونه",
-            )
+        document = create_document(
+            title=title,
+            category=category,
+            upload=_content(f"demo-document-{index:02d}.pdf", b"%PDF-1.4\nSynthetic office_kmc demo document\n%%EOF"),
+            uploaded_by=specialist,
+            company=company,
+            person=person,
+            security_level=security,
+            is_medical=medical,
+            change_reason="نسخه اولیه داده نمونه",
+        )
         documents.append(document)
         if document.versions.count() < 2 and not document.is_archived and not document.is_void:
             add_document_version(
@@ -1005,7 +1014,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         creator = head if index % 2 else specialist
         assignee = specialist if index % 2 else head
         related = service_requests[(index - 1) % len(service_requests)] if service_requests else None
-        task = ensure(
+        task, task_created = record(
             InternalTask,
             {"title": f"وظیفه نمونه {index:02d}"},
             {
@@ -1019,8 +1028,13 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
             verify_fields=(),
         )
         existing_assignees = set(task.assignees.values_list("pk", flat=True))
-        if not existing_assignees:
+        if task_created:
             task.assignees.add(assignee)
+        elif assignee.pk not in existing_assignees:
+            raise CommandError(
+                f"Seed collision in InternalTask ({task.title}): "
+                "the expected assignee is missing; the existing task was not changed."
+            )
         # Preserve an operator-modified assignee list on an existing demo task.
         ensure(
             TaskEvent,
