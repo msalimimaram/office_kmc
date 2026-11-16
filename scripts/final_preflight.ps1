@@ -93,13 +93,24 @@ print(f"{active_workflows}|{populated_application_tables}")
     if ($LASTEXITCODE -ne 0) {
         throw "Could not determine whether the workflow publication gate applies."
     }
-    $workflowStateLine = ($workflowStateOutput | Select-Object -Last 1).ToString().Trim()
+    $workflowStateLastLine = $workflowStateOutput | Select-Object -Last 1
+    $workflowStateLine = [string]$workflowStateLastLine
+    if ([string]::IsNullOrWhiteSpace($workflowStateLine)) {
+        throw "Workflow state check returned no output."
+    }
+    $workflowStateLine = $workflowStateLine.Trim()
     $workflowState = $workflowStateLine.Split("|")
     if ($workflowState.Count -ne 2) {
         throw "Unexpected workflow state output: $workflowStateLine"
     }
-    $activeWorkflowCount = [int]$workflowState[0]
-    $populatedApplicationTableCount = [int]$workflowState[1]
+    $activeWorkflowCount = 0
+    $populatedApplicationTableCount = 0
+    if (-not [int]::TryParse($workflowState[0], [ref]$activeWorkflowCount)) {
+        throw "Invalid active workflow count: $workflowStateLine"
+    }
+    if (-not [int]::TryParse($workflowState[1], [ref]$populatedApplicationTableCount)) {
+        throw "Invalid populated application table count: $workflowStateLine"
+    }
     if ($activeWorkflowCount -gt 0 -or $populatedApplicationTableCount -gt 0) {
         Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
     }
