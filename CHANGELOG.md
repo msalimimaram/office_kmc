@@ -5,6 +5,7 @@
 ## Unreleased
 
 ### Safety and Operations
+- Historical leadership fixtures now take company and date bounds directly from the persisted PersonEmployment row; seed regression coverage asserts exact date equality.
 - Historical presentation leadership appointments now attach to the prior employer whose employment interval covers the appointment; the seed regression test verifies company, person, date-range and declaring-representative consistency.
 - Demo seeding now refuses to run unless all application data tables are empty (Django framework tables excluded).
 - The local preflight reports the workflow audit as not applicable only for a genuinely empty, unseeded baseline; populated and production databases still require the audit.
