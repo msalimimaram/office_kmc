@@ -569,13 +569,14 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
         PersonEmployment.Status.RETIRED,
         PersonEmployment.Status.TERMINATED,
     ]
+    historical_employments_by_person = {}
     for index, company in enumerate(companies, start=1):
         person = persons_by_company[company.pk]
         previous_company = companies[index % len(companies)]
         if previous_company.pk == company.pk:
             previous_company = companies[(index + 1) % len(companies)]
         status = employment_statuses[(index - 1) % len(employment_statuses)]
-        ensure(
+        historical_employment = ensure(
             PersonEmployment,
             {"person": person, "company": previous_company, "source_reference": f"DEMO-PRES-HISTORY-{index:04d}"},
             {
@@ -589,6 +590,9 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             },
             verify_fields=("status", "valid_from", "valid_until"),
         )
+        # Keep the actual persisted employment row as the sole source of
+        # company and date boundaries for any historical appointment.
+        historical_employments_by_person[person.pk] = historical_employment
 
     # Company-declared leadership and operational titles intentionally allow
     # several concurrent positions for one person, with a historical title.
@@ -610,11 +614,15 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             valid_from = start_date
             valid_until = None
             if historical_title:
-                title_company = companies[index % len(companies)]
-                if title_company.pk == company.pk:
-                    title_company = companies[(index + 1) % len(companies)]
-                valid_from = start_date - timedelta(days=900)
-                valid_until = start_date - timedelta(days=100)
+                historical_employment = historical_employments_by_person.get(person.pk)
+                if historical_employment is None:
+                    raise CommandError(
+                        f"No historical employment fixture exists for person {person.pk}; "
+                        "historical leadership title was not created."
+                    )
+                title_company = historical_employment.company
+                valid_from = historical_employment.valid_from
+                valid_until = historical_employment.valid_until
 
             ensure(
                 CompanyLeadershipTitle,
