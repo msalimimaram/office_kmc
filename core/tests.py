@@ -319,7 +319,8 @@ class DemoSeedCommandSafetyTests(TestCase):
         from datetime import date
         from accounts.models import RoleAssignment, User
         from core.management.commands.presentation_expansion import _ensure_role_assignment
-        from organizations.models import Company
+        from core.management.commands.seed_demo import _get_or_create_unchanged
+        from organizations.models import Company, Person
 
         company = Company.objects.create(
             code="SEED-ROLE-VERIFY",
@@ -335,6 +336,15 @@ class DemoSeedCommandSafetyTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
             company=company,
+        )
+        Person.objects.create(
+            company=company,
+            user=representative,
+            national_id="1234567890",
+            first_name="کاربر",
+            last_name="آزمایشی",
+            birth_date=date(1990, 1, 1),
+            relationship=Person.Relationship.EMPLOYEE,
         )
         existing = RoleAssignment.objects.create(
             user=representative,
