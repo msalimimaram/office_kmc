@@ -258,13 +258,17 @@ class ClaimObjectionReviewFlowTests(TestCase):
             note="شروع گردش آزمون اعتراض",
         )
 
-    def test_department_head_can_review_answer_reopen_and_close_objection_with_history(self):
+    def test_department_head_is_routed_to_generic_workflow_for_objection_review(self):
         case = self._start_workflow_case()
         client = Client()
         client.force_login(self.head)
         detail = client.get(reverse("claim_detail", args=[self.claim.pk]))
         self.assertEqual(detail.status_code, 200)
         self.assertContains(
+            detail,
+            reverse("workflow_case_detail", args=[case.pk]),
+        )
+        self.assertNotContains(
             detail,
             reverse("claim_objection_review", args=[self.claim.pk, self.objection.pk]),
         )
@@ -279,7 +283,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
             reverse("workflow_case_detail", args=[case.pk]),
         )
         self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
+        self.assertEqual(self.objection.status, ClaimObjection.Status.IN_REVIEW)
         self.assertEqual(self.objection.response, "")
 
     def test_specialist_can_answer_but_cannot_close_objection(self):
@@ -299,9 +303,17 @@ class ClaimObjectionReviewFlowTests(TestCase):
             reverse("workflow_case_detail", args=[case.pk]),
         )
         self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
+        self.assertEqual(self.objection.status, ClaimObjection.Status.IN_REVIEW)
         self.assertEqual(self.objection.response, "")
 
+        answer_transition = WorkflowTransition.objects.get(
+            definition=case.definition,
+            action_code="answer",
+        )
+        self.assertIn(
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            answer_transition.allowed_roles,
+        )
         close_transition = WorkflowTransition.objects.get(
             definition=case.definition,
             action_code="close_objection",
@@ -332,7 +344,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
             reverse("workflow_case_detail", args=[case.pk]),
         )
         self.objection.refresh_from_db()
-        self.assertEqual(self.objection.status, ClaimObjection.Status.OPEN)
+        self.assertEqual(self.objection.status, ClaimObjection.Status.IN_REVIEW)
 
     def test_configured_objection_is_routed_through_generic_workflow(self):
         from accounts.models import RoleAssignment
