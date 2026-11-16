@@ -69,7 +69,44 @@ if ($SeedDemo) {
     Invoke-Check -Name "One-time demo seed on disposable local database" -Command $python -Arguments @("manage.py", "seed_demo")
 }
 
-Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
+# The workflow gate is mandatory for production, explicit demo seeding, and any
+# database that already contains application data. A genuinely empty local
+# baseline has no configured workflows yet, so report the gate as not applicable.
+if ($SeedDemo -or $Production) {
+    Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
+}
+else {
+    $workflowStateCode = @"
+from django.apps import apps
+from workflow.models import WorkflowDefinition
+framework_apps = {"admin", "auth", "contenttypes", "sessions"}
+populated_application_tables = sum(
+    1 for model in apps.get_models(include_auto_created=False)
+    if model._meta.managed and not model._meta.proxy and not model._meta.swapped
+    and model._meta.app_label not in framework_apps
+    and model._default_manager.exists()
+)
+active_workflows = WorkflowDefinition.objects.filter(is_active=True).count()
+print(f"{active_workflows}|{populated_application_tables}")
+"@
+    $workflowStateOutput = & $python "manage.py" "shell" "-c" $workflowStateCode
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not determine whether the workflow publication gate applies."
+    }
+    $workflowStateLine = ($workflowStateOutput | Select-Object -Last 1).ToString().Trim()
+    $workflowState = $workflowStateLine.Split("|")
+    if ($workflowState.Count -ne 2) {
+        throw "Unexpected workflow state output: $workflowStateLine"
+    }
+    $activeWorkflowCount = [int]$workflowState[0]
+    $populatedApplicationTableCount = [int]$workflowState[1]
+    if ($activeWorkflowCount -gt 0 -or $populatedApplicationTableCount -gt 0) {
+        Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
+    }
+    else {
+        Write-Host "NOT APPLICABLE: no application data or workflow definitions exist in this empty local baseline." -ForegroundColor Yellow
+    }
+}
 
 if ($Production) {
     # Read the effective Django settings rather than PowerShell's process
