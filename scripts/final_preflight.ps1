@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Production
+    [switch]$Production,
+    [switch]$SeedDemo
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,8 +35,11 @@ if (-not (Test-Path "manage.py")) {
     throw "Run this script from the office_kmc repository root (manage.py was not found)."
 }
 
-if (-not $Production -and [string]::IsNullOrWhiteSpace($env:DEMO_SEED_PASSWORD)) {
-    throw "Set DEMO_SEED_PASSWORD in this PowerShell process before local preflight; demo data is seeded only after all tests pass."
+if ($Production -and $SeedDemo) {
+    throw "-SeedDemo is prohibited in Production mode."
+}
+if ($SeedDemo -and [string]::IsNullOrWhiteSpace($env:DEMO_SEED_PASSWORD)) {
+    throw "Set DEMO_SEED_PASSWORD in this PowerShell process only when explicitly requesting the one-time demo seed."
 }
 
 Write-Host "Python executable: $python"
@@ -59,10 +63,10 @@ Invoke-Check -Name "Database migration state" -Command $python -Arguments @("man
 Invoke-Check -Name "Verify operational database tables" -Command $python -Arguments @("manage.py", "verify_database_schema")
 Invoke-Check -Name "Complete Django test suite" -Command $python -Arguments @("manage.py", "test", "--verbosity", "2")
 
-# Seed only the disposable local development database. The demo command is
-# guarded by DEBUG=True; Production preflight never creates demo accounts/data.
-if (-not $Production) {
-    Invoke-Check -Name "Seed local demo data" -Command $python -Arguments @("manage.py", "seed_demo")
+# Demo data is never created implicitly. The seed is one-shot and must only
+# be requested explicitly for a fresh, disposable local database after tests pass.
+if ($SeedDemo) {
+    Invoke-Check -Name "One-time demo seed on disposable local database" -Command $python -Arguments @("manage.py", "seed_demo")
 }
 
 Invoke-Check -Name "Workflow publication gate" -Command $python -Arguments @("manage.py", "audit_workflows")
