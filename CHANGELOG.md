@@ -5,7 +5,8 @@
 ## Unreleased
 
 ### Safety and Operations
-- Demo seed reuse now fails closed when an existing fixture has no explicit non-empty verification allow-list.
+- Demo seeding now refuses to run unless all application data tables are empty (Django framework tables excluded).
+- Demo seed reuse fails closed when an existing fixture has no explicit non-empty verification allow-list.
 - Existing demo accounts without usable passwords are rejected instead of having credentials changed.
 - Demo document reuse is rejected; existing dependent-person links and task assignments are never repaired by the seed process.
 - The local preflight no longer runs `seed_demo` implicitly; demo seeding requires explicit `-SeedDemo` on a fresh disposable database.
