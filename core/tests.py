@@ -210,6 +210,39 @@ class StaticAndPrivateMediaUrlTests(SimpleTestCase):
 
 @override_settings(DEBUG=True)
 class DemoSeedCommandSafetyTests(TestCase):
+    def test_seed_guard_allows_only_pristine_migration_bootstrap_calendar(self):
+        from django.core.management import call_command
+        from workflow.models import BusinessCalendar
+        from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        calendar = BusinessCalendar.objects.get(code="iran-default")
+        self.assertEqual(calendar.title, "تقویم کاری مجموعه")
+        self.assertEqual(calendar.timezone_name, "Asia/Tehran")
+        self.assertEqual(calendar.working_weekdays, [5, 6, 0, 1, 2, 3])
+        self.assertEqual(calendar.start_time.isoformat(timespec="minutes"), "08:00")
+        self.assertEqual(calendar.end_time.isoformat(timespec="minutes"), "16:00")
+        self.assertTrue(calendar.is_active)
+
+        # The pristine singleton is created by workflow.0001_initial and is
+        # the only existing application row permitted by the seed guard.
+        _assert_empty_disposable_database()
+
+    def test_seed_guard_rejects_a_modified_or_additional_business_calendar(self):
+        from django.core.management.base import CommandError
+        from workflow.models import BusinessCalendar
+        from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        calendar = BusinessCalendar.objects.get(code="iran-default")
+        calendar.title = "تقویم تغییر یافته"
+        calendar.save(update_fields=["title"])
+
+        with self.assertRaises(CommandError) as raised:
+            _assert_empty_disposable_database()
+
+        self.assertIn("workflow.BusinessCalendar", str(raised.exception))
+        calendar.refresh_from_db()
+        self.assertEqual(calendar.title, "تقویم تغییر یافته")
+
     def test_seed_is_one_shot_and_rerun_fails_without_mutating_existing_data(self):
         from django.apps import apps
         from django.core.management import call_command
