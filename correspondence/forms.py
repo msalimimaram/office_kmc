@@ -114,9 +114,14 @@ class CorrespondenceForm(forms.ModelForm):
             ).distinct()
 
         self.fields["attachment"].required = False
+        # The model owns a timezone-aware default; do not make callers supply
+        # an explicit event timestamp merely because the field is on the form.
+        self.fields["occurred_at"].required = False
 
     def clean(self):
         cleaned = super().clean()
+        if not cleaned.get("occurred_at"):
+            cleaned["occurred_at"] = timezone.now()
         company = cleaned.get("company")
         if company is None and self.active_company_id:
             company = Company.objects.filter(pk=self.active_company_id).first()
