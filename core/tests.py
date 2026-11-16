@@ -271,8 +271,33 @@ class DemoSeedCommandSafetyTests(TestCase):
 
         from datetime import date
         from organizations.models import (
-            CompanyLeadershipTitle, Person, PersonEmployment, PersonRelationship,
+            CompanyLeadershipPosition, CompanyLeadershipTitle,
+            Person, PersonEmployment, PersonRelationship,
         )
+        from workflow.models import WorkflowCase, WorkflowSatisfactionSurvey
+
+        self.assertGreaterEqual(CompanyLeadershipPosition.objects.count(), 50)
+        linked_titles = CompanyLeadershipTitle.objects.filter(
+            position__isnull=False
+        ).select_related("company", "position")
+        self.assertGreaterEqual(linked_titles.count(), 50)
+        for appointment in linked_titles:
+            self.assertEqual(appointment.position.company_id, appointment.company_id)
+
+        surveys = WorkflowSatisfactionSurvey.objects.select_related(
+            "workflow_case", "respondent"
+        )
+        self.assertGreaterEqual(surveys.count(), 50)
+        for survey in surveys:
+            self.assertIn(
+                survey.workflow_case.status,
+                {WorkflowCase.Status.CLOSED, WorkflowCase.Status.COMPLETED},
+            )
+            self.assertEqual(
+                survey.workflow_case.content_object.submitted_by_id,
+                survey.respondent_id,
+            )
+
         historical_titles = CompanyLeadershipTitle.objects.filter(
             title="مدیرعامل",
             valid_from__lt=date(2026, 1, 1),
