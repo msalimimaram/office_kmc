@@ -242,7 +242,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         ("DEMO-FIRE-01", "قرارداد نمونه آتش‌سوزی", insurer_b, InsuranceLine.FIRE, [company_a, company_b, company_c, company_d]),
         ("DEMO-TP-01", "قرارداد نمونه شخص ثالث", insurer, InsuranceLine.THIRD_PARTY, [company_a, company_b, company_c, company_d]),
         ("DEMO-BODY-01", "قرارداد نمونه بدنه خودرو", insurer_b, InsuranceLine.BODY, [company_a, company_b, company_c]),
-        ("DEMO-OTHER-01", "قرارداد نمونه سایر پوشش‌ها", insurer, InsuranceLine.OTHER, [company_b, company_c, company_d]),
+        ("DEMO-OTHER-01", "قرارداد نمونه سایر پوشش‌ها", insurer, InsuranceLine.OTHER, [company_a, company_b, company_c, company_d]),
     )
     for code, title, contract_insurer, line, companies in contract_specs:
         contract, created = record(
