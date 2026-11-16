@@ -234,7 +234,7 @@ class DemoSeedCommandSafetyTests(TestCase):
             with self.assertRaises(CommandError) as raised:
                 call_command("seed_demo")
 
-        self.assertIn("Unsafe seed reuse", str(raised.exception))
+        self.assertIn("empty, disposable database", str(raised.exception))
         employee.refresh_from_db()
         self.assertTrue(employee.check_password("LocallyChosen!Password2026"))
         for model, count in model_counts.items():
@@ -263,13 +263,13 @@ class DemoSeedCommandSafetyTests(TestCase):
             with self.assertRaises(CommandError) as raised:
                 call_command("seed_demo")
 
-        self.assertIn("no usable password", str(raised.exception))
+        self.assertIn("empty, disposable database", str(raised.exception))
         existing_admin.refresh_from_db()
         self.assertFalse(existing_admin.has_usable_password())
         self.assertEqual(existing_admin.must_change_password, must_change_before)
         self.assertFalse(Company.objects.filter(code="DEMO-A").exists())
 
-    def test_seed_collision_aborts_without_overwriting_or_partial_creation(self):
+    def test_seed_requires_empty_database_and_preserves_existing_company(self):
         from django.core.management import call_command
         from django.core.management.base import CommandError
         from organizations.models import Company
@@ -284,11 +284,36 @@ class DemoSeedCommandSafetyTests(TestCase):
         with patch.dict("os.environ", {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}):
             with self.assertRaises(CommandError) as raised:
                 call_command("seed_demo")
-        self.assertIn("Seed collision", str(raised.exception))
+        self.assertIn("empty, disposable database", str(raised.exception))
 
         company.refresh_from_db()
         self.assertEqual(company.name, "رکورد موجود نباید تغییر کند")
         self.assertFalse(Company.objects.filter(code="DEMO-B").exists())
+
+
+    def test_existing_fixture_without_verification_allowlist_fails_closed(self):
+        from django.core.management.base import CommandError
+        from core.management.commands.seed_demo import _get_or_create_unchanged
+        from organizations.models import Company
+
+        company = Company.objects.create(
+            code="SEED-VERIFY-GUARD",
+            name="رکورد موجود باید حفظ شود",
+            is_parent=False,
+            is_active=True,
+        )
+        with self.assertRaises(CommandError) as raised:
+            _get_or_create_unchanged(
+                Company,
+                lookup={"code": "SEED-VERIFY-GUARD"},
+                defaults={"name": "نام جایگزین", "is_parent": True, "is_active": False},
+                verify_fields=(),
+            )
+        self.assertIn("Unsafe seed reuse", str(raised.exception))
+        company.refresh_from_db()
+        self.assertEqual(company.name, "رکورد موجود باید حفظ شود")
+        self.assertFalse(company.is_parent)
+        self.assertTrue(company.is_active)
 
 
 
