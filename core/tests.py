@@ -269,7 +269,27 @@ class DemoSeedCommandSafetyTests(TestCase):
         with patch.dict("os.environ", seed_environment):
             call_command("seed_demo")
 
-        from organizations.models import Person, PersonRelationship
+        from datetime import date
+        from organizations.models import (
+            CompanyLeadershipTitle, Person, PersonEmployment, PersonRelationship,
+        )
+        historical_titles = CompanyLeadershipTitle.objects.filter(
+            title="مدیرعامل",
+            valid_from__lt=date(2026, 1, 1),
+        ).select_related("person", "company", "declared_by")
+        self.assertTrue(historical_titles.exists())
+        for appointment in historical_titles:
+            self.assertTrue(
+                PersonEmployment.objects.filter(
+                    person=appointment.person,
+                    company=appointment.company,
+                    valid_from__lte=appointment.valid_from,
+                    valid_until__gte=appointment.valid_until,
+                ).exists(),
+                f"Historical appointment {appointment.pk} is not covered by employment history.",
+            )
+            self.assertEqual(appointment.declared_by.company_id, appointment.company_id)
+
         dependent_c = Person.objects.get(national_id="0012345685")
         dependent_d = Person.objects.get(national_id="0012345686")
         primary_c = Person.objects.get(national_id="0012345682")
