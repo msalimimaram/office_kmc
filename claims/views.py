@@ -109,7 +109,7 @@ def _objection_workflow_case(objection):
     ).first()
 
 def _can_manage_claim_payments(user, claim):
-    line_code = claim.contract.line if claim.contract_id else "health"
+    line_code = claim.line_code
     return has_global_access(user) or has_role(
         user, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code=line_code
     )
@@ -185,7 +185,7 @@ def claim_detail(request, pk):
                         raise ValidationError(
                             "گردش‌کار فعال claim_objection برای ثبت و رسیدگی به اعتراض خسارت پیکربندی نشده است."
                         )
-                    line_code = claim.contract.line if claim.contract_id else "health"
+                    line_code = claim.line_code
                     initial_assignee, delegation = resolve_initial_assignee(
                         definition=definition,
                         obj=objection,
