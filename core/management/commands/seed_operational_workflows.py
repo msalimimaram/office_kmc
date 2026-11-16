@@ -231,13 +231,26 @@ class Command(BaseCommand):
                 is_initial=initial, allow_return=True,
             )
 
-        def add(source, target, action, title, roles, recipient_roles=None, *, levels=(), recipient_levels=(), note=False, returned=False, closes=False):
+        def add(
+            source, target, action, title, roles, recipient_roles=None, *,
+            levels=None, recipient_levels=None, note=False, returned=False, closes=False,
+        ):
+            # JSON routing fields must always be lists. Empty tuple defaults
+            # pass through model validation as tuples and fail the strict
+            # position-level validator, even when the transition is role-based.
             WorkflowTransition.objects.create(
-                definition=definition, source_step=steps[source],
-                target_step=None if closes else steps[target], action_code=action,
-                title=title, allowed_roles=roles, allowed_position_levels=levels,
-                recipient_roles=list(recipient_roles or []), recipient_position_levels=list(recipient_levels or []),
-                requires_note=note, is_return=returned, closes_case=closes,
+                definition=definition,
+                source_step=steps[source],
+                target_step=None if closes else steps[target],
+                action_code=action,
+                title=title,
+                allowed_roles=list(roles or []),
+                allowed_position_levels=list(levels or []),
+                recipient_roles=list(recipient_roles or []),
+                recipient_position_levels=list(recipient_levels or []),
+                requires_note=note,
+                is_return=returned,
+                closes_case=closes,
             )
 
         add("supervisor_review", "responsible_review", "approve_to_responsible", "تأیید سرپرست و ارجاع به مسئول", [], recipient_levels=[responsible_level], levels=[supervisor_level])
