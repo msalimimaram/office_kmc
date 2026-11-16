@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+### Safety and Operations
+- Demo seed reuse now fails closed when an existing fixture has no explicit non-empty verification allow-list.
+- Existing demo accounts without usable passwords are rejected instead of having credentials changed.
+- Demo document reuse is rejected; existing dependent-person links and task assignments are never repaired by the seed process.
+- The local preflight no longer runs `seed_demo` implicitly; demo seeding requires explicit `-SeedDemo` on a fresh disposable database.
+
+### Documentation
+- Added the prioritized Phase 0 baseline stabilization and acceptance checklist.
+
 ### Security
 - افزودن محدودسازی تلاش ناموفق ورود (۵ تلاش برای ترکیب نام کاربری/IP و قفل ۱۵ دقیقه‌ای) همراه با تست رگرسیون؛ استقرار چندپردازه به cache مشترک اتمیک نیاز دارد.
 - گسترش تست‌های اعتبارسنجی فایل برای پسوند غیرمجاز، بازگرداندن cursor فایل و فایل Office جعلی.
