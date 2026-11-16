@@ -30,6 +30,12 @@ def _get_or_create_unchanged(model, *, lookup, defaults, verify_fields=None):
         expected_values = dict(lookup)
         expected_values.update(defaults)
         fields = tuple(verify_fields) if verify_fields is not None else tuple(expected_values)
+        if not fields:
+            raise CommandError(
+                f"Unsafe seed reuse in {model._meta.label} ({lookup}): "
+                "a non-empty verify_fields allow-list is required for an existing row. "
+                "The existing row was not changed; use a fresh disposable database for demo setup."
+            )
         missing_fields = [field for field in fields if field not in expected_values]
         if missing_fields:
             raise CommandError(
@@ -52,7 +58,7 @@ def _get_or_create_unchanged(model, *, lookup, defaults, verify_fields=None):
 
 
 class Command(BaseCommand):
-    help = "ایجاد داده نمونه غیرمخرب برای تست محلی؛ فقط در DEBUG مجاز است."
+    help = "ایجاد یک‌باره داده نمونه روی پایگاه داده محلی و دورریختنی؛ فقط در DEBUG مجاز است."
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -200,9 +206,11 @@ class Command(BaseCommand):
                             f"{field} differs. Existing account and password were not changed."
                         )
                 if not user.has_usable_password():
-                    user.set_password(demo_password)
-                    user.must_change_password = False
-                    user.save(update_fields=["password", "must_change_password"])
+                    raise CommandError(
+                        f"Seed collision in accounts.User (username={username}): "
+                        "the existing account has no usable password. "
+                        "Existing credentials and account state were not changed."
+                    )
                 reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
             users[username] = user
 
