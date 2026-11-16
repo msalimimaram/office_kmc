@@ -378,6 +378,28 @@ class DemoSeedCommandSafetyTests(TestCase):
         )
 
         self.assertEqual(reused.pk, existing.pk)
+
+        support_reused, created = _get_or_create_unchanged(
+            RoleAssignment,
+            lookup={
+                "user": representative,
+                "role": RoleAssignment.Role.SUBSIDIARY_REP,
+                "company": company,
+                "insurer": None,
+                "line_code": "*",
+            },
+            defaults={
+                "valid_from": date(2026, 1, 1),
+                "valid_until": None,
+                "is_active": True,
+                "reason": "انتصاب تکمیلی داده نمونه",
+                "granted_by": admin,
+                "approved_by": admin,
+            },
+            verify_fields=("valid_from", "valid_until", "is_active", "granted_by", "approved_by"),
+        )
+        self.assertFalse(created)
+        self.assertEqual(support_reused.pk, existing.pk)
         reused.refresh_from_db()
         self.assertEqual(reused.reason, "دلیل ثبت‌شده در seed پایه")
         self.assertEqual(RoleAssignment.objects.filter(user=representative).count(), 1)
