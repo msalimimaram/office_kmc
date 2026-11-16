@@ -14,6 +14,7 @@
 - The local preflight no longer runs `seed_demo` implicitly; demo seeding requires explicit `-SeedDemo` on a fresh disposable database.
 - Added `-NoMigrate` to run Phase 0 checks against an existing local database without applying migrations.
 - Demo dependent persons are now created with their primary-insured link on first insert; regression assertions verify both Person and PersonRelationship rows.
+- The presentation seed rejects existing demo accounts without usable passwords and verifies shared calendar defaults before reuse.
 
 ### Documentation
 - Added the prioritized Phase 0 baseline stabilization and acceptance checklist.
