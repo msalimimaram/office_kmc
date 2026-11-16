@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$Production,
-    [switch]$SeedDemo
+    [switch]$SeedDemo,
+    [switch]$NoMigrate
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +39,9 @@ if (-not (Test-Path "manage.py")) {
 if ($Production -and $SeedDemo) {
     throw "-SeedDemo is prohibited in Production mode."
 }
+if ($NoMigrate -and $SeedDemo) {
+    throw "-SeedDemo cannot be combined with -NoMigrate; seed setup requires the schema to be migrated first."
+}
 if ($SeedDemo -and [string]::IsNullOrWhiteSpace($env:DEMO_SEED_PASSWORD)) {
     throw "Set DEMO_SEED_PASSWORD in this PowerShell process only when explicitly requesting the one-time demo seed."
 }
@@ -52,11 +56,14 @@ Invoke-Check -Name "Dependency consistency" -Command $python -Arguments @("-m", 
 Invoke-Check -Name "Django system checks" -Command $python -Arguments @("manage.py", "check")
 Invoke-Check -Name "Migration drift check" -Command $python -Arguments @("manage.py", "makemigrations", "--check", "--dry-run")
 
-# A fresh local clone has unapplied migrations by definition. Apply them to the
-# local development database before checking migration state. Production mode
-# must remain read-only and therefore never runs migrate.
-if (-not $Production) {
+# Local default mode applies migrations. Phase 0 can opt into -NoMigrate to
+# inspect an existing database without changing its schema. Production mode
+# always remains read-only.
+if (-not $Production -and -not $NoMigrate) {
     Invoke-Check -Name "Apply local database migrations" -Command $python -Arguments @("manage.py", "migrate", "--noinput")
+}
+elseif ($NoMigrate) {
+    Write-Host "READ-ONLY SCHEMA MODE: migrations will be inspected but not applied." -ForegroundColor Yellow
 }
 
 Invoke-Check -Name "Database migration state" -Command $python -Arguments @("manage.py", "migrate", "--check")
