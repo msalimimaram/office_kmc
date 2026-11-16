@@ -12,6 +12,7 @@
 - Existing demo accounts without usable passwords are rejected instead of having credentials changed.
 - Demo document reuse is rejected; existing dependent-person links and task assignments are never repaired by the seed process.
 - The local preflight no longer runs `seed_demo` implicitly; demo seeding requires explicit `-SeedDemo` on a fresh disposable database.
+- Added `-NoMigrate` to run Phase 0 checks against an existing local database without applying migrations.
 
 ### Documentation
 - Added the prioritized Phase 0 baseline stabilization and acceptance checklist.
