@@ -600,13 +600,29 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     for index, company in enumerate(companies, start=1):
         person = persons_by_company[company.pk]
         for title_index, title in enumerate(company_titles, start=1):
+            # The historical CEO example belongs to the person's previous
+            # employer, whose employment interval was created above. Keeping
+            # the appointment on the current company would place its dates
+            # outside every valid employment row and correctly fail model
+            # validation.
+            historical_title = title_index == 1 and index % 4 == 0
+            title_company = company
+            valid_from = start_date
+            valid_until = None
+            if historical_title:
+                title_company = companies[index % len(companies)]
+                if title_company.pk == company.pk:
+                    title_company = companies[(index + 1) % len(companies)]
+                valid_from = start_date - timedelta(days=900)
+                valid_until = start_date - timedelta(days=100)
+
             ensure(
                 CompanyLeadershipTitle,
-                {"company": company, "person": person, "title": title},
+                {"company": title_company, "person": person, "title": title},
                 {
-                    "valid_from": start_date - timedelta(days=900) if title_index == 1 and index % 4 == 0 else start_date,
-                    "valid_until": start_date - timedelta(days=100) if title_index == 1 and index % 4 == 0 else None,
-                    "declared_by": company_representatives[company.pk],
+                    "valid_from": valid_from,
+                    "valid_until": valid_until,
+                    "declared_by": company_representatives[title_company.pk],
                 },
                 verify_fields=(),
             )
