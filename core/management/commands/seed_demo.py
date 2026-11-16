@@ -15,6 +15,31 @@ from requests_portal.models import ServiceRequest
 SEED_DATE = date(2026, 11, 10)
 
 
+def _assert_empty_disposable_database():
+    """Refuse to seed any database that already contains application data."""
+    from django.apps import apps
+
+    framework_app_labels = {"admin", "auth", "contenttypes", "sessions"}
+    populated = []
+    for model in apps.get_models(include_auto_created=False):
+        if (
+            model._meta.app_label in framework_app_labels
+            or not model._meta.managed
+            or model._meta.proxy
+            or model._meta.swapped
+        ):
+            continue
+        if model._default_manager.exists():
+            populated.append(model._meta.label)
+    if populated:
+        labels = ", ".join(sorted(populated))
+        raise CommandError(
+            "seed_demo requires an empty, disposable database. "
+            f"Existing application data was found in: {labels}. "
+            "No existing records were changed; use a newly created local database."
+        )
+
+
 def _get_or_create_unchanged(model, *, lookup, defaults, verify_fields=None):
     """
     Create a namespaced fixture row, or reuse it without ever updating it.
@@ -64,6 +89,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if not settings.DEBUG:
             raise CommandError("seed_demo فقط در محیط DEBUG قابل اجراست.")
+
+        _assert_empty_disposable_database()
 
         created_counts = {}
         reused_counts = {}
