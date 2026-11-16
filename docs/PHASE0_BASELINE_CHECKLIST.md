@@ -74,6 +74,8 @@
 
 ## P0-B — بررسی سیستم، migration و صحت schema
 
+برای نخستین ممیزی خط مبنا روی دیتابیس موجود، ابتدا از حالت فقط‌خواندنی استفاده شود: `.scripts\final_preflight.ps1 -NoMigrate`. این حالت migration اعمال نمی‌کند، ولی migration state، schema، گردش‌کار و کل تست‌ها را بررسی می‌کند؛ Django برای تست‌ها از test database موقت استفاده می‌کند. اگر migration جاافتاده یا schema ناسازگار گزارش شد، پیش از اجرای حالت مهاجرت، snapshot/backup و برنامه تغییر جداگانه تهیه شود.
+
 روی دیتابیس محلی آزمایشی یا clone دورریختنی اجرا شود:
 
 - [ ] `python manage.py check`
