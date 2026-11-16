@@ -14,7 +14,7 @@
 - The local preflight no longer runs `seed_demo` implicitly; demo seeding requires explicit `-SeedDemo` on a fresh disposable database.
 - Added `-NoMigrate` to run Phase 0 checks against an existing local database without applying migrations.
 - Demo dependent persons are now created with their primary-insured link on first insert; regression assertions verify both Person and PersonRelationship rows.
-- The demo seed guard permits only the exact singleton `iran-default` calendar installed by `workflow.0001_initial`; altered or additional calendars remain a collision.
+- The demo seed guard permits only the exact singleton `iran-default` calendar installed by `workflow.0001_initial`; altered or additional calendars remain a collision, with regression tests for both cases.
 - Operational report transitions normalize all role and position routing JSON fields to lists before validation.
 - Correspondence creation now applies the model's timezone-aware timestamp default when `occurred_at` is omitted from the form.
 - Added regression coverage for bootstrap calendar preservation, workflow routing JSON types, and supervisor correspondence creation without a supplied timestamp.
