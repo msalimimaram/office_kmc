@@ -235,9 +235,8 @@ class Command(BaseCommand):
             source, target, action, title, roles, recipient_roles=None, *,
             levels=None, recipient_levels=None, note=False, returned=False, closes=False,
         ):
-            # JSON routing fields must always be lists. Empty tuple defaults
-            # pass through model validation as tuples and fail the strict
-            # position-level validator, even when the transition is role-based.
+            # JSON routing fields must always be lists. Normalize both
+            # empty defaults and explicit iterables before model validation.
             WorkflowTransition.objects.create(
                 definition=definition,
                 source_step=steps[source],
