@@ -7,6 +7,7 @@
 ### Safety and Operations
 - Demo seeding now refuses to run unless all application data tables are empty (Django framework tables excluded).
 - The local preflight reports the workflow audit as not applicable only for a genuinely empty, unseeded baseline; populated and production databases still require the audit.
+- Base/support/presentation seed layers now verify overlapping scoped RoleAssignment records before reuse and preserve the original reason and grant history.
 - Demo seed reuse fails closed when an existing fixture has no explicit non-empty verification allow-list.
 - Existing demo accounts without usable passwords are rejected instead of having credentials changed.
 - Demo document reuse is rejected; existing dependent-person links and task assignments are never repaired by the seed process.
