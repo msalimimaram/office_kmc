@@ -315,6 +315,63 @@ class DemoSeedCommandSafetyTests(TestCase):
         self.assertFalse(company.is_parent)
         self.assertTrue(company.is_active)
 
+    def test_presentation_seed_reuses_only_an_identical_scoped_role_assignment(self):
+        from datetime import date
+        from accounts.models import RoleAssignment, User
+        from core.management.commands.presentation_expansion import _ensure_role_assignment
+        from organizations.models import Company
+
+        company = Company.objects.create(
+            code="SEED-ROLE-VERIFY",
+            name="شرکت آزمون انتصاب",
+        )
+        admin = User.objects.create_user(
+            username="seed-role-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        representative = User.objects.create_user(
+            username="seed-role-representative",
+            password="StrongPass!2026",
+            must_change_password=False,
+            company=company,
+        )
+        existing = RoleAssignment.objects.create(
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company,
+            insurer=None,
+            line_code="*",
+            valid_from=date(2026, 1, 1),
+            valid_until=None,
+            is_active=True,
+            reason="دلیل ثبت‌شده در seed پایه",
+            granted_by=admin,
+            approved_by=admin,
+        )
+
+        def record(model, lookup, defaults, verify_fields=None):
+            return _get_or_create_unchanged(
+                model, lookup=lookup, defaults=defaults, verify_fields=verify_fields
+            )
+
+        reused = _ensure_role_assignment(
+            record,
+            user=representative,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=company,
+            insurer=None,
+            line_code="*",
+            granted_by=admin,
+            approved_by=admin,
+            reason="شرح متفاوت در لایه گسترش نمایشی",
+        )
+
+        self.assertEqual(reused.pk, existing.pk)
+        reused.refresh_from_db()
+        self.assertEqual(reused.reason, "دلیل ثبت‌شده در seed پایه")
+        self.assertEqual(RoleAssignment.objects.filter(user=representative).count(), 1)
+
 
 
 class SubsidiaryRepresentativeLineScopeTests(TestCase):
