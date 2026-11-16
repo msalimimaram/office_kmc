@@ -1856,7 +1856,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
         from requests_portal.models import ServiceRequest
-        from workflow.models import WorkflowDefinition
+        from workflow.models import WorkflowDefinition, WorkflowTransition
 
         head = User.objects.create_user(
             username="workflow-seed-head",
@@ -1869,6 +1869,16 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         )
 
         call_command("seed_operational_workflows")
+
+        report_definition = WorkflowDefinition.objects.get(
+            code="management_report_approval", is_active=True
+        )
+        for transition in WorkflowTransition.objects.filter(definition=report_definition):
+            self.assertIsInstance(transition.allowed_roles, list)
+            self.assertIsInstance(transition.allowed_position_levels, list)
+            self.assertIsInstance(transition.recipient_roles, list)
+            self.assertIsInstance(transition.recipient_position_levels, list)
+
         expected = {
             "contract_approval",
             "contract_termination",
