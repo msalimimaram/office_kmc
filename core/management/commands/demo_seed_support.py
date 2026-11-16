@@ -268,11 +268,15 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         ("0012345682", company_c, "نازنین", "آزمایشی", "C-3001", Person.Relationship.EMPLOYEE, None, date(1994, 2, 9)),
         ("0012345683", company_d, "امیر", "آزمایشی", "D-4001", Person.Relationship.EMPLOYEE, None, date(1986, 11, 28)),
         ("0012345684", company_b, "نیلوفر", "آزمایشی", "B-2001-01", Person.Relationship.CHILD, employee_b, date(2015, 6, 1)),
-        ("0012345685", company_c, "رها", "آزمایشی", "C-3001-01", Person.Relationship.SPOUSE, None, date(1996, 8, 12)),
-        ("0012345686", company_d, "سامان", "آزمایشی", "D-4001-01", Person.Relationship.CHILD, None, date(2014, 10, 4)),
+        ("0012345685", company_c, "رها", "آزمایشی", "C-3001-01", Person.Relationship.SPOUSE, "0012345682", date(1996, 8, 12)),
+        ("0012345686", company_d, "سامان", "آزمایشی", "D-4001-01", Person.Relationship.CHILD, "0012345683", date(2014, 10, 4)),
     )
     people = [employee_a, employee_b]
     for national_id, company, first, last, code, relationship, employee, birth_date in people_specs:
+        if isinstance(employee, str):
+            # Resolve a primary insured created earlier in this fixture list;
+            # new dependents are born with their relationship, never repaired later.
+            employee = Person.objects.get(national_id=employee)
         person = ensure(
             Person, {"national_id": national_id},
             {
