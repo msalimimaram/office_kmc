@@ -220,6 +220,26 @@ class DemoSeedCommandSafetyTests(TestCase):
         with patch.dict("os.environ", seed_environment):
             call_command("seed_demo")
 
+        from organizations.models import Person, PersonRelationship
+        dependent_c = Person.objects.get(national_id="0012345685")
+        dependent_d = Person.objects.get(national_id="0012345686")
+        primary_c = Person.objects.get(national_id="0012345682")
+        primary_d = Person.objects.get(national_id="0012345683")
+        self.assertEqual(dependent_c.employee_id, primary_c.pk)
+        self.assertEqual(dependent_d.employee_id, primary_d.pk)
+        self.assertTrue(PersonRelationship.objects.filter(
+            dependent_person=dependent_c,
+            primary_person=primary_c,
+            relationship_type=Person.Relationship.SPOUSE,
+            status=PersonRelationship.Status.ACTIVE,
+        ).exists())
+        self.assertTrue(PersonRelationship.objects.filter(
+            dependent_person=dependent_d,
+            primary_person=primary_d,
+            relationship_type=Person.Relationship.CHILD,
+            status=PersonRelationship.Status.ACTIVE,
+        ).exists())
+
         employee = User.objects.get(username="employee.a")
         employee.set_password("LocallyChosen!Password2026")
         employee.save(update_fields=["password"])
