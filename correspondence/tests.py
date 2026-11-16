@@ -171,10 +171,19 @@ class CorrespondenceOrganizationalScopeTests(TestCase):
             "is_confidential": "",
             "attachment": "",
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.status_code,
+            302,
+            msg=(
+                response.context["form"].errors.as_json()
+                if response.context and "form" in response.context
+                else response.content.decode("utf-8", errors="replace")[:1200]
+            ),
+        )
         created = Correspondence.objects.get(subject="ارجاع مکاتبه از سرپرست")
         self.assertEqual(created.created_by_id, self.manager.pk)
         self.assertEqual(created.assigned_to_id, self.subordinate.pk)
+        self.assertIsNotNone(created.occurred_at)
 
 
 class CorrespondenceFollowUpFlowTests(TestCase):
