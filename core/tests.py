@@ -242,6 +242,23 @@ class DemoSeedCommandSafetyTests(TestCase):
         calendar.refresh_from_db()
         self.assertEqual(calendar.title, "تقویم تغییر یافته")
 
+    def test_seed_guard_rejects_an_additional_business_calendar(self):
+        from django.core.management.base import CommandError
+        from workflow.models import BusinessCalendar
+        from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        extra = BusinessCalendar.objects.create(
+            code="second-business-calendar",
+            title="تقویم دوم",
+        )
+
+        with self.assertRaises(CommandError) as raised:
+            _assert_empty_disposable_database()
+
+        self.assertIn("workflow.BusinessCalendar", str(raised.exception))
+        extra.refresh_from_db()
+        self.assertEqual(extra.code, "second-business-calendar")
+
     def test_seed_is_one_shot_and_rerun_fails_without_mutating_existing_data(self):
         from django.apps import apps
         from django.core.management import call_command
