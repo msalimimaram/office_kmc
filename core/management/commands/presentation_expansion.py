@@ -105,7 +105,11 @@ def _ensure_role_assignment(record, *, user, role, company=None, insurer=None, l
             "granted_by": granted_by,
             "approved_by": approved_by,
         },
-        verify_fields=(),
+        # A representative or insurer may already have received this exact
+        # scoped assignment in the base seed. Reuse is allowed only when the
+        # authority, validity window, and active state match exactly; the
+        # descriptive reason may differ between the two fixture layers.
+        verify_fields=("valid_from", "valid_until", "is_active", "granted_by", "approved_by"),
     )[0]
 
 
