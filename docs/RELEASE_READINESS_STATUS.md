@@ -422,4 +422,4 @@ python manage.py test --verbosity 2
 - هیچ migration، seed، پاک‌سازی یا تغییری در دیتابیس محلی/واقعی مالک اجرا نشده است.
 - بررسی فقط ایستای سورس GitHub است؛ خروجی تست سبز، schema تأییدشده یا آمادگی staging از این تغییرات استنتاج نمی‌شود.
 - آخرین شاخه مرجع همچنان فقط `main` است؛ برای commitهای جدید status check خودکار ثبت نشده است.
-- **Production همچنان No-Go** است. اقدام بعدی: مالک پروژه روی checkout محلی به آخرین `main` برسد و `.scripts\final_preflight.ps1 -NoMigrate` را اجرا کند؛ اگر migration check مانع اجرای suite شد، `python manage.py test --verbosity 2` جداگانه اجرا و خروجی کامل همراه commit ارسال شود.
+- **Production همچنان No-Go** است. اقدام بعدی: مالک پروژه روی checkout محلی به آخرین `main` برسد و `.\scripts\final_preflight.ps1 -NoMigrate` را اجرا کند؛ اگر migration check مانع اجرای suite شد، `python manage.py test --verbosity 2` جداگانه اجرا و خروجی کامل همراه commit ارسال شود.
