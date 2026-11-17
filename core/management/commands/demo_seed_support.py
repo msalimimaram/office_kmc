@@ -115,7 +115,7 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
 
 @transaction.atomic
 def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, employee_a, employee_b, created_counts=None, reused_counts=None):
-    """Create 150+ interconnected demo records across all 45 domain models."""
+    """Create interconnected demo records across the discovered domain-model manifest."""
     from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
     WorkflowSeedCommand().handle()
 
