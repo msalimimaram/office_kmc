@@ -376,9 +376,11 @@ class DemoSeedCommandSafetyTests(TestCase):
             _resolve_position_assignment,
         )
 
-        specialist = User.objects.get(username="specialist.demo")
-        department_head = User.objects.get(username="head.demo")
-        supervisor = User.objects.get(username="supervisor.demo")
+        # The *.demo names are in-memory fixture aliases, not persisted usernames.
+        # Resolve the actual accounts created by seed_demo instead.
+        specialist = User.objects.get(username="Amiri")
+        department_head = User.objects.get(username="Shahamat")
+        supervisor = User.objects.get(username="Salimi")
         route_resolution_cases = (
             (
                 WorkflowTransition.PositionRouteScope.ANCESTORS,
