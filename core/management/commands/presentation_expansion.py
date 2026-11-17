@@ -309,7 +309,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
     from insurance.models import Contract, ContractRevision, InsuranceLine, Insurer
     from organizations.models import (
         Company, CompanyLeadershipPosition, CompanyLeadershipTitle,
-        Person, PersonChangeRequest, PersonEmployment,
+        Person, PersonChangeRequest, PersonEmployment, PersonRelationship,
     )
     from requests_portal.models import ServiceRequest
     from tasks.models import InternalTask, TaskEvent
@@ -652,6 +652,82 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 },
                 verify_fields=("position",),
             )
+
+    # Historical dependent relationships: create synthetic, inactive dependents
+    # through Person.save() so its normal relationship synchronization runs,
+    # then close/void only the freshly-created namespaced relationship row.
+    # Existing active dependents from the base seed are deliberately untouched.
+    relationship_history_specs = (
+        (
+            "9829999001", "DEMO-PRES-REL-ENDED-001",
+            Person.Relationship.CHILD, PersonRelationship.Status.ENDED,
+            date(2025, 1, 1), date(2025, 12, 31),
+        ),
+        (
+            "9829999002", "DEMO-PRES-REL-VOIDED-002",
+            Person.Relationship.SPOUSE, PersonRelationship.Status.VOIDED,
+            date(2025, 5, 1), date(2025, 5, 2),
+        ),
+    )
+    primary_person = persons_by_company[company_a.pk]
+    for (
+        national_id, source_reference, relationship_type, status,
+        valid_from, valid_until,
+    ) in relationship_history_specs:
+        dependent = ensure(
+            Person,
+            {"national_id": national_id},
+            {
+                "company": company_a,
+                "user": None,
+                "personnel_code": source_reference,
+                "first_name": "وابسته",
+                "last_name": "تاریخی نمایشی",
+                "birth_date": (
+                    date(2012, 4, 1)
+                    if relationship_type == Person.Relationship.CHILD
+                    else date(1985, 6, 1)
+                ),
+                "relationship": relationship_type,
+                "employee": primary_person,
+                "mobile": "",
+                "iban": "",
+                "is_insured": False,
+                "is_active": False,
+            },
+            verify_fields=(
+                "company", "user", "personnel_code", "relationship",
+                "employee", "is_insured", "is_active",
+            ),
+        )
+        relationship = PersonRelationship.objects.filter(
+            primary_person=primary_person,
+            dependent_person=dependent,
+            source_reference="legacy-person-employee",
+        ).first()
+        if relationship is not None:
+            relationship.relationship_type = relationship_type
+            relationship.status = status
+            relationship.valid_from = valid_from
+            relationship.valid_until = valid_until
+            relationship.source_reference = source_reference
+            relationship.save()
+        else:
+            relationship = PersonRelationship.objects.filter(
+                primary_person=primary_person,
+                dependent_person=dependent,
+                source_reference=source_reference,
+            ).first()
+            if relationship is None or (
+                relationship.relationship_type != relationship_type
+                or relationship.status != status
+                or relationship.valid_from != valid_from
+                or relationship.valid_until != valid_until
+            ):
+                raise CommandError(
+                    f"Presentation relationship fixture collision for {source_reference}; "
+                    "the existing relationship was not changed."
+                )
 
     # All insurance lines have active contracts for each company. This keeps
     # every generated claim/asset/person-change within a valid contract scope.
@@ -1188,21 +1264,166 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
             verify_fields=("rating", "comment"),
         )
 
+    # Position-routing examples use real internal (company-independent) units.
+    # The workflow resolver intentionally excludes company-owned units, so the
+    # sample hierarchy mirrors the Insurance Department organization tree.
+    route_root = ensure(
+        OrganizationalUnit,
+        {"code": "DEMO-INS-ROUTE-ROOT"},
+        {
+            "name": "ریشه ساختار ارجاع نمایشی",
+            "parent": None,
+            "company": None,
+            "is_active": True,
+        },
+        verify_fields=("name", "parent", "company", "is_active"),
+    )
+    route_child_same = ensure(
+        OrganizationalUnit,
+        {"code": "DEMO-INS-ROUTE-HEALTH"},
+        {
+            "name": "واحد رسیدگی سلامت نمایشی",
+            "parent": route_root,
+            "company": None,
+            "is_active": True,
+        },
+        verify_fields=("name", "parent", "company", "is_active"),
+    )
+    route_child_linewide = ensure(
+        OrganizationalUnit,
+        {"code": "DEMO-INS-ROUTE-CLAIMS"},
+        {
+            "name": "واحد بررسی خسارت سلامت نمایشی",
+            "parent": route_root,
+            "company": None,
+            "is_active": True,
+        },
+        verify_fields=("name", "parent", "company", "is_active"),
+    )
+
+    route_root_supervisor_position = ensure(
+        OrganizationalPosition,
+        {"unit": route_root, "code": "DEMO-INS-ROUTE-SUP"},
+        {
+            "title": "سرپرست ساختار ارجاع نمایشی",
+            "level": int(OrganizationalPosition.Level.SUPERVISOR),
+            "is_active": True,
+        },
+        verify_fields=("title", "level", "is_active"),
+    )
+    route_health_specialist_position = ensure(
+        OrganizationalPosition,
+        {"unit": route_child_same, "code": "DEMO-INS-ROUTE-SPEC"},
+        {
+            "title": "کارشناس سلامت ساختار ارجاع نمایشی",
+            "level": int(OrganizationalPosition.Level.SPECIALIST),
+            "is_active": True,
+        },
+        verify_fields=("title", "level", "is_active"),
+    )
+    route_same_unit_supervisor_position = ensure(
+        OrganizationalPosition,
+        {"unit": route_child_same, "code": "DEMO-INS-ROUTE-SAME-SUP"},
+        {
+            "title": "سرپرست واحد سلامت نمایشی",
+            "level": int(OrganizationalPosition.Level.SUPERVISOR),
+            "is_active": True,
+        },
+        verify_fields=("title", "level", "is_active"),
+    )
+    route_linewide_supervisor_position = ensure(
+        OrganizationalPosition,
+        {"unit": route_child_linewide, "code": "DEMO-INS-ROUTE-LINE-SUP"},
+        {
+            "title": "سرپرست واحد خسارت سلامت نمایشی",
+            "level": int(OrganizationalPosition.Level.SUPERVISOR),
+            "is_active": True,
+        },
+        verify_fields=("title", "level", "is_active"),
+    )
+
+    def ensure_route_assignment(user, unit, position, reason):
+        ensure(
+            PositionAssignment,
+            {"user": user, "unit": unit, "position": position, "line_code": "health"},
+            {
+                "valid_from": start_date,
+                "valid_until": None,
+                "is_active": True,
+                "reason": reason,
+                "granted_by": admin,
+                "approved_by": admin,
+            },
+            verify_fields=(
+                "valid_from", "valid_until", "is_active", "reason",
+                "granted_by", "approved_by",
+            ),
+        )
+
+    ensure_route_assignment(
+        health_specialist, route_child_same, route_health_specialist_position,
+        "انتصاب مبنای ارجاع نمایشی از واحد سلامت",
+    )
+    ensure_route_assignment(
+        head, route_root, route_root_supervisor_position,
+        "انتصاب مبنای ارجاع نمایشی از واحد بالادست",
+    )
+    ensure_route_assignment(
+        health_lead, route_child_same, route_same_unit_supervisor_position,
+        "انتصاب مبنای ارجاع نمایشی در همان واحد",
+    )
+    ensure_route_assignment(
+        health_lead, route_child_linewide, route_linewide_supervisor_position,
+        "انتصاب مبنای ارجاع نمایشی در واحد دیگر همان رشته",
+    )
+
     # Fifty active, versioned workflow definitions with two steps and explicit
     # approval/closure transitions. The first definitions are the real domain
-    # workflows; these additional definitions expose the engine's capabilities.
+    # workflows; the additional examples expose valid position-routing scopes.
     workflow_roles = list(RoleAssignment.Role.values)
+    position_route_specs = {
+        1: (
+            WorkflowTransition.PositionRouteScope.ANCESTORS,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            int(OrganizationalPosition.Level.SUPERVISOR),
+        ),
+        2: (
+            WorkflowTransition.PositionRouteScope.DESCENDANTS,
+            RoleAssignment.Role.DEPARTMENT_HEAD,
+            int(OrganizationalPosition.Level.SPECIALIST),
+        ),
+        3: (
+            WorkflowTransition.PositionRouteScope.SAME_UNIT,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            int(OrganizationalPosition.Level.SUPERVISOR),
+        ),
+        4: (
+            WorkflowTransition.PositionRouteScope.LINE_WIDE,
+            RoleAssignment.Role.INSURANCE_SPECIALIST,
+            int(OrganizationalPosition.Level.SUPERVISOR),
+        ),
+    }
     workflow_index = 1
     while WorkflowDefinition.objects.count() < MINIMUM_PER_MODEL:
         code = f"presentation-showcase-{workflow_index:03d}"
         if not WorkflowDefinition.objects.filter(code=code, version=1).exists():
-            role = workflow_roles[(workflow_index - 1) % len(workflow_roles)]
+            route_spec = position_route_specs.get(workflow_index)
+            role = (
+                route_spec[1]
+                if route_spec
+                else workflow_roles[(workflow_index - 1) % len(workflow_roles)]
+            )
+            recipient_levels = [route_spec[2]] if route_spec else []
             definition = WorkflowDefinition.objects.create(
                 code=code,
                 title=f"گردش نمایشی پیشرفته {workflow_index:03d}",
                 version=1,
                 created_by=admin,
-                description="تعریف نمونه برای نمایش نقش مجاز، مرحله آغازین، تصمیم، بازگشت‌پذیری و بستن پرونده.",
+                description=(
+                    "تعریف نمونه برای نمایش ارجاع سمت‌محور و محدوده سازمانی معتبر."
+                    if route_spec
+                    else "تعریف نمونه برای نمایش نقش مجاز، مرحله آغازین، تصمیم، بازگشت‌پذیری و بستن پرونده."
+                ),
             )
             pending = WorkflowStep.objects.create(
                 definition=definition,
@@ -1219,7 +1440,8 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 code="approved",
                 title="تأییدشده",
                 order=2,
-                allowed_roles=[role],
+                allowed_roles=[] if route_spec else [role],
+                allowed_position_levels=recipient_levels,
                 is_terminal=False,
                 allow_return=True,
             )
@@ -1228,9 +1450,15 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 source_step=pending,
                 target_step=approved,
                 action_code="approve",
-                title="تأیید",
+                title="ارجاع/تأیید",
                 allowed_roles=[role],
-                recipient_roles=[role],
+                recipient_roles=[] if route_spec else [role],
+                recipient_position_levels=recipient_levels,
+                position_route_scope=(
+                    route_spec[0]
+                    if route_spec
+                    else WorkflowTransition.PositionRouteScope.RELATED_UNITS
+                ),
                 requires_note=True,
             )
             WorkflowTransition.objects.create(
@@ -1239,7 +1467,8 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 target_step=None,
                 action_code="close",
                 title="بستن پرونده",
-                allowed_roles=[role],
+                allowed_roles=[] if route_spec else [role],
+                allowed_position_levels=recipient_levels,
                 recipient_roles=[],
                 closes_case=True,
                 requires_note=True,
