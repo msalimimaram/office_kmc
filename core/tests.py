@@ -263,7 +263,7 @@ class DemoSeedCommandSafetyTests(TestCase):
         from django.apps import apps
         from django.core.management import call_command
         from django.core.management.base import CommandError
-        from accounts.models import User
+        from accounts.models import OrganizationalPosition, User
 
         seed_environment = {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}
         with patch.dict("os.environ", seed_environment):
@@ -274,7 +274,7 @@ class DemoSeedCommandSafetyTests(TestCase):
             CompanyLeadershipPosition, CompanyLeadershipTitle,
             Person, PersonEmployment, PersonRelationship,
         )
-        from workflow.models import WorkflowCase, WorkflowSatisfactionSurvey
+        from workflow.models import WorkflowCase, WorkflowSatisfactionSurvey, WorkflowTransition
 
         self.assertGreaterEqual(CompanyLeadershipPosition.objects.count(), 50)
         linked_titles = CompanyLeadershipTitle.objects.filter(
@@ -331,6 +331,91 @@ class DemoSeedCommandSafetyTests(TestCase):
             relationship_type=Person.Relationship.CHILD,
             status=PersonRelationship.Status.ACTIVE,
         ).exists())
+
+        for status, source_reference in (
+            (PersonRelationship.Status.ENDED, "DEMO-PRES-REL-ENDED-001"),
+            (PersonRelationship.Status.VOIDED, "DEMO-PRES-REL-VOIDED-002"),
+        ):
+            historical_relationship = PersonRelationship.objects.get(
+                source_reference=source_reference
+            )
+            self.assertEqual(historical_relationship.status, status)
+            self.assertFalse(historical_relationship.dependent_person.is_active)
+            self.assertFalse(historical_relationship.dependent_person.is_insured)
+            self.assertLess(historical_relationship.valid_until, date.today())
+
+        expected_route_scopes = {
+            "presentation-showcase-001": (
+                WorkflowTransition.PositionRouteScope.ANCESTORS,
+                [int(OrganizationalPosition.Level.SUPERVISOR)],
+            ),
+            "presentation-showcase-002": (
+                WorkflowTransition.PositionRouteScope.DESCENDANTS,
+                [int(OrganizationalPosition.Level.SPECIALIST)],
+            ),
+            "presentation-showcase-003": (
+                WorkflowTransition.PositionRouteScope.SAME_UNIT,
+                [int(OrganizationalPosition.Level.SUPERVISOR)],
+            ),
+            "presentation-showcase-004": (
+                WorkflowTransition.PositionRouteScope.LINE_WIDE,
+                [int(OrganizationalPosition.Level.SUPERVISOR)],
+            ),
+        }
+        for definition_code, (scope, recipient_levels) in expected_route_scopes.items():
+            transition = WorkflowTransition.objects.get(
+                definition__code=definition_code,
+                action_code="approve",
+            )
+            self.assertEqual(transition.position_route_scope, scope)
+            self.assertEqual(transition.recipient_roles, [])
+            self.assertEqual(transition.recipient_position_levels, recipient_levels)
+
+        from workflow.services import _resolve_position_assignment
+
+        specialist = User.objects.get(username="specialist.demo")
+        department_head = User.objects.get(username="head.demo")
+        supervisor = User.objects.get(username="supervisor.demo")
+        route_resolution_cases = (
+            (
+                WorkflowTransition.PositionRouteScope.ANCESTORS,
+                specialist,
+                department_head,
+                OrganizationalPosition.Level.SUPERVISOR,
+                "DEMO-INS-ROUTE-ROOT",
+            ),
+            (
+                WorkflowTransition.PositionRouteScope.DESCENDANTS,
+                department_head,
+                specialist,
+                OrganizationalPosition.Level.SPECIALIST,
+                "DEMO-INS-ROUTE-HEALTH",
+            ),
+            (
+                WorkflowTransition.PositionRouteScope.SAME_UNIT,
+                specialist,
+                supervisor,
+                OrganizationalPosition.Level.SUPERVISOR,
+                "DEMO-INS-ROUTE-HEALTH",
+            ),
+            (
+                WorkflowTransition.PositionRouteScope.LINE_WIDE,
+                specialist,
+                supervisor,
+                OrganizationalPosition.Level.SUPERVISOR,
+                "DEMO-INS-ROUTE-CLAIMS",
+            ),
+        )
+        for scope, source_user, recipient_user, level, expected_unit_code in route_resolution_cases:
+            assignment = _resolve_position_assignment(
+                recipient_user,
+                [int(level)],
+                line_code="health",
+                source_user=source_user,
+                route_scope=scope,
+            )
+            self.assertIsNotNone(assignment, scope)
+            self.assertEqual(assignment.unit.code, expected_unit_code)
 
         employee = User.objects.get(username="employee.a")
         employee.set_password("LocallyChosen!Password2026")
