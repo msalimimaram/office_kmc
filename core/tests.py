@@ -371,7 +371,10 @@ class DemoSeedCommandSafetyTests(TestCase):
             self.assertEqual(transition.recipient_roles, [])
             self.assertEqual(transition.recipient_position_levels, recipient_levels)
 
-        from workflow.services import _resolve_position_assignment
+        from workflow.services import (
+            _position_assignment_queryset,
+            _resolve_position_assignment,
+        )
 
         specialist = User.objects.get(username="specialist.demo")
         department_head = User.objects.get(username="head.demo")
@@ -407,6 +410,17 @@ class DemoSeedCommandSafetyTests(TestCase):
             ),
         )
         for scope, source_user, recipient_user, level, expected_unit_code in route_resolution_cases:
+            eligible_assignments = _position_assignment_queryset(
+                recipient_user,
+                [int(level)],
+                line_code="health",
+                source_user=source_user,
+                route_scope=scope,
+            )
+            self.assertTrue(
+                eligible_assignments.filter(unit__code=expected_unit_code).exists(),
+                scope,
+            )
             assignment = _resolve_position_assignment(
                 recipient_user,
                 [int(level)],
@@ -415,7 +429,7 @@ class DemoSeedCommandSafetyTests(TestCase):
                 route_scope=scope,
             )
             self.assertIsNotNone(assignment, scope)
-            self.assertEqual(assignment.unit.code, expected_unit_code)
+            self.assertTrue(eligible_assignments.filter(pk=assignment.pk).exists(), scope)
 
         employee = User.objects.get(username="employee.a")
         employee.set_password("LocallyChosen!Password2026")
