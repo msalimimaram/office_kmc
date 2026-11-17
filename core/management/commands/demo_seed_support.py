@@ -38,13 +38,14 @@ from documents.models import DocumentAccessEvent, DocumentLink, DocumentRecord, 
 from imports.models import ImportBatch
 from insurance.models import Contract, ContractRevision, InsuranceLine, Insurer
 from organizations.models import (
-    Company, CompanyLeadershipTitle, Person, PersonChangeRequest, PersonEmployment,
+    Company, CompanyLeadershipPosition, CompanyLeadershipTitle,
+    Person, PersonChangeRequest, PersonEmployment, PersonRelationship,
 )
 from requests_portal.models import ServiceRequest
 from tasks.models import InternalTask, TaskEvent
 from workflow.models import (
     BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
-    WorkflowEvent, WorkflowStep, WorkflowTransition,
+    WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowStep, WorkflowTransition,
 )
 from workflow.services import resolve_initial_assignee, start_workflow, transition_case
 
@@ -1127,7 +1128,7 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         now=now,
     )
 
-    # Verify that a namespaced demo fixture exists in each of the 45 concrete models.
+    # Verify that a namespaced demo fixture exists for every concrete domain model.
     solar_day = correspondence_solar_day
     demo_usernames = (
         "Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod",
@@ -1169,7 +1170,18 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         "organizations.company": Company.objects.filter(code__in=("DEMO-A", "DEMO-B", "DEMO-C", "DEMO-D")).count() >= 4,
         "organizations.person": Person.objects.filter(national_id__in=("0012345680", "0012345685", "0012345686")).count() >= 3,
         "organizations.personemployment": PersonEmployment.objects.filter(source_reference="DEMO-SEED").exists(),
+        "organizations.companyleadershipposition": CompanyLeadershipPosition.objects.filter(
+            company__code__startswith="DEMO-PRES-COMP-",
+            code__startswith="demo-title-",
+            is_active=True,
+        ).exists(),
         "organizations.companyleadershiptitle": CompanyLeadershipTitle.objects.filter(title__in=("مدیر منابع انسانی", "نماینده سلامت و درمان", "مدیر پشتیبانی", "مدیر عملیات")).exists(),
+        "organizations.personrelationship": PersonRelationship.objects.filter(
+            source_reference__in=("DEMO-PRES-REL-ENDED-001", "DEMO-PRES-REL-VOIDED-002"),
+            status__in=(PersonRelationship.Status.ENDED, PersonRelationship.Status.VOIDED),
+            dependent_person__is_active=False,
+            dependent_person__is_insured=False,
+        ).count() == 2,
         "organizations.personchangerequest": PersonChangeRequest.objects.filter(reason__contains="درخواست آزمایشی اصلاح اطلاعات").exists(),
         "requests_portal.servicerequest": ServiceRequest.objects.filter(reference__startswith="DEMO-REQ").exists(),
         "tasks.internaltask": InternalTask.objects.filter(title__startswith="وظیفه نمونه").exists(),
@@ -1179,6 +1191,11 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         "workflow.workflowtransition": WorkflowTransition.objects.filter(definition__code__in=service_workflow_codes).exists(),
         "workflow.workflowcase": WorkflowCase.objects.filter(definition__code__in=service_workflow_codes).exists(),
         "workflow.workflowevent": WorkflowEvent.objects.filter(workflow_case__definition__code__in=service_workflow_codes).exists(),
+        "workflow.workflowsatisfactionsurvey": WorkflowSatisfactionSurvey.objects.filter(
+            comment__startswith="ارزیابی رضایت ساختگی",
+            rating__gte=1,
+            rating__lte=5,
+        ).exists(),
         "workflow.businesscalendar": BusinessCalendar.objects.filter(code="demo-iran-calendar").exists(),
         "workflow.calendarholiday": CalendarHoliday.objects.filter(calendar__code="demo-iran-calendar").exists(),
     }
