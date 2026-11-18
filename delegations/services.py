@@ -128,16 +128,27 @@ def _notify(recipient, actor, title, body, target_url):
 
 
 def _route_case(case, delegation, actor, *, event_type, note):
+    from workflow.services import _sync_domain_assignee
+
     previous = case.current_assignee
+    previous_position_assignment = case.current_position_assignment
     case.current_assignee = delegation.delegate_to
     case.delegation = delegation
-    case.save(update_fields=["current_assignee", "delegation"])
+    # A delegated recipient is authorized by the delegation itself, not by
+    # the previous assignee's organizational position.
+    case.current_position_assignment = None
+    case.save(update_fields=[
+        "current_assignee", "delegation", "current_position_assignment",
+    ])
+    _sync_domain_assignee(case.content_object, delegation.delegate_to)
     WorkflowEvent.objects.create(
         workflow_case=case, actor=actor,
         event_type=WorkflowEvent.EventType.REFERRED,
         action_code="delegation_route",
         from_step=case.current_step, to_step=case.current_step,
         from_assignee=previous, to_assignee=delegation.delegate_to,
+        from_position_assignment=previous_position_assignment,
+        to_position_assignment=None,
         note=note, sent_at=timezone.now(),
         metadata={"delegation_id": delegation.pk, "event": event_type},
     )
@@ -283,7 +294,10 @@ def create_work_delegation(*, cleaned_data, actor):
 
 def _release_cases(delegation, *, actor, event_type, note):
     """Move cases off a suspended/revoked rule without losing a valid fallback rule."""
-    from workflow.services import _scope_for_object
+    from workflow.services import (
+        _scope_for_object, _sync_domain_assignee,
+        _validate_recipient, resolve_initial_assignee,
+    )
 
     cases = WorkflowCase.objects.select_for_update().select_related(
         "definition", "current_step", "current_assignee", "content_type"
@@ -343,45 +357,49 @@ def _release_cases(delegation, *, actor, event_type, note):
             released += 1
             continue
 
-        previous = case.current_assignee
-        replacement = (
-            delegation.granted_by
-            if delegation.granted_by.is_active and has_global_access(delegation.granted_by)
-            else None
-        )
-        if replacement is None:
-            today = timezone.localdate()
-            manager_roles = [
-                RoleAssignment.Role.SYSTEM_ADMIN,
-                RoleAssignment.Role.DEPARTMENT_HEAD,
-            ]
-            candidates = User.objects.filter(is_active=True).filter(
-                Q(is_superuser=True)
-                | Q(role__in=["system_admin", "department_head"])
-                | Q(
-                    role_assignments__role__in=manager_roles,
-                    role_assignments__is_active=True,
-                    role_assignments__valid_from__lte=today,
-                ) & (
-                    Q(role_assignments__valid_until__isnull=True)
-                    | Q(role_assignments__valid_until__gte=today)
-                )
-            ).distinct().order_by("pk")
-            replacement = next(
-                (candidate for candidate in candidates if has_global_access(candidate)),
-                None,
+        if obj is None or not case.current_step or not case.current_step.is_initial:
+            raise ValidationError(
+                "پرونده تفویض‌شده دیگر در مرحله آغازین یا دارای رکورد دامنه معتبر نیست؛ "
+                "برای جلوگیری از رهاشدن پرونده، ابتدا وضعیت آن باید توسط مدیر بررسی شود."
             )
+        scope = _scope_for_object(obj)
+        # Return to a user who is actually eligible for the initial step,
+        # rather than blindly assigning the case to the delegation grantor.
+        # If no eligible non-requester exists, fail closed and roll back the
+        # revocation/suspension instead of creating an un-actionable case.
+        replacement = resolve_initial_assignee(
+            definition=case.definition,
+            obj=obj,
+            exclude_user_id=scope.get("owner_user_id"),
+            allow_delegation=False,
+        )
+        replacement_position_assignment = _validate_recipient(
+            replacement,
+            case.current_step.allowed_roles,
+            position_levels=case.current_step.allowed_position_levels,
+            scope=scope,
+            source_user=None,
+            position_route_scope="line_wide",
+        )
 
+        previous = case.current_assignee
+        previous_position_assignment = case.current_position_assignment
         delegation_id = case.delegation_id
         case.current_assignee = replacement
         case.delegation = None
-        case.save(update_fields=["current_assignee", "delegation"])
+        case.current_position_assignment = replacement_position_assignment
+        case.save(update_fields=[
+            "current_assignee", "delegation", "current_position_assignment",
+        ])
+        _sync_domain_assignee(obj, replacement)
         WorkflowEvent.objects.create(
             workflow_case=case, actor=actor,
             event_type=WorkflowEvent.EventType.RETURNED,
             action_code="delegation_release",
             from_step=case.current_step, to_step=case.current_step,
             from_assignee=previous, to_assignee=replacement,
+            from_position_assignment=previous_position_assignment,
+            to_position_assignment=replacement_position_assignment,
             note=note[:4000], sent_at=timezone.now(),
             metadata={"delegation_id": delegation_id, "event": event_type},
         )
