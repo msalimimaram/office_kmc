@@ -849,6 +849,114 @@ class DelegationRoutingTests(TestCase):
         self.assertFalse(case.events.filter(action_code="delegation_release").exists())
         self.assertFalse(rule.events.filter(event_type="revoked").exists())
 
+    def test_bulk_delegation_clears_previous_position_assignment_and_syncs_domain_owner(self):
+        from accounts.models import (
+            OrganizationalPosition, OrganizationalUnit, PositionAssignment,
+        )
+
+        today = timezone.localdate()
+        unit = OrganizationalUnit.objects.create(
+            code="DELEGATION-POSITION-UNIT",
+            name="واحد سازمانی آزمون واگذاری",
+        )
+        source_position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="DELEGATION-POSITION-SOURCE",
+            title="کارشناس مبدأ",
+            level=OrganizationalPosition.Level.SPECIALIST,
+        )
+        supervisor_position = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="DELEGATION-POSITION-SUPERVISOR",
+            title="سرپرست مقصد",
+            level=OrganizationalPosition.Level.SUPERVISOR,
+        )
+        PositionAssignment.objects.create(
+            user=self.specialist,
+            unit=unit,
+            position=source_position,
+            line_code="health",
+            valid_from=today,
+            reason="سمت مبدأ برای آزمون واگذاری",
+        )
+        previous_position = PositionAssignment.objects.create(
+            user=self.head,
+            unit=unit,
+            position=supervisor_position,
+            line_code="health",
+            valid_from=today,
+            reason="سمت مسئول اولیه برای آزمون واگذاری",
+        )
+        backup = User.objects.create_user(
+            username="delegation.position.backup",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=backup,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            valid_from=today,
+            reason="کارشناس پشتیبان برای آزمون واگذاری",
+        )
+        definition = WorkflowDefinition.objects.create(
+            code="delegation-position-release",
+            title="گردش کار اولیه سمت‌محور",
+            version=1,
+            created_by=self.head,
+        )
+        WorkflowStep.objects.create(
+            definition=definition,
+            code="supervisor-review",
+            title="بررسی سرپرست",
+            order=1,
+            allowed_roles=[],
+            allowed_position_levels=[int(OrganizationalPosition.Level.SUPERVISOR)],
+            is_initial=True,
+        )
+        definition.approved_by = self.head
+        definition.is_active = True
+        definition.save()
+        item = ServiceRequest.objects.create(
+            reference="DELEGATION-POSITION-001",
+            kind=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
+            submitted_by=self.specialist,
+            company=self.company,
+            title="درخواست آزمون ارجاع سمت‌محور",
+            description="آزمون همگام‌سازی گیرنده پس از واگذاری",
+            is_confidential=True,
+        )
+        assignee = resolve_initial_assignee(definition=definition, obj=item)
+        self.assertEqual(assignee, self.head)
+        case = start_workflow(
+            obj=item,
+            code=definition.code,
+            actor=self.specialist,
+            assignee=assignee,
+        )
+        self.assertEqual(case.current_position_assignment_id, previous_position.pk)
+
+        rule = WorkDelegation.objects.create(
+            workflow_code=definition.code,
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=backup,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="تفویض برای آزمون پاک‌سازی انتصاب سمت قبلی",
+            valid_from=today,
+        )
+        self.assertEqual(apply_delegation_to_open_cases(rule, actor=self.head), 1)
+
+        case.refresh_from_db()
+        item.refresh_from_db()
+        route_event = case.events.get(action_code="delegation_route")
+        self.assertEqual(case.current_assignee_id, backup.pk)
+        self.assertIsNone(case.current_position_assignment_id)
+        self.assertEqual(route_event.from_position_assignment_id, previous_position.pk)
+        self.assertIsNone(route_event.to_position_assignment_id)
+        self.assertEqual(item.assigned_to_id, backup.pk)
+
     def test_creating_category_rule_routes_existing_open_initial_cases(self):
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
