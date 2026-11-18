@@ -57,6 +57,42 @@ class DelegationRoutingTests(TestCase):
         self.definition.is_active = True
         self.definition.save()
 
+    def _create_person_change_request(self, suffix):
+        from insurance.models import Contract, Insurer, InsuranceLine
+
+        today = timezone.localdate()
+        insurer = Insurer.objects.create(name=f"بیمه‌گر آزمون آزادسازی {suffix}")
+        contract = Contract.objects.create(
+            code=f"DELEGATION-RELEASE-{suffix:02d}",
+            title="قرارداد آزمون آزادسازی تفویض",
+            insurer=insurer,
+            line=InsuranceLine.HEALTH,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=365),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        contract.companies.add(self.company)
+        person = Person.objects.create(
+            company=self.company,
+            user=self.representative,
+            national_id=f"98123456{suffix:02d}",
+            first_name="بیمه‌شده",
+            last_name="آزمون آزادسازی",
+            birth_date=today - timedelta(days=12000),
+            iban="IR120000000000000000000000",
+        )
+        return PersonChangeRequest.objects.create(
+            person=person,
+            company=self.company,
+            contract=contract,
+            requested_by=self.representative,
+            change_type=PersonChangeRequest.ChangeType.IBAN,
+            current_value=person.iban,
+            requested_value="IR340000000000000000000000",
+            reason="درخواست آزمایشی برای بررسی آزادسازی تفویض",
+        )
+
     def test_iban_delegation_routes_only_matching_change_type_to_specialist(self):
         rule = WorkDelegation.objects.create(
             workflow_code="person_change", item_type="iban",
@@ -717,6 +753,102 @@ class DelegationRoutingTests(TestCase):
             ).exists()
         )
 
+    def test_revoking_delegation_routes_to_an_eligible_initial_assignee(self):
+        request = self._create_person_change_request(1)
+        backup = User.objects.create_user(
+            username="delegation.release.backup",
+            password="TestPass!23456",
+            company=self.company,
+            must_change_password=False,
+        )
+        Person.objects.create(
+            company=self.company,
+            user=backup,
+            national_id="9812345699",
+            first_name="نماینده",
+            last_name="پشتیبان",
+            birth_date=timezone.localdate() - timedelta(days=12000),
+        )
+        RoleAssignment.objects.create(
+            user=backup,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="health",
+            valid_from=timezone.localdate(),
+            reason="نماینده پشتیبان برای آزمون آزادسازی",
+        )
+        rule = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            item_type="iban",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="تفویض موقت برای آزمون بازگشت به گیرنده مجاز",
+            valid_from=timezone.localdate(),
+        )
+        case = start_workflow(
+            obj=request,
+            code="person_change",
+            actor=self.representative,
+            assignee=self.specialist,
+            delegation=rule,
+        )
+
+        update_delegation_status(
+            delegation_id=rule.pk,
+            actor=self.head,
+            action="revoke",
+            reason="پایان تفویض و بازگشت به نماینده مجاز",
+        )
+
+        case.refresh_from_db()
+        rule.refresh_from_db()
+        self.assertEqual(rule.status, WorkDelegation.Status.REVOKED)
+        self.assertEqual(case.current_assignee, backup)
+        self.assertIsNone(case.delegation_id)
+        release_event = case.events.get(action_code="delegation_release")
+        self.assertEqual(release_event.to_assignee_id, backup.pk)
+        self.assertIsNone(release_event.to_position_assignment_id)
+
+    def test_revocation_rolls_back_when_no_eligible_non_requester_exists(self):
+        request = self._create_person_change_request(2)
+        rule = WorkDelegation.objects.create(
+            workflow_code="person_change",
+            item_type="iban",
+            delegate_role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            delegate_to=self.specialist,
+            granted_by=self.head,
+            company=self.company,
+            line_code="health",
+            reason="تفویض برای آزمون توقف امن بدون گیرنده جایگزین",
+            valid_from=timezone.localdate(),
+        )
+        case = start_workflow(
+            obj=request,
+            code="person_change",
+            actor=self.representative,
+            assignee=self.specialist,
+            delegation=rule,
+        )
+
+        with self.assertRaises(ValidationError):
+            update_delegation_status(
+                delegation_id=rule.pk,
+                actor=self.head,
+                action="revoke",
+                reason="لغو باید تا تعیین گیرنده مجاز متوقف شود",
+            )
+
+        case.refresh_from_db()
+        rule.refresh_from_db()
+        self.assertEqual(rule.status, WorkDelegation.Status.ACTIVE)
+        self.assertEqual(case.current_assignee, self.specialist)
+        self.assertEqual(case.delegation_id, rule.pk)
+        self.assertFalse(case.events.filter(action_code="delegation_release").exists())
+        self.assertFalse(rule.events.filter(event_type="revoked").exists())
+
     def test_creating_category_rule_routes_existing_open_initial_cases(self):
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
@@ -776,6 +908,9 @@ class DelegationRoutingTests(TestCase):
             recipient=self.specialist,
             target_url=reverse("workflow_case_detail", args=[case.pk]),
         ).exists())
+        item.refresh_from_db()
+        self.assertEqual(item.assigned_to, self.specialist)
+        self.assertIsNone(case.current_position_assignment)
 
     def test_bulk_delegation_never_routes_requester_to_themselves(self):
         definition = WorkflowDefinition.objects.create(
