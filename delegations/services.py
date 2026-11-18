@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
@@ -12,7 +11,6 @@ from workflow.models import WorkflowCase, WorkflowEvent
 from .models import WorkDelegation, DelegationEvent
 
 
-User = get_user_model()
 
 
 def _role_assignment_is_active(delegation, *, on_date=None):
@@ -328,8 +326,8 @@ def _release_cases(delegation, *, actor, event_type, note):
                     line_code=scope.get("line_code"),
                 )
             except ValidationError:
-                # A legacy ambiguity must not block a manager from revoking
-                # the problematic rule; return this case to an authorized manager.
+                # A legacy ambiguity must not block revocation; fall back to the
+                # normal initial-step resolver, which still enforces scoped eligibility.
                 replacement_rule = None
             if replacement_rule and (
                 replacement_rule.pk == delegation.pk
