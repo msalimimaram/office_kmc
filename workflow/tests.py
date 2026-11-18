@@ -104,6 +104,83 @@ class WorkflowEngineTests(TestCase):
         self.definition.is_active = True
         self.definition.save()
 
+    def test_sla_deadline_keeps_running_while_waiting_for_expert_and_first_view_is_recorded(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from workflow.services import mark_case_opened
+
+        calendar = BusinessCalendar.objects.get(code="iran-default")
+        definition = WorkflowDefinition.objects.create(
+            code="test-sla-waiting-expert",
+            title="گردش کار آزمون تداوم SLA",
+            version=1,
+            created_by=self.admin,
+        )
+        initial = WorkflowStep.objects.create(
+            definition=definition,
+            code="specialist-review",
+            title="بررسی کارشناس",
+            order=1,
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            is_initial=True,
+            sla_minutes=60,
+        )
+        expert_follow_up = WorkflowStep.objects.create(
+            definition=definition,
+            code="expert-follow-up",
+            title="پیگیری کارشناس مقصد",
+            order=2,
+            allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            sla_minutes=90,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=initial,
+            target_step=expert_follow_up,
+            action_code="refer-to-expert-follow-up",
+            title="ارجاع برای پیگیری تخصصی",
+            allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
+            recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
+            requires_note=True,
+        )
+        definition.approved_by = self.admin
+        definition.is_active = True
+        definition.save()
+
+        case = start_workflow(
+            obj=self.request,
+            code=definition.code,
+            actor=self.admin,
+            assignee=self.specialist,
+        )
+        transition_time = timezone.now()
+        with patch("workflow.services.timezone.now", return_value=transition_time):
+            transition_case(
+                case_id=case.pk,
+                actor=self.specialist,
+                action_code="refer-to-expert-follow-up",
+                recipient=self.department_head,
+                note="پرونده برای پیگیری به کارشناس مقصد ارجاع شد.",
+            )
+
+        case.refresh_from_db()
+        expected_due = add_business_minutes(
+            transition_time, expert_follow_up.sla_minutes, calendar
+        )
+        self.assertEqual(case.status, WorkflowCase.Status.WAITING)
+        self.assertEqual(case.sla_due_at, expected_due)
+        self.assertEqual(case.first_action_at, transition_time)
+        self.assertIsNone(case.first_viewed_at)
+
+        later_view_time = transition_time + timedelta(minutes=30)
+        with patch("workflow.services.timezone.now", return_value=later_view_time):
+            mark_case_opened(case_id=case.pk, actor=self.department_head)
+
+        case.refresh_from_db()
+        self.assertEqual(case.status, WorkflowCase.Status.WAITING)
+        self.assertEqual(case.sla_due_at, expected_due)
+        self.assertEqual(case.first_viewed_at, later_view_time)
+
     def test_former_person_change_assignee_cannot_read_sensitive_workflow_notes(self):
         from datetime import date, timedelta
         from django.test import Client
