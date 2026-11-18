@@ -454,6 +454,38 @@ class DemoSeedCommandSafetyTests(TestCase):
             self.assertEqual(model.objects.count(), count, model._meta.label)
         self.assertFalse(User.objects.filter(username="head.demo").exists())
 
+    def test_generic_presentation_clone_runs_full_clean_before_save(self):
+        from django.core.exceptions import ValidationError
+        from django.core.management.base import CommandError
+        from accounts.models import User, UserNotification
+        from core.management.commands.presentation_expansion import _clone_until_minimum
+
+        user = User.objects.create_user(
+            username="presentation-clone-validation",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        UserNotification.objects.create(
+            recipient=user,
+            actor=user,
+            title="اعلان مبنای آزمون",
+            body="این اعلان فقط برای آزمون اعتبارسنجی clone است.",
+        )
+
+        with patch.object(
+            UserNotification,
+            "full_clean",
+            side_effect=ValidationError("synthetic validation rejection"),
+        ):
+            with self.assertRaises(CommandError):
+                _clone_until_minimum(
+                    UserNotification,
+                    target=2,
+                    preferred_sources=list(UserNotification.objects.all()),
+                )
+
+        self.assertEqual(UserNotification.objects.count(), 1)
+
     def test_presentation_seed_never_assigns_a_password_to_an_existing_unusable_account(self):
         from django.core.management.base import CommandError
         from accounts.models import User
