@@ -653,7 +653,7 @@ git status --short --branch
 ```powershell
 python manage.py test delegations.tests.DelegationRoutingTests.test_revoking_delegation_routes_to_an_eligible_initial_assignee delegations.tests.DelegationRoutingTests.test_revocation_rolls_back_when_no_eligible_non_requester_exists delegations.tests.DelegationRoutingTests.test_bulk_delegation_clears_previous_position_assignment_and_syncs_domain_owner delegations.tests.WorkDelegationStateMutationTests.test_status_changes_require_controlled_service_and_audit_event core.tests.DemoSeedCommandSafetyTests.test_generic_presentation_clone_runs_full_clean_before_save --verbosity 2
 python manage.py test --verbosity 2
-.scriptsinal_preflight.ps1 -NoMigrate
+.\scripts\final_preflight.ps1 -NoMigrate
 ```
 
 `-NoMigrate` برای این مرحله انتخاب شده تا preflight روی schema موجود فقط بررسی کند و migration اعمال نکند. `seed_demo` را اجرا نکنید؛ حتی پس از سبزشدن تست‌ها، ابتدا باید نسخهٔ idempotent واقعی طراحی و جداگانه بازبینی شود.
