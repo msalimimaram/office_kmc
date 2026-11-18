@@ -1,7 +1,9 @@
-"""Comprehensive, idempotent demo fixtures for the complete insurance workflow domain.
+"""Comprehensive, collision-safe demo fixtures for the insurance workflow domain.
 
-All records are synthetic and namespaced. Existing rows are verified, never
-silently updated or deleted. This module is called by seed_demo in DEBUG only.
+The current seed command is intentionally one-shot on a fresh disposable
+DEBUG database. All records are synthetic and namespaced; existing rows are
+never silently updated or deleted. Re-runs are rejected by the outer database
+guard rather than treated as idempotent updates.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
