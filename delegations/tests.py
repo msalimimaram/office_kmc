@@ -1200,6 +1200,19 @@ class WorkDelegationStateMutationTests(TestCase):
         self.assertEqual(event.actor_id, head.pk)
         self.assertEqual(event.summary, "تعلیق کنترل‌شده برای آزمون ممیزی")
 
+        resume_reason = "رفع تعلیق پس از بازگشت انتصاب معتبر"
+        update_delegation_status(
+            delegation_id=delegation.pk,
+            actor=head,
+            action="resume",
+            reason=resume_reason,
+        )
+        delegation.refresh_from_db()
+        self.assertEqual(delegation.status, WorkDelegation.Status.ACTIVE)
+        self.assertEqual(delegation.revocation_reason, "")
+        resume_event = delegation.events.get(event_type="resumed")
+        self.assertEqual(resume_event.summary, resume_reason)
+
     def test_synchronization_uses_the_controlled_state_transition_path(self):
         today = timezone.localdate()
         head = User.objects.create_user(
