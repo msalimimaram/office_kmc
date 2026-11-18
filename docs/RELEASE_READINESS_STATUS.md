@@ -620,7 +620,7 @@ python manage.py test --verbosity 2
 - زمان اولین مشاهده و اولین اقدام ثبت می‌شود. مهلت هر مرحله با تقویم کاری محاسبه می‌شود؛ در وضعیت `WAITING` مهلت حذف یا متوقف نمی‌شود. انتقال به مرحلهٔ بعد مهلت همان مرحله را از زمان انتقال محاسبه می‌کند.
 - inbox تفویض فقط پرونده‌های دارای مسئول جاری و قاعدهٔ مؤثر را نشان می‌دهد؛ موضوع محرمانه mask می‌شود و محدوده، مرحله، تفویض‌کننده و SLA نمایش داده می‌شوند. صفحهٔ جزئیات نیز گیرندهٔ هر رویداد را از `WorkflowEvent.to_assignee` می‌خواند.
 - helper دسترسی سازمانی، دادهٔ شخص‌محور شرکت را به بازهٔ اشتغال همان شخص/کارمند اصلی محدود می‌کند؛ صرف سابقهٔ تاریخی، دسترسی دائمی به داده‌های آینده ایجاد نمی‌کند.
-- ClamAV با `zINSTREAM\\0`، طول ۴ بایتی network-order، chunk پایانی صفر و پاسخ NUL-terminated کار می‌کند؛ پاسخ ناقص یا malformed رد می‌شود. آزمون واقعی clean/EICAR/service-down هنوز باید در staging انجام شود.
+- ClamAV با `zINSTREAM\0`، طول ۴ بایتی network-order، chunk پایانی صفر و پاسخ NUL-terminated کار می‌کند؛ پاسخ ناقص یا malformed رد می‌شود. آزمون واقعی clean/EICAR/service-down هنوز باید در staging انجام شود.
 - تنظیمات Production به PostgreSQL، Redis، secret صریح، hosts و CSRF origins مشخص، HTTPS، secure cookies، HSTS و ClamAV نیاز دارند. `mfa_enabled` به‌تنهایی MFA واقعی نیست؛ MFA، backup/restore، پایش و آزمون زیرساخت همچنان مانع انتشارند.
 
 ### وضعیت seed نمایشی
@@ -633,3 +633,26 @@ python manage.py test --verbosity 2
 ### تصمیم و اقدام بعدی
 
 **Production همچنان No-Go است.** مهم‌ترین اقدام فوری، رساندن checkout محلی به HEAD فعلی و اجرای focused tests جدید، سپس کل suite روی همان SHA است. پس از آن باید `check`، `makemigrations --check --dry-run`، `migrate --check`، `verify_database_schema` و `audit_workflows` ثبت شوند. فقط پس از پایداری تست‌ها، seed باید به طرح idempotent واقعی با namespace مشخص و بدون تغییر/حذف/استفاده از دادهٔ واقعی بازطراحی و روی دیتابیس تازهٔ دورریختنی آزموده شود؛ سپس آزمون PostgreSQL، ClamAV، backup/restore، IDOR، MFA و پذیرش end-to-end در staging لازم است.
+
+#### دستورهای دقیق اجرای بعدی روی checkout محلی
+
+ابتدا وضعیت فایل‌های محلی را ببینید؛ اگر تغییر محلی دارید، پیش از pull آن‌ها را حفظ کنید و reset نکنید:
+
+```powershell
+git status --short --branch
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git rev-parse HEAD
+git status --short --branch
+```
+
+سپس تست‌های تازهٔ تفویض و اعتبارسنجی clone را اجرا کنید:
+
+```powershell
+python manage.py test delegations.tests.DelegationRoutingTests.test_revoking_delegation_routes_to_an_eligible_initial_assignee delegations.tests.DelegationRoutingTests.test_revocation_rolls_back_when_no_eligible_non_requester_exists delegations.tests.DelegationRoutingTests.test_bulk_delegation_clears_previous_position_assignment_and_syncs_domain_owner delegations.tests.WorkDelegationStateMutationTests.test_status_changes_require_controlled_service_and_audit_event core.tests.DemoSeedCommandSafetyTests.test_generic_presentation_clone_runs_full_clean_before_save --verbosity 2
+python manage.py test --verbosity 2
+.scriptsinal_preflight.ps1 -NoMigrate
+```
+
+`-NoMigrate` برای این مرحله انتخاب شده تا preflight روی schema موجود فقط بررسی کند و migration اعمال نکند. `seed_demo` را اجرا نکنید؛ حتی پس از سبزشدن تست‌ها، ابتدا باید نسخهٔ idempotent واقعی طراحی و جداگانه بازبینی شود.
