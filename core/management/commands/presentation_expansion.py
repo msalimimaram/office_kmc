@@ -269,6 +269,10 @@ def _clone_until_minimum(model, *, target=MINIMUM_PER_MODEL, created_counts=None
             clone = model(**values)
             try:
                 with transaction.atomic():
+                    # Model.save() does not call full_clean() by default.
+                    # Validate each generic clone explicitly before persisting
+                    # so presentation fixtures cannot bypass model-level rules.
+                    clone.full_clean()
                     clone.save()
                     for field in model._meta.many_to_many:
                         getattr(clone, field.name).set(getattr(source, field.name).all())
