@@ -449,7 +449,7 @@ def update_delegation_status(*, delegation_id, actor, action, reason=""):
         event_type = DelegationEvent.EventType.REVOKED
     else:
         raise ValidationError("عملیات وضعیت تفویض معتبر نیست.")
-    delegation.revocation_reason = (reason or "").strip()
+    delegation.revocation_reason = "" if action == "resume" else (reason or "").strip()
     delegation._allow_state_transition = True
     try:
         delegation.save(update_fields=["status", "revoked_at", "revoked_by", "revocation_reason", "updated_at"])
