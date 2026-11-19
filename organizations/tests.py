@@ -975,6 +975,33 @@ class PersonChangeRequestWorkflowTests(TestCase):
         self.assertNotContains(response, "09121111111")
         self.assertNotContains(response, "اطلاعات ثبت‌شده نیازمند اصلاح و تطبیق با مدرک معتبر است.")
 
+    def test_current_assignee_with_wrong_line_scope_cannot_read_person_change_request(self):
+        item, _case = self._create_request()
+
+        health_assignment = RoleAssignment.objects.get(
+            user=self.company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code=InsuranceLine.HEALTH,
+        )
+        health_assignment.is_active = False
+        health_assignment.save(update_fields=["is_active"])
+        RoleAssignment.objects.create(
+            user=self.company_rep,
+            role=RoleAssignment.Role.SUBSIDIARY_REP,
+            company=self.company,
+            line_code="fire",
+            valid_from=self.today,
+            reason="انتصاب مستقل در رشته دیگر",
+        )
+
+        self.client.force_login(self.company_rep)
+        response = self.client.get(
+            reverse("person_change_detail", args=[item.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_rejection_does_not_change_person_data(self):
         item, case = self._create_request()
         case = transition_case(
