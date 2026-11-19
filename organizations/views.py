@@ -13,7 +13,13 @@ from accounts.models import RoleAssignment
 from core.permissions import scoped_claims_for, scoped_requests_for
 from auditlog.services import record_event
 from workflow.models import WorkflowCase, WorkflowDefinition
-from workflow.services import resolve_initial_assignee, start_workflow
+from workflow.services import (
+    _case_actor_authorized,
+    _scope_for_object,
+    is_delegated_assignee,
+    resolve_initial_assignee,
+    start_workflow,
+)
 from organizations.models import Company, CompanyLeadershipTitle, Person, PersonEmployment, PersonChangeRequest
 from .forms import CompanyLeadershipTitleForm, PersonChangeRequestForm, current_company_id_for_person
 
@@ -203,6 +209,28 @@ def company_leadership_titles(request):
 
 
 
+
+def _is_authorized_current_person_change_assignee(user, case):
+    """Return True only while the current workflow owner still holds its exact grant."""
+    if (
+        case is None
+        or case.current_assignee_id != getattr(user, "pk", None)
+        or not case.current_step_id
+        or case.status not in {WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING}
+    ):
+        return False
+
+    if case.delegation_id:
+        return is_delegated_assignee(case, user)
+
+    return _case_actor_authorized(
+        case,
+        user,
+        case.current_step.allowed_roles,
+        position_levels=case.current_step.allowed_position_levels,
+        scope=_scope_for_object(case.content_object),
+    )
+
 def _person_change_scope(user):
     queryset = PersonChangeRequest.objects.select_related(
         "person", "company", "contract", "contract__insurer",
@@ -236,14 +264,16 @@ def _person_change_scope(user):
     content_type = ContentType.objects.get_for_model(
         PersonChangeRequest, for_concrete_model=False
     )
-    assigned_object_ids = WorkflowCase.objects.filter(
+    assigned_cases = WorkflowCase.objects.filter(
         content_type=content_type,
         current_assignee_id=user.pk,
         status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
-    ).values_list("object_id", flat=True)
+    ).select_related("current_step", "definition", "delegation")
     assigned_ids = [
-        int(value) for value in assigned_object_ids
-        if str(value).isdigit()
+        int(case.object_id)
+        for case in assigned_cases
+        if str(case.object_id).isdigit()
+        and _is_authorized_current_person_change_assignee(user, case)
     ]
     if assigned_ids:
         allowed |= Q(pk__in=assigned_ids)
@@ -410,11 +440,11 @@ def person_change_detail(request, pk):
         content_type=content_type,
         object_id=str(item.pk),
     ).select_related("current_step", "current_assignee").first()
+    is_current_assignee = _is_authorized_current_person_change_assignee(
+        request.user, case
+    )
     can_open_workflow = bool(
-        case and (
-            has_global_access(request.user)
-            or case.current_assignee_id == request.user.pk
-        )
+        case and (has_global_access(request.user) or is_current_assignee)
     )
     is_person_owner = bool(
         item.person.user_id == request.user.pk
@@ -427,7 +457,7 @@ def person_change_detail(request, pk):
         has_global_access(request.user)
         or item.requested_by_id == request.user.pk
         or is_person_owner
-        or (case and case.current_assignee_id == request.user.pk)
+        or is_current_assignee
     )
     current_value_display = item.current_value
     requested_value_display = item.requested_value
