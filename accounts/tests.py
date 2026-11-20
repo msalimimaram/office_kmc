@@ -1256,6 +1256,18 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
                 call_command("bootstrap_first_system_admin", stdout=StringIO())
         self.assertFalse(User.objects.exists())
 
+    def test_bootstrap_refuses_modified_baseline_calendar_before_prompting(self):
+        from workflow.models import BusinessCalendar
+
+        calendar = BusinessCalendar.objects.get(code="iran-default")
+        calendar.title = "تقویم تغییر یافته"
+        calendar.save(update_fields=["title"])
+        with patch("builtins.input") as prompt:
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        prompt.assert_not_called()
+        self.assertFalse(User.objects.exists())
+
     def test_bootstrap_refuses_database_with_business_data_before_prompting(self):
         Company.objects.create(
             code="BOOTSTRAP-EXISTING-DATA",
