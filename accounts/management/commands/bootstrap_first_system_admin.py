@@ -11,6 +11,7 @@ import re
 
 from django.apps import apps
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -105,7 +106,13 @@ class Command(BaseCommand):
                 is_superuser=False,
                 must_change_password=True,
             )
-            validate_password(password, user=candidate)
+            try:
+                validate_password(password, user=candidate)
+            except ValidationError as exc:
+                raise CommandError(
+                    "Initial password does not meet the configured password policy: "
+                    + "; ".join(exc.messages)
+                ) from exc
             candidate.set_password(password)
             candidate.save()
 
@@ -147,3 +154,4 @@ class Command(BaseCommand):
                 "The user must change the initial password at first login."
             )
         )
+
