@@ -35,19 +35,6 @@ from .models import (
 )
 
 
-def _can_view_assets(user):
-    """Require an explicit business role before opening the asset module."""
-    return has_global_access(user) or any(
-        has_role(user, role)
-        for role in (
-            RoleAssignment.Role.INSURANCE_SPECIALIST,
-            RoleAssignment.Role.SUBSIDIARY_REP,
-            RoleAssignment.Role.INSURER_REP,
-            RoleAssignment.Role.INSURED_PERSON,
-        )
-    )
-
-
 def _asset_scope(user):
     qs = InsuredAsset.objects.select_related(
         "company", "person", "insurer", "contract", "created_by"
@@ -131,8 +118,6 @@ def _can_manage_asset(user, asset):
 
 @login_required
 def asset_list(request):
-    if not _can_view_assets(request.user):
-        raise PermissionDenied("دسترسی به ماژول دارایی‌ها برای این حساب تعریف نشده است.")
     assets = _asset_scope(request.user)
     query = request.GET.get("q", "").strip()[:100]
     asset_type = request.GET.get("type", "").strip()
