@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.template.loader import render_to_string
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
@@ -8,17 +10,24 @@ from accounts.models import RoleAssignment, User
 
 
 class AccessNavigationVisibilityTests(TestCase):
-    """Regression tests for the role-derived navigation capability contract."""
+    """Regression tests for role-derived navigation visibility."""
 
     def setUp(self):
         self.factory = RequestFactory()
         self.today = timezone.localdate()
 
-    def flags_for(self, user):
+    def request_for(self, user):
         request = self.factory.get("/")
         request.user = user
         request.session = {}
-        return access_flags(request)["access"]
+        request._messages = FallbackStorage(request)
+        return request
+
+    def flags_for(self, user):
+        return access_flags(self.request_for(user))["access"]
+
+    def render_sidebar(self, user):
+        return render_to_string("base.html", {}, request=self.request_for(user))
 
     def user(self, username, **kwargs):
         return User.objects.create_user(
@@ -39,9 +48,7 @@ class AccessNavigationVisibilityTests(TestCase):
 
     def test_anonymous_request_has_no_navigation_capabilities(self):
         request = self.factory.get("/")
-        request.user = type("Anonymous", (), {
-            "is_authenticated": False,
-        })()
+        request.user = type("Anonymous", (), {"is_authenticated": False})()
         result = access_flags(request)
         self.assertEqual(result["access"], {})
         self.assertEqual(result["unread_notification_count"], 0)
@@ -85,6 +92,10 @@ class AccessNavigationVisibilityTests(TestCase):
         self.assertTrue(flags["delegation_manage"])
         self.assertTrue(flags["reports"])
         self.assertTrue(flags["imports"])
+        html = self.render_sidebar(user)
+        self.assertIn("صندوق گردش‌کار", html)
+        self.assertIn("مدیریت تفویض اختیار", html)
+        self.assertIn("گزارش‌های مدیریتی", html)
 
     def test_insured_person_gets_personal_services_not_staff_operations(self):
         user = self.user("visibility-insured")
@@ -100,6 +111,13 @@ class AccessNavigationVisibilityTests(TestCase):
         self.assertFalse(flags["imports"])
         self.assertFalse(flags["reports"])
         self.assertFalse(flags["delegation_manage"])
+        html = self.render_sidebar(user)
+        self.assertIn("درخواست‌ها", html)
+        self.assertIn("خسارت‌ها", html)
+        self.assertNotIn("صندوق گردش‌کار", html)
+        self.assertNotIn("وظایف", html)
+        self.assertNotIn("ورود اکسل", html)
+        self.assertNotIn("گزارش‌های مدیریتی", html)
 
     def test_multiple_active_roles_produce_union_of_capabilities(self):
         user = self.user("visibility-multi-role")
@@ -117,3 +135,6 @@ class AccessNavigationVisibilityTests(TestCase):
         self.assertTrue(flags["claims"])
         self.assertTrue(flags["imports"])
         self.assertTrue(flags["reports"])
+        html = self.render_sidebar(user)
+        self.assertIn("صندوق گردش‌کار", html)
+        self.assertIn("ورود اکسل", html)
