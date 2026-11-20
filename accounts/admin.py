@@ -52,14 +52,6 @@ class SystemAdminUserCreationForm(UserCreationForm):
         if not re.fullmatch(r"\d{10}", national_id):
             raise forms.ValidationError("کد ملی باید دقیقاً ده رقم باشد.")
         if national_id != self.cleaned_data.get("username"):
-            raise forms.ValidationError("نام کاربری باید با کد ملی یکسان باشد.")
-        return national_id
-
-    def clean_national_id(self):
-        national_id = self.cleaned_data["national_id"].strip()
-        if not re.fullmatch(r"\\d{10}", national_id):
-            raise forms.ValidationError("کد ملی باید دقیقاً ده رقم باشد.")
-        if national_id != self.cleaned_data.get("username"):
             raise forms.ValidationError("کد ملی باید با نام کاربری یکسان باشد.")
         if User.objects.filter(national_id=national_id).exclude(pk=self.instance.pk).exists():
             raise forms.ValidationError("این کد ملی قبلاً برای حساب دیگری ثبت شده است.")
