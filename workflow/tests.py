@@ -1815,6 +1815,11 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         from accounts.models import RoleAssignment
         from workflow.models import WorkflowDefinition, WorkflowStep
 
+        creator = User.objects.create_user(
+            username="workflow-seed-upgrade-creator",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
         head = User.objects.create_user(
             username="workflow-seed-upgrade-head",
             password="StrongPass!2026",
@@ -1844,7 +1849,12 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         old.is_active = True
         old.save()
 
-        call_command("seed_operational_workflows")
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=head.pk,
+            publish=True,
+        )
         old.refresh_from_db()
         current = WorkflowDefinition.objects.get(code="other", is_active=True)
         self.assertFalse(old.is_active)
@@ -1860,6 +1870,11 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep
         from workflow.services import start_workflow
 
+        creator = User.objects.create_user(
+            username="workflow-rebase-creator",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
         head = User.objects.create_user(
             username="workflow-rebase-head",
             password="StrongPass!2026",
@@ -1917,7 +1932,12 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         )
         previous_event_count = case.events.count()
 
-        call_command("seed_operational_workflows")
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=head.pk,
+            publish=True,
+        )
         case.refresh_from_db()
         active = WorkflowDefinition.objects.get(code=ServiceRequest.Kind.OTHER, is_active=True)
         self.assertEqual(case.definition_id, active.pk)
@@ -1935,6 +1955,10 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         from requests_portal.models import ServiceRequest
         from workflow.models import WorkflowDefinition, WorkflowTransition
 
+        creator = User.objects.create_user(
+            username="workflow-seed-creator",
+            password="StrongPass!123",
+        )
         head = User.objects.create_user(
             username="workflow-seed-head",
             password="StrongPass!123",
@@ -1945,7 +1969,12 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             reason="رئیس اداره برای آزمون seed گردش کار",
         )
 
-        call_command("seed_operational_workflows")
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=head.pk,
+            publish=True,
+        )
 
         report_definition = WorkflowDefinition.objects.get(
             code="management_report_approval", is_active=True
@@ -1982,7 +2011,12 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         versions_before = dict(
             WorkflowDefinition.objects.filter(code__in=expected).values_list("code", "version")
         )
-        call_command("seed_operational_workflows")
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=head.pk,
+            publish=True,
+        )
         versions_after = dict(
             WorkflowDefinition.objects.filter(code__in=expected).values_list("code", "version")
         )
