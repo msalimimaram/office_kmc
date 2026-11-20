@@ -50,7 +50,7 @@ The following is the intended first-level navigation matrix. It is not a grant o
 | Service requests | ✓ | ✓ | ✓ | ✓ (company scope) | referred/assigned scope | own only |
 | Claims | ✓ | ✓ | ✓ (line/scope) | ✓ (company/line) | ✓ (insurer/assigned) | own only |
 | Contracts | ✓ | ✓ | ✓ | ✓ (company scope) | ✓ (insurer scope) | — |
-| Assets | ✓ | ✓ | ✓ | ✓ (company scope) | ✓ (insurer/assigned scope) | — unless a separately approved insured-asset read capability exists |
+| Assets | ✓ | ✓ | ✓ | ✓ (company/line scope) | ✓ (insurer scope) | own assets only |
 | Imports | ✓ | ✓ | ✓ | — | ✓ (insurer scope) | — |
 | Management reports | ✓ | ✓ | ✓ (permitted reports) | — | — | — |
 | Correspondence | ✓ | ✓ | ✓ | ✓ (company scope) | ✓ (insurer scope) | — |
@@ -60,7 +60,7 @@ The following is the intended first-level navigation matrix. It is not a grant o
 
 `*` Delegation inbox appears only when the user has an applicable delegation history or a permitted global role. A visible read-only historical inbox does not imply an actionable assignment.
 
-**Implementation note:** Compare this intended matrix with `accounts/context_processors.py`, `dashboard/views.py::_capabilities_for`, `templates/base.html`, module views, and URL patterns. Any disagreement must be resolved deliberately and tested. In particular, a single capability registry should eventually drive navigation and dashboard visibility; the server remains the enforcement authority.
+**Implementation note:** The current `accounts/context_processors.py` exposes an `assets` navigation flag to insured users, and `assets/views.py::_asset_scope` limits those users to assets linked to their own person record. The dashboard's `_capabilities_for` currently does not include `assets` for the insured role, so the sidebar and dashboard capability sets are inconsistent and require a regression fix. Compare this matrix with `accounts/context_processors.py`, `dashboard/views.py::_capabilities_for`, `templates/base.html`, module views, and URL patterns. A single capability registry should eventually drive navigation and dashboard visibility; the server remains the enforcement authority.
 
 ## 4. Required tests for every capability
 
