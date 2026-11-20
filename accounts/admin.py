@@ -31,13 +31,13 @@ class SystemAdminUserCreationForm(UserCreationForm):
 
     def clean_username(self):
         username = self.cleaned_data["username"].strip()
-        if not re.fullmatch(r"\\d{10}", username):
+        if not re.fullmatch(r"\d{10}", username):
             raise forms.ValidationError("نام کاربری باید کد ملی ده‌رقمی باشد.")
         return username
 
     def clean_national_id(self):
         national_id = self.cleaned_data["national_id"].strip()
-        if not re.fullmatch(r"\\d{10}", national_id):
+        if not re.fullmatch(r"\d{10}", national_id):
             raise forms.ValidationError("کد ملی باید دقیقاً ده رقم باشد.")
         if national_id != self.cleaned_data.get("username"):
             raise forms.ValidationError("نام کاربری باید با کد ملی یکسان باشد.")
@@ -45,7 +45,7 @@ class SystemAdminUserCreationForm(UserCreationForm):
 
     def clean_mobile(self):
         mobile = self.cleaned_data["mobile"].strip()
-        if not re.fullmatch(r"09\\d{9}", mobile):
+        if not re.fullmatch(r"09\d{9}", mobile):
             raise forms.ValidationError("شماره همراه باید با قالب 09xxxxxxxxx وارد شود.")
         return mobile
 
