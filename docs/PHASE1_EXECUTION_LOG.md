@@ -216,3 +216,36 @@ python manage.py verify_database_schema
 
 **وضعیت فاز یک:** OPEN تا تأیید محلی اصلاح، schema و workflow gate.  
 **Production:** NO-GO.
+
+
+## 8. تأیید محلی اصلاح PowerShell و schema — گزارش مالک، 2026-11-20
+
+**Checkout پس از pull:** مالک با موفقیت `git pull --ff-only origin main` را اجرا کرد؛ fast-forward از `8835f82` به `56c5a92`.  
+**نسخه PowerShell:** 5.1.19041.1151 (ثبت‌شده در بخش 7).
+
+| کنترل | نتیجه | شاهد |
+|---|---|---|
+| دریافت اصلاح main | PASS | fast-forward موفق؛ فایل‌های docs و `scripts/final_preflight.ps1` دریافت شدند. |
+| probe انتقال کد shell | **PASS** | launcher بایت UTF-8 در PowerShell 5.1 خروجی `1|2` داد؛ مشکل حذف کوتیشن برطرف شد. |
+| `python manage.py verify_database_schema` | **PASS** | `PASS: all 60 managed model and many-to-many tables exist.` |
+| وضعیت داده/workflow | **0 active / 1 populated** | probe read-only خروجی `0|1` داد؛ workflow فعال صفر، اما یک جدول کاربردی دارای داده است. |
+| `audit_workflows` | **PENDING — REQUIRED** | چون populated application tables برابر 1 است، gate اعمال می‌شود؛ صفر بودن workflow فعال به‌معنی معافیت نیست و ممیزی باید کمبود تعریف‌های فعال لازم را گزارش کند. |
+
+### اقدام بعدی
+
+فقط فرمان زیر اجرا شود؛ کد command در مخزن بررسی شده و منطق آن خواندنی/اعتبارسنجی است و داده‌ای ایجاد یا تغییر نمی‌دهد:
+
+```powershell
+python manage.py audit_workflows
+```
+
+خروجی کامل را ثبت کنید. انتظار می‌رود با توجه به صفر بودن workflowهای فعال، ممیزی کمبودهای گردش‌کار را گزارش کند؛ اگر چنین شد، آن را به‌عنوان مغایرت واقعی پیکربندی/داده ثبت می‌کنیم، نه خطای زیرساخت یا تست. هیچ seed یا ساخت workflow بدون تصمیم و بررسی مستقل انجام نشود.
+
+### مواردی که نباید تکرار شوند
+
+- full Django suite: 358/358 PASS گزارش‌شده؛ تکرار نشود.
+- probe کوتیشن PowerShell: PASS؛ تکرار نشود مگر اسکریپت/روش فراخوانی تغییر کند.
+- `verify_database_schema`: PASS برای schema فعلی؛ تا تغییر migration/schema تکرار نشود.
+
+**فاز یک:** OPEN تا تعیین تکلیف audit workflow.  
+**Production:** NO-GO.
