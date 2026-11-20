@@ -26,32 +26,45 @@ class Command(BaseCommand):
         ("management_report_approval", "تأیید سلسله‌مراتبی گزارش مدیریتی", "approved"),
     )
 
+    def add_arguments(self, parser):
+        parser.add_argument("--created-by", type=int, required=True)
+        parser.add_argument("--approved-by", type=int, required=True)
+        parser.add_argument(
+            "--publish",
+            action="store_true",
+            help="Commit the complete workflow catalog. Without this flag, execution is a rollback-only dry run.",
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+
+        User = get_user_model()
         today = timezone.localdate()
         global_roles = [
             RoleAssignment.Role.DEPARTMENT_HEAD,
             RoleAssignment.Role.SYSTEM_ADMIN,
         ]
-        assignment = (
-            RoleAssignment.objects.filter(
-                role__in=global_roles,
-                is_active=True,
-                valid_from__lte=today,
-                user__is_active=True,
-            )
-            .filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today))
-            .select_related("user")
-            .order_by("pk")
-            .first()
-        )
-        if not assignment:
-            raise CommandError(
-                "No active Department Head/System Admin RoleAssignment exists. "
-                "Create a valid global role assignment before seeding workflows."
-            )
+        try:
+            creator = User.objects.get(pk=options["created_by"], is_active=True)
+            approver = User.objects.get(pk=options["approved_by"], is_active=True)
+        except User.DoesNotExist as exc:
+            raise CommandError("Both --created-by and --approved-by must identify existing active users.") from exc
 
-        actor = assignment.user
+        if creator.pk == approver.pk:
+            raise CommandError("Creator and approver must be different users (separation of duties).")
+
+        approver_assignment = RoleAssignment.objects.filter(
+            user=approver,
+            role__in=global_roles,
+            is_active=True,
+            valid_from__lte=today,
+        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+        if not approver_assignment:
+            raise CommandError("The approver must have an active Department Head or System Admin assignment.")
+
+        actor = creator
         created = []
         skipped = []
         for code, title, approved_step_code in self.WORKFLOWS:
@@ -73,7 +86,7 @@ class Command(BaseCommand):
                 code=code,
                 title=title,
                 version=version,
-                created_by=actor,
+                created_by=creator,
                 description=(
                     f"{self.BASELINE_SCHEMA_VERSION}: گردش پایه نسخه‌دار. تغییر مسیر فقط با ایجاد و انتشار نسخه جدید "
                     "و تأیید رئیس اداره بیمه یا مدیر سامانه مجاز است."
@@ -89,7 +102,7 @@ class Command(BaseCommand):
                 self._build_report_approval(definition, global_roles)
             else:
                 self._build_global_approval(definition, approved_step_code, global_roles)
-            definition.approved_by = actor
+            definition.approved_by = approver
             definition.is_active = True
             definition.save()
             self._rebase_open_cases(code, definition, actor)
@@ -127,8 +140,19 @@ class Command(BaseCommand):
             self._rebase_open_cases(code, definition, actor)
             created.append(code)
 
-        if created:
-            self.stdout.write(self.style.SUCCESS("Created and published: " + ", ".join(created)))
+        # The audit is part of the same transaction: publication is rejected
+        # atomically if the resulting catalog does not satisfy its invariants.
+        call_command("audit_workflows")
+
+        if options["publish"]:
+            if created:
+                self.stdout.write(self.style.SUCCESS("Created and published: " + ", ".join(created)))
+        else:
+            transaction.set_rollback(True)
+            self.stdout.write(self.style.WARNING(
+                "DRY RUN: catalog validated and audit passed; all database writes were rolled back. "
+                "Re-run with --publish to commit."
+            ))
         if skipped:
             self.stdout.write("Already active; left unchanged: " + ", ".join(skipped))
         self.stdout.write(
