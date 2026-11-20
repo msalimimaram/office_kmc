@@ -36,6 +36,17 @@ if (-not (Test-Path "manage.py")) {
     throw "Run this script from the office_kmc repository root (manage.py was not found)."
 }
 
+# PowerShell 5.1 can strip embedded quotes from arguments passed to native
+# executables. Encode Django shell source as UTF-8 bytes and pass a quote-free
+# Python launcher so the source reaches manage.py shell unchanged.
+function ConvertTo-PythonShellLauncher {
+    param([Parameter(Mandatory = $true)][string]$Code)
+
+    $sourceBytes = [System.Text.Encoding]::UTF8.GetBytes($Code)
+    $byteList = [string]::Join(",", [string[]]$sourceBytes)
+    return "exec(bytes([$byteList]))"
+}
+
 if ($Production -and $SeedDemo) {
     throw "-SeedDemo is prohibited in Production mode."
 }
@@ -96,7 +107,8 @@ populated_application_tables = sum(
 active_workflows = WorkflowDefinition.objects.filter(is_active=True).count()
 print(f"{active_workflows}|{populated_application_tables}")
 "@
-    $workflowStateOutput = & $python "manage.py" "shell" "-c" $workflowStateCode
+    $workflowStateLauncher = ConvertTo-PythonShellLauncher -Code $workflowStateCode
+    $workflowStateOutput = & $python "manage.py" "shell" "-c" $workflowStateLauncher
     if ($LASTEXITCODE -ne 0) {
         throw "Could not determine whether the workflow publication gate applies."
     }
@@ -145,7 +157,8 @@ assert settings.SECURE_HSTS_SECONDS >= 31536000, "One-year HSTS must be configur
 assert getattr(settings, "SECURE_PROXY_SSL_HEADER", None) == ("HTTP_X_FORWARDED_PROTO", "https"), "Trusted HTTPS proxy header must be configured"
 print("Effective production settings validated.")
 "@
-    Invoke-Check -Name "Production environment configuration" -Command $python -Arguments @("manage.py", "shell", "-c", $productionConfigCheck)
+    $productionConfigLauncher = ConvertTo-PythonShellLauncher -Code $productionConfigCheck
+    Invoke-Check -Name "Production environment configuration" -Command $python -Arguments @("manage.py", "shell", "-c", $productionConfigLauncher)
     Invoke-Check -Name "Production security checks" -Command $python -Arguments @("manage.py", "check", "--deploy")
     Invoke-Check -Name "Static asset collection" -Command $python -Arguments @("manage.py", "collectstatic", "--noinput")
 }
