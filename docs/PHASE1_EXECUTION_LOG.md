@@ -292,3 +292,34 @@ python manage.py audit_workflows
 
 **فاز یک:** OPEN — workflow configuration bootstrap / provisioning یک مانع اصلی است.  
 **Production:** NO-GO.
+
+
+## 10. طراحی مرجع provisioning گردش‌کارها — 2026-11-20
+
+**سند جدید:** `docs/WORKFLOW_PROVISIONING_DESIGN.md`  
+**Commit:** `49585287a3e865d4af178254e48ce122f56519e9`
+
+### کار انجام‌شده
+- قرارداد ساختاری و قواعد سخت‌گیرانه `audit_workflows` از سورس استخراج و در سند مستقل ثبت شد.
+- ۱۰ نوع درخواست عمومی از `ServiceRequest.Kind` و ۹ فرآیند دامنه‌ای از کد ممیزی تفکیک شدند.
+- وضعیت‌های دامنه، مراحل آغازین اجباری و کنترل‌های ممیزی خاص برای خسارت، اعتراض، قرارداد، دارایی، اصلاح اطلاعات شخص و گزارش مدیریتی ثبت شدند.
+- قواعد غیرقابل مذاکره نقش/مسیر ثبت شد: نماینده بیمه‌گر حق بستن ندارد؛ درخواست عمومی فقط با رئیس/مدیر بسته می‌شود؛ `person_change` استثنای محدود خودش را دارد؛ محرمانگی درمان، scope شرکت/بیمه‌گر/رشته و ادامه SLA در انتظار حفظ می‌شوند.
+- قرارداد طراحی provisioning امن شامل actor/approver واقعی، dry-run، opt-in انتشار، transaction اتمیک، fail-closed، عدم overwrite نسخه منتشرشده و اجرای audit پس از provision تعریف شد.
+- تست‌های هدفمند لازم مشخص شدند؛ تکرار suite 358 تست درخواست نشده است.
+
+### وضعیت
+این commit صرفاً سند طراحی است؛ هنوز کد provisioning یا workflow data در DB ایجاد نشده است. عمداً از تولید/انتشار workflow با قواعد حدسی خودداری شد، چون انتشار immutable است و اختیارهای بستن/ارجاع، اثر مستقیم بر عملیات بیمه دارند.
+
+### مانع محیط
+probe قبلی فقط `0 active / 1 populated table` را ثابت می‌کند؛ نام جدول را ثابت نمی‌کند. همچنین وجود actor/approver واقعی با انتصاب فعال رئیس اداره/مدیر سامانه هنوز در DB محلی اثبات نشده است. چون `WorkflowDefinition.created_by` اجباری و انتشار نیازمند `approved_by` معتبر است، هیچ user ID یا نقش تأییدکننده‌ای حدس زده نمی‌شود.
+
+### اقدام بعدی فنی
+1. تکمیل کاتالوگ اجرایی بر اساس تمام status sync hooks و transition services؛
+2. پیاده‌سازی command مستقل provisioning با `--dry-run` و `--publish`؛
+3. تست‌های واحد/امنیتی/تکرارپذیری و rollback؛
+4. اجرای dry-run و سپس انتشار فقط با actor/approver واقعی در محیط محلی؛
+5. اجرای یک‌باره `audit_workflows` پس از تغییر پیکربندی.
+
+**فاز یک:** OPEN — سند طراحی تکمیل شد؛ پیاده‌سازی provisioning و اثبات محلی باقی است.  
+**Production:** NO-GO.  
+**تست‌های قبلی غیرمرتبط:** full suite 358/358 PASS، schema 60 tables PASS و PowerShell launcher PASS؛ هیچ‌کدام تکرار نشوند.
