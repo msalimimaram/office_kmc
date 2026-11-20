@@ -1350,6 +1350,32 @@ class SystemAdminUserProvisioningFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("national_id", form.errors)
 
+    def test_admin_add_form_rejects_blank_names_and_duplicate_username(self):
+        from accounts.admin import SystemAdminUserCreationForm
+
+        base = {
+            "username": "1234567890",
+            "first_name": "   ",
+            "last_name": "آزمایشی",
+            "national_id": "1234567890",
+            "mobile": "09123456789",
+            "password1": "Another-Strong-Password-2026!",
+            "password2": "Another-Strong-Password-2026!",
+        }
+        form = SystemAdminUserCreationForm(data=base)
+        self.assertFalse(form.is_valid())
+        self.assertIn("first_name", form.errors)
+
+        User.objects.create_user(
+            username="1234567890",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        base["first_name"] = "کاربر"
+        duplicate = SystemAdminUserCreationForm(data=base)
+        self.assertFalse(duplicate.is_valid())
+        self.assertIn("username", duplicate.errors)
+
     def test_user_admin_add_form_exposes_identity_fields_but_no_technical_privileges(self):
         model_admin = admin.site._registry[User]
         request = RequestFactory().get("/admin/accounts/user/add/")
