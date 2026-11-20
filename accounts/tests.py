@@ -1292,6 +1292,20 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
             action="accounts.initial_system_admin_bootstrap"
         ).exists())
 
+    def test_bootstrap_rolls_back_identity_and_assignment_when_audit_fails(self):
+        with patch(
+            "accounts.management.commands.bootstrap_first_system_admin.record_event",
+            side_effect=RuntimeError("forced audit failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.run_bootstrap()
+
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(RoleAssignment.objects.exists())
+        self.assertFalse(AuditEvent.objects.filter(
+            action="accounts.initial_system_admin_bootstrap"
+        ).exists())
+
     def test_bootstrap_rejects_password_mismatch_without_persisting_identity(self):
         with (
             patch("builtins.input", side_effect=self.command_inputs),
