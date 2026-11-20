@@ -2025,3 +2025,57 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             WorkflowDefinition.objects.filter(code__in=expected, is_active=True).count(),
             len(expected),
         )
+
+
+class OperationalWorkflowProvisioningSafetyTests(TestCase):
+    def test_provisioning_rejects_same_creator_and_approver(self):
+        from django.core.management import call_command, CommandError
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        user = User.objects.create_user(
+            username="workflow-sod-same-user",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=user,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="تأیید نقش برای آزمون تفکیک وظایف",
+        )
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "seed_operational_workflows",
+                created_by=user.pk,
+                approved_by=user.pk,
+                publish=True,
+            )
+
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
+
+    def test_provisioning_defaults_to_rollback_only_dry_run(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        creator = User.objects.create_user(
+            username="workflow-dry-run-creator",
+            password="StrongPass!2026",
+        )
+        approver = User.objects.create_user(
+            username="workflow-dry-run-approver",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=approver,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="تأیید نقش برای آزمون dry-run",
+        )
+
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=approver.pk,
+        )
+
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
