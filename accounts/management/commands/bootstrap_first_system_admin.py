@@ -57,7 +57,7 @@ class Command(BaseCommand):
                 raise CommandError("Bootstrap confirmation did not match; no account was created.")
 
             username = input("National ID / username (10 digits): ").strip()
-            if not re.fullmatch(r"\\d{10}", username):
+            if not re.fullmatch(r"\d{10}", username):
                 raise CommandError("National ID / username must contain exactly 10 digits.")
 
             first_name = input("First name: ").strip()
@@ -65,7 +65,7 @@ class Command(BaseCommand):
             mobile = input("Mobile number (09xxxxxxxxx): ").strip()
             if not first_name or not last_name:
                 raise CommandError("First name and last name are required.")
-            if not re.fullmatch(r"09\\d{9}", mobile):
+            if not re.fullmatch(r"09\d{9}", mobile):
                 raise CommandError("Mobile number must use the 11-digit 09xxxxxxxxx format.")
 
             password = getpass.getpass("Initial password (input hidden): ")
