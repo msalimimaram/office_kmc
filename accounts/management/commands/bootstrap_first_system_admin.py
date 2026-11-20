@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import getpass
 import re
+from datetime import time
 
 from django.apps import apps
 from django.contrib.auth.password_validation import validate_password
@@ -31,11 +32,24 @@ class Command(BaseCommand):
             # The migrated singleton calendar row is the serialization point:
             # concurrent bootstrap attempts must contend on the same locked row.
             try:
-                BusinessCalendar.objects.select_for_update().get(code="iran-default")
+                calendar = BusinessCalendar.objects.select_for_update().get(code="iran-default")
             except BusinessCalendar.DoesNotExist as exc:
                 raise CommandError(
                     "The baseline BusinessCalendar is missing; run migrations before bootstrap."
                 ) from exc
+
+            pristine_calendar = (
+                calendar.title == "تقویم کاری مجموعه"
+                and calendar.timezone_name == "Asia/Tehran"
+                and calendar.working_weekdays == [5, 6, 0, 1, 2, 3]
+                and calendar.start_time == time(8, 0)
+                and calendar.end_time == time(16, 0)
+                and calendar.is_active is True
+            )
+            if not pristine_calendar:
+                raise CommandError(
+                    "Bootstrap refused: the baseline BusinessCalendar was modified."
+                )
 
             if User.objects.exists():
                 raise CommandError(
