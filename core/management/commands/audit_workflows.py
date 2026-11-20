@@ -255,8 +255,39 @@ class Command(BaseCommand):
                     errors.append("claim_objection: مرحله آغازین باید in_review باشد.")
                 answer = next((item for item in transitions if item.action_code == "answer"), None)
                 close = next((item for item in transitions if item.action_code == "close_objection"), None)
-                if not answer or specialist_role not in (answer.allowed_roles or []):
-                    errors.append("claim_objection: کارشناس بیمه باید مجاز به ثبت پاسخ باشد.")
+                answer_roles = set(answer.allowed_roles or []) if answer else set()
+                answer_recipients = set(answer.recipient_roles or []) if answer else set()
+                if (
+                    not answer
+                    or specialist_role not in answer_roles
+                    or not answer_roles.issubset({specialist_role})
+                ):
+                    errors.append(
+                        "claim_objection: ثبت پاسخ فقط باید در اختیار کارشناس بیمه باشد."
+                    )
+                if not answer or not answer_recipients or not answer_recipients.issubset(global_roles):
+                    errors.append(
+                        "claim_objection: پاسخ کارشناسی باید برای تصمیم رئیس اداره/مدیر سامانه ارجاع شود."
+                    )
+                answered_step = next((item for item in steps if item.code == ClaimObjection.Status.ANSWERED), None)
+                if (
+                    not answered_step
+                    or not set(answered_step.allowed_roles or [])
+                    or not set(answered_step.allowed_roles or []).issubset(global_roles)
+                ):
+                    errors.append(
+                        "claim_objection: مرحله پاسخ‌داده‌شده فقط باید در اختیار رئیس اداره/مدیر سامانه باشد."
+                    )
+                reopen = next((item for item in transitions if item.action_code == "reopen_review"), None)
+                if (
+                    not reopen
+                    or not set(reopen.allowed_roles or []).issubset(global_roles)
+                    or not set(reopen.recipient_roles or [])
+                    or not set(reopen.recipient_roles or []).issubset({specialist_role})
+                ):
+                    errors.append(
+                        "claim_objection: ارجاع مجدد باید از رئیس/مدیر به کارشناس بیمه انجام شود."
+                    )
                 if not close or not close.closes_case or not set(close.allowed_roles or []).issubset(global_roles):
                     errors.append("claim_objection: بستن اعتراض فقط برای رئیس اداره/مدیر سامانه مجاز است.")
 
