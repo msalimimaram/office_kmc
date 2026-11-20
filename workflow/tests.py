@@ -1859,7 +1859,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         current = WorkflowDefinition.objects.get(code="other", is_active=True)
         self.assertFalse(old.is_active)
         self.assertEqual(current.version, 2)
-        self.assertIn("baseline-route-v3", current.description)
+        self.assertIn("baseline-route-v4", current.description)
         self.assertEqual(old.steps.count(), 1)
 
     def test_seed_command_rebases_open_cases_to_new_definition_and_preserves_history(self):
