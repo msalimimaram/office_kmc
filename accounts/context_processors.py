@@ -87,7 +87,11 @@ def access_flags(request):
             "primary_position": position_titles[0] if position_titles else "",
             "claims": staff or has_role(user, RoleAssignment.Role.INSURED_PERSON) or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
             "contracts": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP),
-            "assets": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or has_role(user, RoleAssignment.Role.INSURED_PERSON),
+            "assets": (
+                staff
+                or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
+                or has_role(user, RoleAssignment.Role.INSURER_REP)
+            ),
             "correspondence": staff or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP) or has_role(user, RoleAssignment.Role.INSURER_REP) or unit_manager,
             "requests": (
                 staff
