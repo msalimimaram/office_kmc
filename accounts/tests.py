@@ -1,6 +1,9 @@
 from datetime import date, timedelta
+from io import StringIO
+from unittest.mock import patch
 
 from django.db import models
+from django.core.management import call_command, CommandError
 
 from django.core.exceptions import ValidationError
 from django.contrib import admin
@@ -1166,3 +1169,106 @@ class AuthorizationAssignmentBulkWriteGuardTests(TestCase):
 
         self.position_assignment.refresh_from_db()
         self.assertTrue(self.position_assignment.is_active)
+
+class InitialSystemAdminBootstrapCommandTests(TestCase):
+    command_inputs = [
+        "BOOTSTRAP FIRST SYSTEM ADMIN",
+        "1234567890",
+        "مدیر",
+        "سامانه",
+        "09123456789",
+    ]
+    strong_password = "V3ry-Strong-Initial-Admin-Password!"
+
+    def run_bootstrap(self, inputs=None, passwords=None):
+        with (
+            patch("builtins.input", side_effect=inputs or self.command_inputs),
+            patch("getpass.getpass", side_effect=passwords or [
+                self.strong_password,
+                self.strong_password,
+            ]),
+        ):
+            call_command("bootstrap_first_system_admin", stdout=StringIO())
+
+    def test_bootstrap_creates_least_privilege_first_admin_and_audit_event(self):
+        self.run_bootstrap()
+
+        user = User.objects.get(username="1234567890")
+        self.assertTrue(user.is_active)
+        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.must_change_password)
+        self.assertTrue(user.check_password(self.strong_password))
+
+        assignment = RoleAssignment.objects.get(user=user)
+        self.assertEqual(assignment.role, RoleAssignment.Role.SYSTEM_ADMIN)
+        self.assertTrue(assignment.is_valid_on())
+        self.assertIsNone(assignment.granted_by_id)
+        self.assertIsNone(assignment.approved_by_id)
+
+        event = AuditEvent.objects.get(
+            action="accounts.initial_system_admin_bootstrap",
+            object_id=str(user.pk),
+        )
+        self.assertIsNone(event.actor_id)
+        self.assertEqual(
+            event.after_data["role"],
+            RoleAssignment.Role.SYSTEM_ADMIN,
+        )
+        self.assertNotIn("password", event.after_data)
+        self.assertNotIn("password", event.metadata)
+
+    def test_bootstrap_refuses_any_existing_account_before_prompting(self):
+        User.objects.create_user(
+            username="existing-account",
+            password="StrongPass!2026",
+            is_active=False,
+        )
+        with patch("builtins.input") as prompt:
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        prompt.assert_not_called()
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_bootstrap_confirmation_mismatch_creates_nothing(self):
+        inputs = ["NO"]
+        with patch("builtins.input", side_effect=inputs):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(RoleAssignment.objects.exists())
+        self.assertFalse(AuditEvent.objects.filter(
+            action="accounts.initial_system_admin_bootstrap"
+        ).exists())
+
+    def test_bootstrap_rejects_invalid_national_id_and_mobile(self):
+        invalid_national_id = list(self.command_inputs)
+        invalid_national_id[1] = "1234"
+        with patch("builtins.input", side_effect=invalid_national_id):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        self.assertFalse(User.objects.exists())
+
+        invalid_mobile = list(self.command_inputs)
+        invalid_mobile[4] = "123456"
+        with patch("builtins.input", side_effect=invalid_mobile):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        self.assertFalse(User.objects.exists())
+
+    def test_bootstrap_rejects_password_mismatch_without_persisting_identity(self):
+        with (
+            patch("builtins.input", side_effect=self.command_inputs),
+            patch("getpass.getpass", side_effect=[
+                self.strong_password,
+                "Different-Password-2026!",
+            ]),
+        ):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(RoleAssignment.objects.exists())
+        self.assertFalse(AuditEvent.objects.filter(
+            action="accounts.initial_system_admin_bootstrap"
+        ).exists())
+
