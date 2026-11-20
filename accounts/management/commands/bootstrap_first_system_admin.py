@@ -9,6 +9,7 @@ from __future__ import annotations
 import getpass
 import re
 
+from django.apps import apps
 from django.contrib.auth.password_validation import validate_password
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -44,6 +45,26 @@ class Command(BaseCommand):
                 raise CommandError(
                     "Bootstrap refused: authorization history already exists."
                 )
+            if BusinessCalendar.objects.count() != 1:
+                raise CommandError(
+                    "Bootstrap refused: the database is not the expected pristine baseline."
+                )
+
+            framework_apps = {"admin", "auth", "contenttypes", "sessions"}
+            for model in apps.get_models(include_auto_created=False):
+                if (
+                    not model._meta.managed
+                    or model._meta.proxy
+                    or model._meta.swapped
+                    or model._meta.app_label in framework_apps
+                    or model is BusinessCalendar
+                ):
+                    continue
+                if model._default_manager.exists():
+                    raise CommandError(
+                        "Bootstrap refused: business data already exists in "
+                        f"{model._meta.label}; use the controlled account provisioning process."
+                    )
 
             self.stdout.write(
                 self.style.WARNING(
