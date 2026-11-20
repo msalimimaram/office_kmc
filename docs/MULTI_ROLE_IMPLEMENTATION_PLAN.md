@@ -1,5 +1,7 @@
 # طرح معماری و مهاجرت امن به مدل چندنقشی — اداره بیمه
 
+> **یادداشت تطبیق 2026-11-20:** این سند شامل تحلیل مسئله و snapshotهای تاریخی است. در کد فعلی `RoleAssignment` و `PositionAssignment` وجود دارند و `User.Role` choices شامل شش نقش معتبر است؛ فیلد `User.role` به‌صراحت فیلد legacy/compatibility است. بنابراین عبارت‌های قدیمی این سند درباره باقی‌ماندن finance/legal/auditor در choices یا وضعیت اولیه تک‌نقشی را به HEAD فعلی تعمیم ندهید. برای baseline و وضعیت دقیق مهاجرت، ماتریس ردیابی و گزارش فاز صفر را ببینید. این یادداشت به معنی تأیید runtime یا تکمیل مهاجرت همه endpointها نیست.
+
 **نسخه:** 0.1  
 **وضعیت:** طرح اجرایی مبتنی بر قواعد تأییدشده کسب‌وکار  
 **اسناد مرجع:** `PRODUCT_SPEC.md`, `docs/BUSINESS_RULES_AND_WORKFLOWS.md`, `docs/ACCESS_CONTROL_MATRIX.md`, `docs/WORKFLOW_CATALOG.md`
