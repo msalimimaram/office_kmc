@@ -1862,6 +1862,84 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         self.assertIn("baseline-route-v4", current.description)
         self.assertEqual(old.steps.count(), 1)
 
+    def test_seed_command_replaces_previous_v3_claim_objection_with_v4(self):
+        from django.core.management import call_command
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
+
+        creator = User.objects.create_user(
+            username="workflow-v3-upgrade-creator",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        head = User.objects.create_user(
+            username="workflow-v3-upgrade-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای ارتقای نسخه گردش اعتراض",
+        )
+        global_roles = [
+            RoleAssignment.Role.DEPARTMENT_HEAD,
+            RoleAssignment.Role.SYSTEM_ADMIN,
+        ]
+        reviewer_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST] + global_roles
+        old = WorkflowDefinition.objects.create(
+            code="claim_objection",
+            title="نسخه قبلی گردش اعتراض",
+            version=1,
+            created_by=head,
+            description="baseline-route-v3: prior catalog",
+        )
+        in_review = WorkflowStep.objects.create(
+            definition=old, code="in_review", title="بررسی", order=1,
+            allowed_roles=reviewer_roles, is_initial=True,
+        )
+        answered = WorkflowStep.objects.create(
+            definition=old, code="answered", title="پاسخ", order=2,
+            allowed_roles=reviewer_roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=old, source_step=in_review, target_step=answered,
+            action_code="answer", title="پاسخ",
+            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=old, source_step=answered, target_step=in_review,
+            action_code="reopen_review", title="بازگشت",
+            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles,
+            is_return=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=old, source_step=answered,
+            action_code="close_objection", title="بستن",
+            allowed_roles=global_roles, closes_case=True,
+        )
+        old.approved_by = head
+        old.is_active = True
+        old.save()
+
+        call_command(
+            "seed_operational_workflows",
+            created_by=creator.pk,
+            approved_by=head.pk,
+            publish=True,
+        )
+
+        old.refresh_from_db()
+        current = WorkflowDefinition.objects.get(code="claim_objection", is_active=True)
+        self.assertFalse(old.is_active)
+        self.assertEqual(current.version, 2)
+        self.assertIn("baseline-route-v4", current.description)
+        answer = current.transitions.get(action_code="answer")
+        self.assertEqual(
+            set(answer.allowed_roles),
+            {RoleAssignment.Role.INSURANCE_SPECIALIST},
+        )
+
     def test_seed_command_rebases_open_cases_to_new_definition_and_preserves_history(self):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
