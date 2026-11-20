@@ -109,6 +109,30 @@ class AssetScopeTests(TestCase):
         from assets.views import _asset_scope
         self.assertTrue(_asset_scope(self.rep).filter(pk=dependent_asset.pk).exists())
 
+    def test_unassigned_account_cannot_open_asset_module_by_direct_url(self):
+        user = User.objects.create_user(
+            username="asset-unassigned-user",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("asset_list"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_technical_superuser_without_business_role_cannot_open_asset_module(self):
+        user = User.objects.create_user(
+            username="asset-technical-superuser",
+            password="StrongPass!2026",
+            is_superuser=True,
+            is_staff=True,
+            must_change_password=False,
+        )
+        client = Client()
+        client.force_login(user)
+        response = client.get(reverse("asset_list"))
+        self.assertEqual(response.status_code, 403)
+
     def test_insured_person_sees_only_assets_linked_to_their_own_person_record(self):
         from datetime import timedelta
         from organizations.models import Person
