@@ -2054,6 +2054,75 @@ class OperationalWorkflowProvisioningSafetyTests(TestCase):
 
         self.assertEqual(WorkflowDefinition.objects.count(), 0)
 
+    def test_provisioning_rejects_expired_approver_assignment(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        creator = User.objects.create_user(
+            username="workflow-expired-approver-creator",
+            password="StrongPass!2026",
+        )
+        approver = User.objects.create_user(
+            username="workflow-expired-approver",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=approver,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=timezone.localdate() - timedelta(days=30),
+            valid_until=timezone.localdate() - timedelta(days=1),
+            reason="انتصاب منقضی برای آزمون رد تأییدکننده",
+        )
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "seed_operational_workflows",
+                created_by=creator.pk,
+                approved_by=approver.pk,
+                publish=True,
+            )
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
+
+    def test_provisioning_rolls_back_every_definition_when_audit_fails(self):
+        from unittest.mock import patch
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
+
+        creator = User.objects.create_user(
+            username="workflow-audit-rollback-creator",
+            password="StrongPass!2026",
+        )
+        approver = User.objects.create_user(
+            username="workflow-audit-rollback-approver",
+            password="StrongPass!2026",
+        )
+        RoleAssignment.objects.create(
+            user=approver,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون rollback ممیزی",
+        )
+
+        with patch(
+            "django.core.management.call_command",
+            side_effect=CommandError("forced audit failure"),
+        ):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "seed_operational_workflows",
+                    created_by=creator.pk,
+                    approved_by=approver.pk,
+                    publish=True,
+                )
+
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
+        self.assertEqual(WorkflowStep.objects.count(), 0)
+        self.assertEqual(WorkflowTransition.objects.count(), 0)
+
     def test_provisioning_defaults_to_rollback_only_dry_run(self):
         from django.core.management import call_command
         from accounts.models import RoleAssignment
