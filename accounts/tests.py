@@ -1256,6 +1256,17 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
                 call_command("bootstrap_first_system_admin", stdout=StringIO())
         self.assertFalse(User.objects.exists())
 
+    def test_bootstrap_refuses_database_with_business_data_before_prompting(self):
+        Company.objects.create(
+            code="BOOTSTRAP-EXISTING-DATA",
+            name="داده عملیاتی موجود",
+        )
+        with patch("builtins.input") as prompt:
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        prompt.assert_not_called()
+        self.assertFalse(User.objects.exists())
+
     def test_bootstrap_rejects_password_mismatch_without_persisting_identity(self):
         with (
             patch("builtins.input", side_effect=self.command_inputs),
