@@ -729,3 +729,6 @@ python manage.py test --verbosity 2
 - سه آزمون متمرکز به `accounts.tests.SystemAdminUserProvisioningFormTests` افزوده شده‌اند؛ هنوز روی checkout محلی اجرا نشده‌اند.
 - این اصلاحات مسیر ایجاد حساب دوم را از نظر فرم و دادهٔ هویتی کامل می‌کند؛ تأیید واقعی ایجاد RoleAssignment جداگانه و ثبت creator/approver مستقل هنوز دروازهٔ بعدی است.
 - Production همچنان **NO-GO** است.
+
+- `046509bfaeac508249b2088e0e3a3ad52b689c4b` — حفظ اعتبارسنجی یکتایی فرم استاندارد Django و رد نام‌های خالی/فاصله‌ای.
+- `c570dc2c853204ac29dfd9e6e94916b30ab7a513` — تست رگرسیون نام خالی و نام کاربری تکراری.
