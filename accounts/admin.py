@@ -1,5 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.forms import UserCreationForm
+from django import forms
+import re
 
 from auditlog.services import record_event
 from .access import has_role
@@ -11,6 +14,55 @@ from .models import (
     User,
     UserNotification,
 )
+
+
+
+class SystemAdminUserCreationForm(UserCreationForm):
+    """Create a real person-linked account without exposing Django privileges."""
+
+    first_name = forms.CharField(max_length=150, required=True, label="نام")
+    last_name = forms.CharField(max_length=150, required=True, label="نام خانوادگی")
+    mobile = forms.CharField(max_length=20, required=True, label="شماره همراه")
+    national_id = forms.CharField(max_length=10, required=True, label="کد ملی")
+
+    class Meta(UserCreationForm.Meta):
+        model = User
+        fields = ("username", "first_name", "last_name", "mobile", "national_id")
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        if not re.fullmatch(r"\\d{10}", username):
+            raise forms.ValidationError("نام کاربری باید کد ملی ده‌رقمی باشد.")
+        return username
+
+    def clean_national_id(self):
+        national_id = self.cleaned_data["national_id"].strip()
+        if not re.fullmatch(r"\\d{10}", national_id):
+            raise forms.ValidationError("کد ملی باید دقیقاً ده رقم باشد.")
+        if national_id != self.cleaned_data.get("username"):
+            raise forms.ValidationError("نام کاربری باید با کد ملی یکسان باشد.")
+        return national_id
+
+    def clean_mobile(self):
+        mobile = self.cleaned_data["mobile"].strip()
+        if not re.fullmatch(r"09\\d{9}", mobile):
+            raise forms.ValidationError("شماره همراه باید با قالب 09xxxxxxxxx وارد شود.")
+        return mobile
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.first_name = self.cleaned_data["first_name"].strip()
+        user.last_name = self.cleaned_data["last_name"].strip()
+        user.mobile = self.cleaned_data["mobile"].strip()
+        user.national_id = self.cleaned_data["national_id"].strip()
+        user.is_active = True
+        user.is_staff = False
+        user.is_superuser = False
+        user.must_change_password = True
+        if commit:
+            user.save()
+            self.save_m2m()
+        return user
 
 
 def _user_snapshot(obj):
@@ -87,6 +139,7 @@ def is_system_admin(request):
 class CustomUserAdmin(UserAdmin):
     # Business access is granted only by RoleAssignment. Do not expose Django's
     # is_staff/is_superuser/groups/permissions switches in this business UI.
+    add_form = SystemAdminUserCreationForm
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         ("اطلاعات شخصی", {"fields": ("first_name", "last_name", "email", "mobile", "national_id")}),
@@ -96,7 +149,10 @@ class CustomUserAdmin(UserAdmin):
     )
     add_fieldsets = ((None, {
         "classes": ("wide",),
-        "fields": ("username", "password1", "password2"),
+        "fields": (
+            "username", "first_name", "last_name", "national_id", "mobile",
+            "password1", "password2",
+        ),
     }),)
     list_display = ("username", "first_name", "last_name", "role", "company", "insurer", "is_active")
     list_filter = ("role", "company", "insurer", "is_active")
@@ -104,6 +160,11 @@ class CustomUserAdmin(UserAdmin):
         "date_joined", "last_login", "role", "mobile", "national_id",
         "company", "insurer", "mfa_enabled",
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return ("date_joined", "last_login", "role", "company", "insurer", "mfa_enabled")
+        return super().get_readonly_fields(request, obj)
 
     def save_model(self, request, obj, form, change):
         before = _user_snapshot(User.objects.get(pk=obj.pk)) if change else {}
