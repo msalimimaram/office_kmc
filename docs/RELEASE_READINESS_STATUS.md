@@ -697,3 +697,17 @@ python manage.py test --verbosity 2
 - گزارش ایستای baseline: [PHASE0_BASELINE_REPORT.md](PHASE0_BASELINE_REPORT.md). ماتریس ردیابی: [REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md).
 
 این snapshot فقط شواهد remote و static را ثبت می‌کند؛ وضعیت working tree محلی، محیط نصب‌شده، دیتابیس، PostgreSQL، ClamAV، backup/restore و UAT از این محیط قابل تأیید نیستند.
+
+---
+
+## Snapshot اجرای محلی فاز یک — 2026-11-20
+
+نتایج تفصیلی و دستورهای ادامه در [PHASE1_EXECUTION_LOG.md](PHASE1_EXECUTION_LOG.md) ثبت شده‌اند.
+
+- روی checkout گزارش‌شده با SHA `8835f826ea386685de8d6132d2ab649fa08db2ee` و محیط Python 3.13.1 / Django 5.2.19، `manage.py check`، `pip check` و `makemigrations --check --dry-run` موفق گزارش شدند.
+- `core.tests.DemoSeedCommandSafetyTests`: 9/9 موفق؛ اجرای one-shot/fail-closed و عدم mutation داده موجود در تست تأیید شد. فرمان واقعی `seed_demo` روی دیتابیس توسعه اجرا نشده است.
+- `.env` توسط Git ignore شده است.
+- `db.sqlite3` محلی بررسی‌شده صفر بایت و فاقد جدول/رکورد است؛ `django_migrations` نیز وجود ندارد.
+- `final_preflight.ps1 -NoMigrate` به‌علت خالی بودن schema و اعمال‌نشدن migrationها متوقف شد. این وضعیت BLOCKED قابل توضیح است، نه شکست suite؛ full suite هنوز روی این snapshot تأیید نشده است.
+- قدم بعدی مجاز: فقط روی همین فایل SQLite خالی و پس از اطمینان از ثابت بودن مقصد DB، یک بار `python manage.py migrate`؛ سپس یک بار `.\scripts\final_preflight.ps1 -NoMigrate`. از تکرار کنترل‌های PASS خودداری شود.
+- تصمیم Production همچنان **NO-GO** است.
