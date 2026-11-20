@@ -91,3 +91,55 @@ python manage.py migrate
 **فاز صفر بسته است. فاز یک باز است.**  
 زیرمجموعه‌ای از کنترل‌های پایه و تست ایمنی seed PASS شده‌اند. preflight به‌علت خالی بودن دیتابیس و انتخاب `-NoMigrate` به‌صورت قابل توضیح BLOCKED شده است. دیتابیس محلی بررسی‌شده صفر بایت و خالی است؛ بنابراین قدم بعدی ساخت schema محلی یک بار و سپس اجرای تنها preflight جامع است.  
 **Production = NO-GO** تا عبور از فازهای فنی، امنیتی، زیرساختی و پذیرش کسب‌وکار.
+
+---
+
+## 6. اجرای جامع پس از ایجاد schema — گزارش مالک، 2026-11-20
+
+**شناسه اجرا:** P1-SUITE-01  
+**SHA checkout محلی:** در خروجی ارسالی این اجرا درج نشده؛ انتساب نتیجه به SHA فعلی GitHub ممکن نیست.  
+**محیط:** همان مسیر محلی گزارش‌شده در این گفتگو؛ نسخه دقیق Python/Django برای این اجرای خاص مجدداً در خروجی درج نشده است.
+
+### نتایج
+
+| کنترل | نتیجه | جزئیات |
+|---|---|---|
+| مجموعه کامل Django | **PASS** | 358 تست، صفر failure/error؛ زمان 832.123 ثانیه. پیام صریح اسکریپت: `PASS: Complete Django test suite`. |
+| تخریب test database | PASS | دیتابیس تست حافظه‌ای `file:memorydb_default?mode=memory&cache=shared` پس از تست تخریب شد. |
+| تشخیص وضعیت publication gate در Preflight | **BLOCKED — SCRIPT/LOCAL-CHECKOUT ISSUE** | دستور Python فراخوانی‌شده از `manage.py shell -c` با `SyntaxError` متوقف شد: `print(f{active_workflows}|{populated_application_tables})`. سپس PowerShell پیام داد امکان تعیین شمول workflow publication gate وجود ندارد. |
+| ممیزی واقعی workflow publication | **NOT RUN / UNVERIFIED** | چون مرحله تشخیص gate شکست خورد، نمی‌توان نتیجه `audit_workflows` را PASS دانست. |
+
+### تشخیص خطا
+
+این خطا پس از پیام موفقیت مجموعه کامل تست‌ها رخ داده است؛ بنابراین **358 تست موفق‌اند و خطای بعدی، شکست تست نیست**. خطا در مرحله بررسی وضعیت workflow gate و ساخت/ارسال قطعه کد Python به shell است.
+
+بازبینی نسخه فعلی `scripts/final_preflight.ps1` در GitHub روی `main` نشان می‌دهد خط 97 در نسخه remote از نظر syntax به شکل زیر است:
+
+```python
+print(f"{active_workflows}|{populated_application_tables}")
+```
+
+اما متن خطای محلی، شکل متفاوت و نامعتبر `print(f{...}|{...})` را نشان می‌دهد. در نتیجه محتمل است فایل محلی `scripts/final_preflight.ps1` با نسخه remote متفاوت باشد، یا متن فرمان در مسیر اجرا تغییر کرده باشد. بدون SHA و محتوای فایل محلی، علت دقیق قطعی نیست.
+
+### اقدام بعدی محدود؛ بدون اجرای مجدد تست‌ها
+
+در checkout محلی فقط این دستورات read-only اجرا شوند:
+
+```powershell
+git rev-parse HEAD
+git status --short --branch
+git diff -- scripts/final_preflight.ps1
+Select-String -Path .\scripts\final_preflight.ps1 -Pattern 'print\(' -Context 2,2
+```
+
+- اگر فایل محلی با نسخه remote فرق دارد، ابتدا اختلاف را بررسی و checkout را با `main` همگام کنید؛ هیچ reset یا دورریختن تغییر محلی انجام نشود.
+- اگر فایل محلی دقیقاً همان نسخه remote است، خروجی خط‌های 86 تا 101 و نسخه PowerShell را بررسی کنید تا نحوه انتقال here-string مشخص شود.
+- سپس فقط مرحله workflow gate و ادامه preflight از همان نقطه اجرا شود؛ **مجموعه 358 تست را دوباره اجرا نکنید**. برای این کار می‌توان پس از رفع مشکل، فرمان‌های read-only `python manage.py audit_workflows` و `python manage.py verify_database_schema` را اجرا کرد، مشروط به اینکه وضعیت و داده‌های دیتابیس مقصد تأیید شده باشند. اگر اسکریپت preflight با امکان resume/skip suite اصلاح شد، اجرای دوباره suite لازم نیست.
+
+### وضعیت به‌روزشده فاز یک
+
+- مجموعه کامل تست‌ها: **PASS — 358/358** (گزارش مالک؛ SHA محلی هنوز ثبت نشده).
+- workflow publication gate: **BLOCKED** به علت خطای syntax در probe.
+- `audit_workflows` و `verify_database_schema`: نتیجه هنوز تأیید نشده، مگر آنکه خروجی جداگانه‌ای ارائه شود.
+- فاز یک: **OPEN** تا تکمیل کنترل schema/workflow و ثبت SHA اجرای محلی.
+- Production: **NO-GO**؛ عبور از suite به‌تنهایی پذیرش امنیتی/عملیاتی یا آمادگی انتشار نیست.
