@@ -679,3 +679,21 @@ python manage.py test --verbosity 2
 - clone محلی برای اجرای Django به‌دلیل عدم resolve شدن `github.com` از محیط اجرا شکست خورد. بنابراین تست رگرسیون جدید، تست‌های organizations، `manage.py check`، migration check و suite کامل **در این نوبت اجرا نشده‌اند**؛ نتیجه سبز ادعا نمی‌شود.
 - وضعیت status/check برای HEAD جدید خالی است و CI اجرا نشده است.
 - **Production همچنان No-Go است** تا تست‌های محلی روی همین SHA، ممیزی کامل IDOR، MFA واقعی و آزمون‌های staging/زیرساخت ثبت شوند.
+
+
+---
+
+## Snapshot خط مبنای remote — 2026-11-20
+
+- شاخه مرجع: `main`؛ تنها شاخه موجود در GitHub.
+- SHA کد بررسی‌شده پیش از ثبت اسناد فاز صفر: `0d5c987965044add29a6db871a53164cefeec380`.
+- آخرین commitهای بعدی صرفاً مستندسازی فاز صفر و ماتریس ردیابی بوده‌اند؛ کد اجرایی/مدل/migration تغییر نکرده است.
+- درخت فعلی Git شامل 360 فایل blob، 62 migration در 15 اپ، 17 فایل تست و 326 تعریف ایستای متد `test_...` است. تعداد متدهای تست، نتیجه اجرا نیست.
+- در درخت فعلی `.github/workflows` وجود ندارد. اجراهای تاریخی Actions که در API دیده می‌شوند تا 2026-10-29 هستند و به HEAD فعلی مربوط نیستند.
+- برای SHA مبنای بالا هیچ commit status ثبت نشده است؛ این وضعیت نه PASS است و نه FAIL.
+- تست‌های گزارش‌شده 349/352/11 موردی در نوامبر 16، SHA دقیق نداشته‌اند و به HEAD فعلی قابل انتساب نیستند.
+- اصلاحات اخیر seed و authorization در main ثبت شده‌اند، اما اجرای مجدد focused tests و suite کامل روی HEAD نهایی هنوز مدرک ندارد.
+- تصمیم انتشار: **NO-GO** تا اجرای فاز یک و سایر دروازه‌های مربوط، سپس پذیرش رسمی فاز هشت.
+- گزارش ایستای baseline: [PHASE0_BASELINE_REPORT.md](PHASE0_BASELINE_REPORT.md). ماتریس ردیابی: [REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md).
+
+این snapshot فقط شواهد remote و static را ثبت می‌کند؛ وضعیت working tree محلی، محیط نصب‌شده، دیتابیس، PostgreSQL، ClamAV، backup/restore و UAT از این محیط قابل تأیید نیستند.
