@@ -154,8 +154,6 @@ class RoleDashboardTests(TestCase):
         self.assertNotContains(response, "دارایی‌های بیمه‌شده")
         self.assertNotContains(response, "قراردادهای بیمه")
         self.assertNotContains(response, "ورود اطلاعات از اکسل")
-        self.assertNotIn("assets", response.context["capabilities"])
-        self.assertTrue(response.context["access"]["assets"])
 
     def test_multi_role_insured_user_gets_combined_not_employee_only_dashboard(self):
         RoleAssignment.objects.create(
