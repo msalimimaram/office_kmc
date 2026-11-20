@@ -2029,7 +2029,8 @@ class OperationalWorkflowSeedCommandTests(TestCase):
 
 class OperationalWorkflowProvisioningSafetyTests(TestCase):
     def test_provisioning_rejects_same_creator_and_approver(self):
-        from django.core.management import call_command, CommandError
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
         from accounts.models import RoleAssignment
         from workflow.models import WorkflowDefinition
 
