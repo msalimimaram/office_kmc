@@ -1979,6 +1979,33 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         report_definition = WorkflowDefinition.objects.get(
             code="management_report_approval", is_active=True
         )
+        objection_definition = WorkflowDefinition.objects.get(
+            code="claim_objection", is_active=True
+        )
+        objection_answer = objection_definition.transitions.get(action_code="answer")
+        objection_reopen = objection_definition.transitions.get(action_code="reopen_review")
+        objection_close = objection_definition.transitions.get(action_code="close_objection")
+        global_roles = {
+            RoleAssignment.Role.DEPARTMENT_HEAD,
+            RoleAssignment.Role.SYSTEM_ADMIN,
+        }
+        self.assertEqual(
+            set(objection_answer.allowed_roles),
+            {RoleAssignment.Role.INSURANCE_SPECIALIST},
+        )
+        self.assertTrue(set(objection_answer.recipient_roles).issubset(global_roles))
+        self.assertTrue(set(objection_answer.recipient_roles))
+        self.assertTrue(
+            set(objection_definition.steps.get(code="answered").allowed_roles).issubset(global_roles)
+        )
+        self.assertTrue(set(objection_reopen.allowed_roles).issubset(global_roles))
+        self.assertEqual(
+            set(objection_reopen.recipient_roles),
+            {RoleAssignment.Role.INSURANCE_SPECIALIST},
+        )
+        self.assertTrue(objection_close.closes_case)
+        self.assertTrue(set(objection_close.allowed_roles).issubset(global_roles))
+
         for transition in WorkflowTransition.objects.filter(definition=report_definition):
             self.assertIsInstance(transition.allowed_roles, list)
             self.assertIsInstance(transition.allowed_position_levels, list)
