@@ -711,3 +711,13 @@ python manage.py test --verbosity 2
 - `final_preflight.ps1 -NoMigrate` به‌علت خالی بودن schema و اعمال‌نشدن migrationها متوقف شد. این وضعیت BLOCKED قابل توضیح است، نه شکست suite؛ full suite هنوز روی این snapshot تأیید نشده است.
 - قدم بعدی مجاز: فقط روی همین فایل SQLite خالی و پس از اطمینان از ثابت بودن مقصد DB، یک بار `python manage.py migrate`؛ سپس یک بار `.\scripts\final_preflight.ps1 -NoMigrate`. از تکرار کنترل‌های PASS خودداری شود.
 - تصمیم Production همچنان **NO-GO** است.
+## به‌روزرسانی فاز یک — bootstrap نخستین مدیر سامانه
+
+- فرمان تعاملی `accounts/management/commands/bootstrap_first_system_admin.py` به main افزوده شد. اجرای آن به دیتابیس تازه‌مهاجرت‌شده، تقویم پایه یکتا، نبود هرگونه حساب/انتصاب و نبود داده عملیاتی وابسته است.
+- رمز از ورودی مخفی گرفته می‌شود، با password validators بررسی می‌شود، در audit ثبت نمی‌شود و تغییر آن در اولین ورود اجباری است. حساب اول superuser نیست و فقط RoleAssignment معتبر SYSTEM_ADMIN می‌گیرد.
+- تست‌های متمرکز bootstrap به `accounts.tests.InitialSystemAdminBootstrapCommandTests` افزوده شده‌اند؛ تا این لحظه در محیط محلی اجرا نشده‌اند و PASS محسوب نمی‌شوند.
+- دیتابیس محلی گزارش‌شده قبلی `ACTIVE_USERS 0` و فقط `workflow.BusinessCalendar 1` داشته است؛ این گزارش قدیمی‌تر است و قبل از هر اجرای bootstrap باید مقصد دیتابیس فعلی دوباره با read-only probe تأیید شود.
+- پس از bootstrap، یک مدیر/رئیس مستقل باید از مسیر مجاز حساب و انتصاب دریافت کند. provisioning گردش‌کارها فقط با creator و approver جداگانه مجاز است.
+- اصلاحات اخیر صرفاً به فاز یک مربوط‌اند؛ تغییرات دسترسی/منوی فاز دو که خارج از فاز فعال بودند از main بازگردانده شدند.
+
+**فاز یک: OPEN. Production: NO-GO.**
