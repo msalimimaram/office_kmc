@@ -249,3 +249,46 @@ python manage.py audit_workflows
 
 **فاز یک:** OPEN تا تعیین تکلیف audit workflow.  
 **Production:** NO-GO.
+
+
+## 9. نتیجه ممیزی workflow و ریشه‌یابی وضعیت دیتابیس — گزارش مالک، 2026-11-20
+
+**فرمان:** `python manage.py audit_workflows`  
+**نتیجه:** FAIL / پیکربندی گردش‌کار ناقص  
+**خروجی مالک:** 19 کد workflow فاقد تعریف فعال؛ `CommandError: ممیزی گردش‌کار ناموفق بود؛ 19 فرآیند فاقد گردش‌کار و 1 مغایرت.`
+
+### تفسیر دقیق شمارنده خطا
+
+بازبینی سورس `core/management/commands/audit_workflows.py` نشان می‌دهد شمارنده «1 مغایرت» یک مغایرت مستقل دوم نیست. کد برای کل مجموعه 19 workflow مفقود، یک پیام تجمیعی به `errors` اضافه می‌کند؛ بنابراین `len(missing)=19` و `len(errors)=1`. در این اجرا هیچ تعریف فعالی وجود نداشت تا ممیزی مراحل/انتقال‌های آن تعریف‌ها انجام شود. نباید «یک نقص مستقل دیگر» گزارش شود.
+
+### 19 workflow مفقود
+
+`add_coverage`, `anonymous_plan`, `asset_endorsement_approval`, `asset_policy_approval`, `asset_valuation_approval`, `base_insurance_waiver`, `claim_objection`, `claim_review`, `contract_approval`, `contract_termination`, `document_request`, `excess_coverage`, `iban_change`, `identity_change`, `management_report_approval`, `medical_assistance`, `other`, `person_change`, `remove_coverage`.
+
+### ریشه‌یابی ساختار و داده
+
+- Migration اولیه `workflow.0001_initial` فقط جداول مدل‌های workflow را می‌سازد و یک `BusinessCalendar` پایه با کد `iran-default` ایجاد می‌کند؛ workflow definition/step/transition ایجاد نمی‌کند.
+- کد `seed_demo` نیز داده‌های نمایشی کسب‌وکار را می‌سازد و guard آن تنها تقویم پایه pristine را به‌عنوان زیرساخت مجاز می‌شناسد؛ این فرمان سازوکار bootstrap پیکربندی workflow نیست و طبق سیاست قبلی روی دیتابیس فعلی اجرا نشود.
+- `WorkflowDefinition` دارای created_by اجباری است؛ فعال‌سازی نیازمند approved_by با نقش رئیس اداره یا مدیر سامانه است و انتشار به اعتبارسنجی مدل متکی است. تعریف منتشرشده immutable است.
+- رابط Django admin برای پیکربندی workflow وجود دارد، اما این موضوع به‌تنهایی جایگزین پیکربندی اولیه نسخه‌بندی‌شده، قابل بازبینی و قابل استقرار نیست.
+- probe قبلی `0|1` با شواهد migration و seed guard سازگار است: صفر workflow فعال و یک مدل کاربردی دارای ردیف زیرساختی (تقویم پایه). این شمارش به‌تنهایی اثبات نمی‌کند که آن یک جدول حتماً BusinessCalendar است، اما migration و guard آن را محتمل و قابل انتظار می‌کنند؛ برای قطعیت نام جدول، در صورت نیاز یک probe read-only جداگانه لازم است.
+
+### تصمیم و اقدام اصلاحی
+
+این یک نقص واقعی در آمادگی پیکربندی محیط تازه است: پس از migrate، سامانه 19 workflow ضروری را به‌صورت فعال و منتشرشده در دیتابیس ندارد. اصلاح نباید با اجرای `seed_demo`، ساخت دستی رکوردهای ناقص، غیرفعال‌کردن audit یا تضعیف قواعد نقش/انتقال انجام شود.
+
+اقدام مهندسی بعدی:
+1. تهیه ماتریس canonical برای هر 19 کد شامل عنوان، مراحل منطبق با statusهای دامنه، نقش‌ها/سطوح سمت، SLA، transitionها، گیرندگان و اختیار بستن.
+2. تطبیق هر گردش با قواعد کسب‌وکار تثبیت‌شده (به‌ویژه مسیر نماینده شرکت/کارشناس/بیمه‌گر، بستن نهایی، و درخواست‌های حساس).
+3. طراحی bootstrap پیکربندی امن و نسخه‌دار برای محیط تازه؛ باید هویت actor و approver واقعی را بگیرد، فقط روی تعریف‌های غیرفعال/غیرمنتشرشده عمل کند، conflict را fail-closed کند، transaction داشته باشد و قابلیت audit/re-run امن داشته باشد. هرگز شناسه کاربر یا role را حدس نزند.
+4. افزودن تست‌های هدفمند برای bootstrap و تأیید اینکه پس از provision، `audit_workflows` PASS می‌شود. این تست‌ها جایگزین تکرار suite کامل نیستند.
+5. سپس روی دیتابیس محلی مورد بحث، با حفظ تقویم پایه و بدون پاک‌کردن داده، provisioning پس از بازبینی و تعیین کاربر تأییدکننده اجرا شود.
+
+### جلوگیری از تکرار
+
+- `audit_workflows` در وضعیت فعلی با صفر workflow فعال اجرا شده و کمبود 19 مورد را ثابت کرده است؛ تا ایجاد/تغییر پیکربندی workflow دوباره اجرا نشود.
+- `verify_database_schema` قبلاً PASS شده و تا تغییر schema تکرار نشود.
+- full suite 358/358 PASS قبلی است و تکرار نمی‌شود مگر تغییرات بعدی به کدهای تحت پوشش آن suite نیاز به regression هدفمند/اجرای نهایی بدهد.
+
+**فاز یک:** OPEN — workflow configuration bootstrap / provisioning یک مانع اصلی است.  
+**Production:** NO-GO.
