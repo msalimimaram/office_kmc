@@ -12,7 +12,7 @@ from workflow.services import _scope_for_object, _validate_recipient, is_delegat
 
 class Command(BaseCommand):
     help = "Publish versioned operational workflows; preserve historical definitions and cases."
-    BASELINE_SCHEMA_VERSION = "baseline-route-v3"
+    BASELINE_SCHEMA_VERSION = "baseline-route-v4"
 
     WORKFLOWS = (
         ("contract_approval", "تأیید قرارداد", "approved"),
