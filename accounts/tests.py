@@ -1267,6 +1267,19 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
         prompt.assert_not_called()
         self.assertFalse(User.objects.exists())
 
+    def test_bootstrap_rejects_password_that_fails_configured_policy(self):
+        with (
+            patch("builtins.input", side_effect=self.command_inputs),
+            patch("getpass.getpass", side_effect=["12345678", "12345678"]),
+        ):
+            with self.assertRaises(CommandError):
+                call_command("bootstrap_first_system_admin", stdout=StringIO())
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(RoleAssignment.objects.exists())
+        self.assertFalse(AuditEvent.objects.filter(
+            action="accounts.initial_system_admin_bootstrap"
+        ).exists())
+
     def test_bootstrap_rejects_password_mismatch_without_persisting_identity(self):
         with (
             patch("builtins.input", side_effect=self.command_inputs),
