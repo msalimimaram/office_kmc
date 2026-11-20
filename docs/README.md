@@ -27,3 +27,4 @@
 - [گزارش تثبیت خط مبنای فاز صفر](PHASE0_BASELINE_REPORT.md)
 - [ماتریس ردیابی نیازمندی‌ها](REQUIREMENTS_TRACEABILITY_MATRIX.md)
 - [چک‌لیست فاز صفر و معیار خروج](PHASE0_BASELINE_CHECKLIST.md)
+- [دفتر شواهد اجرای فاز یک و جلوگیری از تکرار آزمون‌ها](PHASE1_EXECUTION_LOG.md)
