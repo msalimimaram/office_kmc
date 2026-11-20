@@ -631,31 +631,31 @@ class Command(BaseCommand):
         )
 
     def _build_claim_objection(self, definition, global_roles):
-        reviewer_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST] + global_roles
+        specialist_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST]
         in_review = WorkflowStep.objects.create(
             definition=definition,
             code="in_review",
-            title="در حال بررسی اعتراض",
+            title="در حال بررسی اعتراض توسط کارشناس بیمه",
             order=1,
-            allowed_roles=reviewer_roles,
+            allowed_roles=specialist_roles,
             is_initial=True,
         )
         answered = WorkflowStep.objects.create(
             definition=definition,
             code="answered",
-            title="پاسخ داده‌شده",
+            title="پاسخ کارشناسی؛ در انتظار تصمیم رئیس اداره",
             order=2,
-            allowed_roles=reviewer_roles,
+            allowed_roles=global_roles,
         )
         WorkflowTransition.objects.create(
             definition=definition, source_step=in_review, target_step=answered,
-            action_code="answer", title="ثبت پاسخ اعتراض",
-            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles, requires_note=True,
+            action_code="answer", title="ثبت پاسخ کارشناسی اعتراض",
+            allowed_roles=specialist_roles, recipient_roles=global_roles, requires_note=True,
         )
         WorkflowTransition.objects.create(
             definition=definition, source_step=answered, target_step=in_review,
-            action_code="reopen_review", title="بازگشت به بررسی",
-            allowed_roles=reviewer_roles, recipient_roles=reviewer_roles,
+            action_code="reopen_review", title="ارجاع مجدد برای بررسی کارشناسی",
+            allowed_roles=global_roles, recipient_roles=specialist_roles,
             requires_note=True, is_return=True,
         )
         WorkflowTransition.objects.create(
