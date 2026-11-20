@@ -26,7 +26,9 @@ Office KMC is a Django project for internal insurance-office workflows. It is in
 - [طرح معماری و مهاجرت چندنقشی](docs/MULTI_ROLE_IMPLEMENTATION_PLAN.md)
 - [سند جامع زنده و ممیزی اجزای پروژه](docs/PROJECT_MASTER.md)
 - [فهرست سایر مستندات](docs/README.md)
-- [چک‌لیست اولویت‌دار فاز صفر: تثبیت خط مبنا و آمادگی پذیرش](docs/PHASE0_BASELINE_CHECKLIST.md)
+- [گزارش تثبیت خط مبنای فاز صفر](docs/PHASE0_BASELINE_REPORT.md)
+- [ماتریس ردیابی نیازمندی‌ها](docs/REQUIREMENTS_TRACEABILITY_MATRIX.md)
+- [چک‌لیست فاز صفر و معیار خروج](docs/PHASE0_BASELINE_CHECKLIST.md)
 
 **قاعده راهبری:** نقشه راه جامع تکمیل پروژه مرجع ترتیب اجرا و معیار خروج فازهاست. در هر زمان فقط یک فاز فعال می‌شود؛ فاز پس از PASS شدن معیارهای خروج بسته خواهد شد. قابلیت‌های خارج از دامنه به backlog منتقل می‌شوند و باعث باز ماندن فاز نمی‌شوند.
 
