@@ -144,7 +144,7 @@ class AccessNavigationVisibilityTests(TestCase):
             code="VISIBILITY-COMPANY",
             name="شرکت آزمون نمایش",
         )
-        user = self.user("visibility-company-rep")
+        user = self.user("visibility-company-rep", company=company)
         self.assign(
             user,
             RoleAssignment.Role.SUBSIDIARY_REP,
