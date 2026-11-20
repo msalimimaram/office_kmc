@@ -143,3 +143,76 @@ Select-String -Path .\scripts\final_preflight.ps1 -Pattern 'print\(' -Context 2,
 - `audit_workflows` و `verify_database_schema`: نتیجه هنوز تأیید نشده، مگر آنکه خروجی جداگانه‌ای ارائه شود.
 - فاز یک: **OPEN** تا تکمیل کنترل schema/workflow و ثبت SHA اجرای محلی.
 - Production: **NO-GO**؛ عبور از suite به‌تنهایی پذیرش امنیتی/عملیاتی یا آمادگی انتشار نیست.
+
+
+## 7. تشخیص قطعی PowerShell 5.1 و اصلاح انتقال کد shell — 2026-11-20
+
+**شناسه:** P1-PREFLIGHT-PS51-01  
+**SHA checkout محلی تأییدشده توسط مالک:** `8835f826ea386685de8d6132d2ab649fa08db2ee`  
+**شاخه/وضعیت Git محلی:** `main...origin/main`، working tree پاک  
+**نسخه PowerShell:** `5.1.19041.1151`
+
+### شواهد قطعی علت
+
+مالک، همان probe حداقلی را با کد زیر اجرا کرد:
+
+```powershell
+$probe = 'active_workflows=1; populated_application_tables=2; print(f"{active_workflows}|{populated_application_tables}")'
+& $python manage.py shell -c $probe
+```
+
+در خطای Python، کد دریافتی به این شکل ثبت شد:
+
+```python
+active_workflows=1; populated_application_tables=2; print(f{active_workflows}|{populated_application_tables})
+```
+
+کوتیشن‌های موجود در آرگومان قبل از رسیدن به Django shell حذف شده‌اند. این بازتولید مستقل، علت را به لایه انتقال آرگومان PowerShell 5.1 به executable بومی محدود می‌کند؛ خطای syntax از خود منطق workflow یا مدل‌های Django نیست.
+
+### اصلاح اعمال‌شده روی main
+
+در `scripts/final_preflight.ps1` تابع `ConvertTo-PythonShellLauncher` اضافه شد. این تابع کد Python را به آرایه بایت‌های UTF-8 تبدیل و یک launcher بدون کوتیشن به شکل `exec(bytes([...] ))` تولید می‌کند. فراخوانی shell برای هر دو بخش workflow-state probe و production settings check از این مسیر امن استفاده می‌کند.
+
+این اصلاح:
+- منطق و معیارهای business/workflow را تغییر نمی‌دهد.
+- تست‌ها، migrationها، داده‌ها یا seed را اجرا نمی‌کند.
+- مشکل مشابه کوتیشن را در production settings probe نیز پیشگیری می‌کند.
+- نیازمند اجرای مجدد مجموعه کامل 358 تست نیست؛ تغییر صرفاً در اسکریپت preflight است.
+
+### وضعیت اعتبارسنجی اصلاح
+
+- بازتولید مشکل در PowerShell 5.1: **CONFIRMED**.
+- اصلاح اسکریپت در GitHub main: **COMMITTED**.
+- اجرای محلی نسخه اصلاح‌شده و تأیید خروجی probe: **PENDING**.
+- اجرای `verify_database_schema` و تصمیم gate / اجرای `audit_workflows`: **PENDING**.
+- مجموعه 358 تست قبلی: همچنان **PASS** طبق گزارش مالک؛ به علت اصلاح صرفاً اسکریپت، تکرار نمی‌شود.
+
+### دستور بعدی مالک — فقط preflight محدود، بدون اجرای suite
+
+برای جلوگیری از اجرای دوباره 358 تست، فعلاً کل `final_preflight.ps1` اجرا نشود؛ چون این اسکریپت در حال حاضر full suite را قبل از workflow gate اجرا می‌کند. ابتدا نسخه اصلاح‌شده را دریافت کنید:
+
+```powershell
+git pull --ff-only origin main
+```
+
+سپس فقط انتقال آرگومان را با probe quote-free تأیید کنید:
+
+```powershell
+$python = (Resolve-Path .\.venv\Scripts\python.exe).Path
+$probeCode = 'print(f"{1}|{2}")'
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($probeCode)
+$byteList = [string]::Join(",", [string[]]$bytes)
+$launcher = "exec(bytes([$byteList]))"
+& $python manage.py shell -c $launcher
+```
+
+خروجی مورد انتظار: `1|2`. این probe فقط Django shell را بالا می‌آورد و هیچ داده‌ای را تغییر نمی‌دهد.
+
+پس از موفقیت probe، فقط:
+```powershell
+python manage.py verify_database_schema
+```
+و در صورت وجود داده/تعریف workflow فعال، `python manage.py audit_workflows` اجرا شود. اگر دیتابیس خالی از داده‌های کاربردی است، نتیجه probe وضعیت تعداد workflow فعال و جدول‌های دارای داده را تعیین می‌کند؛ در آن حالت اجرای اجباری audit روی baseline خالی لازم نیست. هیچ‌یک از این مراحل نیازمند تکرار suite نیست.
+
+**وضعیت فاز یک:** OPEN تا تأیید محلی اصلاح، schema و workflow gate.  
+**Production:** NO-GO.
