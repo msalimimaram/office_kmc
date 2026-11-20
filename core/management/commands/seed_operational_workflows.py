@@ -127,14 +127,14 @@ class Command(BaseCommand):
                 code=code,
                 title=f"گردش درخواست: {title}",
                 version=version,
-                created_by=actor,
+                created_by=creator,
                 description=(
                     f"{self.BASELINE_SCHEMA_VERSION}: گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
                     "تأیید رئیس اداره بیمه یا مدیر سامانه تغییر می‌کنند."
                 ),
             )
             self._build_service_request(definition, global_roles)
-            definition.approved_by = actor
+            definition.approved_by = approver
             definition.is_active = True
             definition.save()
             self._rebase_open_cases(code, definition, actor)
