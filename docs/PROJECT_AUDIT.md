@@ -1,5 +1,7 @@
 # ارزیابی عمیق پروژه اداره بیمه
 
+> **وضعیت سند:** ممیزی تاریخی مورخ 2026-10-29 روی commit قدیمی `fab307aa271ce975bdaaf5fb156429adce743ac9`. این سند گزارش وضعیت HEAD فعلی نیست. مواردی مانند «migrationها در مخزن نیستند»، جدول نقش‌های مالی/حقوقی/حسابرس و شرح معماری/CI باید با کد فعلی تطبیق داده شوند و نباید به‌عنوان وضعیت امروز نقل شوند. برای وضعیت فعلی به `PHASE0_BASELINE_REPORT.md`، `REQUIREMENTS_TRACEABILITY_MATRIX.md` و `RELEASE_READINESS_STATUS.md` مراجعه کنید. نقش‌های فعال فعلی شش نقش تعریف‌شده در `accounts.models.RoleAssignment.Role` هستند.
+
 **تاریخ ارزیابی:** 2026-10-29  
 **شاخه مبنا:** `main`  
 **commit مبنا:** `fab307aa271ce975bdaaf5fb156429adce743ac9`  
