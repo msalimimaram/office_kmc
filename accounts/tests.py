@@ -1308,3 +1308,65 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
             action="accounts.initial_system_admin_bootstrap"
         ).exists())
 
+
+
+class SystemAdminUserProvisioningFormTests(TestCase):
+    def test_admin_add_form_collects_national_identity_and_forces_safe_defaults(self):
+        from accounts.admin import SystemAdminUserCreationForm
+
+        form = SystemAdminUserCreationForm(data={
+            "username": "1234567890",
+            "first_name": "کاربر",
+            "last_name": "آزمایشی",
+            "national_id": "1234567890",
+            "mobile": "09123456789",
+            "password1": "Another-Strong-Password-2026!",
+            "password2": "Another-Strong-Password-2026!",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+
+        self.assertEqual(user.username, "1234567890")
+        self.assertEqual(user.national_id, "1234567890")
+        self.assertEqual(user.mobile, "09123456789")
+        self.assertTrue(user.is_active)
+        self.assertTrue(user.must_change_password)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(RoleAssignment.objects.filter(user=user).exists())
+
+    def test_admin_add_form_rejects_username_national_id_mismatch(self):
+        from accounts.admin import SystemAdminUserCreationForm
+
+        form = SystemAdminUserCreationForm(data={
+            "username": "1234567890",
+            "first_name": "کاربر",
+            "last_name": "آزمایشی",
+            "national_id": "0987654321",
+            "mobile": "09123456789",
+            "password1": "Another-Strong-Password-2026!",
+            "password2": "Another-Strong-Password-2026!",
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn("national_id", form.errors)
+
+    def test_user_admin_add_form_exposes_identity_fields_but_no_technical_privileges(self):
+        model_admin = admin.site._registry[User]
+        request = RequestFactory().get("/admin/accounts/user/add/")
+        administrator = User.objects.create_user(
+            username="provisioning-form-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=administrator,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=timezone.localdate(),
+            reason="مدیر سامانه برای آزمون فرم ایجاد حساب",
+        )
+        request.user = administrator
+        form = model_admin.get_form(request)
+        self.assertTrue({"username", "first_name", "last_name", "national_id", "mobile"} <= set(form.base_fields))
+        self.assertNotIn("is_staff", form.base_fields)
+        self.assertNotIn("is_superuser", form.base_fields)
+        self.assertNotIn("role", form.base_fields)
