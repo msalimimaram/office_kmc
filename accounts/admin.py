@@ -30,10 +30,22 @@ class SystemAdminUserCreationForm(UserCreationForm):
         fields = ("username", "first_name", "last_name", "mobile", "national_id")
 
     def clean_username(self):
-        username = self.cleaned_data["username"].strip()
+        username = super().clean_username().strip()
         if not re.fullmatch(r"\d{10}", username):
             raise forms.ValidationError("نام کاربری باید کد ملی ده‌رقمی باشد.")
         return username
+
+    def clean_first_name(self):
+        value = self.cleaned_data["first_name"].strip()
+        if not value:
+            raise forms.ValidationError("نام نمی‌تواند خالی باشد.")
+        return value
+
+    def clean_last_name(self):
+        value = self.cleaned_data["last_name"].strip()
+        if not value:
+            raise forms.ValidationError("نام خانوادگی نمی‌تواند خالی باشد.")
+        return value
 
     def clean_national_id(self):
         national_id = self.cleaned_data["national_id"].strip()
