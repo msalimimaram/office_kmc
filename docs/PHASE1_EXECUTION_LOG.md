@@ -567,3 +567,30 @@ python manage.py test claims.tests.ClaimVisibilityTests.test_insurer_visibility_
 ```
 
 پس از PASS این آزمون، `python manage.py test claims.tests --verbosity 2` و سپس full suite و بررسی‌های `manage.py check` و `makemigrations --check --dry-run` باید روی همان SHA اجرا شوند. تا آن زمان وضعیت انتشار **NO-GO** باقی می‌ماند.
+
+
+## اصلاح تکمیلی دسترسی اسناد خسارت‌های درمانی قدیمی — 2026-11-21
+
+### یافته و تغییر کد
+
+بازبینی مسیر نمایش اسناد برای کارشناس بیمه نشان داد که پرونده‌های خسارت فاقد قرارداد در مدل دامنه به‌صورت legacy در رشته `health` طبقه‌بندی می‌شوند، اما queryset اسناد مرتبط با خسارت فقط `contract__line` را بررسی می‌کرد. در نتیجه سند غیرپزشکیِ مرتبط با خسارت درمانی فاقد قرارداد، با وجود داشتن ارتباط صریح با پرونده، از فهرست اسناد کارشناس درمان حذف می‌شد.
+
+- `documents/views.py`: برای کارشناس دارای انتصاب صریح `health`، پرونده‌های فاقد قرارداد نیز به دامنه اسناد مرتبط افزوده می‌شوند.
+- این تغییر به رشته‌های دیگر تعمیم داده نشده است؛ اسناد پزشکی همچنان از این مسیر خارج‌اند و اسناد محرمانه همچنان باید لینک صریح به خسارت در دامنه مجاز داشته باشند.
+- تست رگرسیون `test_health_specialist_can_see_linked_documents_for_legacy_claim_without_contract` به `documents/tests.py` افزوده شد.
+
+### Commitها و وضعیت اعتبارسنجی
+
+- اصلاح کد: `f8f9619462d3266567be1afed8b409b9fd11f121`
+- تست رگرسیون: `abca6e3574d8163ba050e40b0c02522c336d4a9b`
+- این دو commit مستقیماً روی `main` ثبت شده‌اند؛ branch یا PR جدید ساخته نشده است.
+- تست جدید و مجموعه تست‌های documents در محیط Django این نوبت اجرا نشده‌اند؛ بنابراین **runtime status: NOT RUN** است.
+- اجرای لازم روی checkout همگام‌شده با HEAD فعلی:
+
+```powershell
+python manage.py test documents.tests.SpecialistUnlinkedDocumentConfidentialityTests.test_health_specialist_can_see_linked_documents_for_legacy_claim_without_contract --verbosity 2
+python manage.py test documents.tests --verbosity 2
+python manage.py test --verbosity 2
+```
+
+**فاز یک همچنان OPEN و Production همچنان NO-GO است** تا تست‌های فوق روی SHA نهایی و سایر دروازه‌های فنی/امنیتی/عملیاتی ثبت شوند.
