@@ -2,11 +2,13 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.contrib.contenttypes.models import ContentType
 from datetime import date
 
 from accounts.models import RoleAssignment, User
-from organizations.models import Company
-from documents.models import DocumentRecord
+from organizations.models import Company, Person
+from claims.models import Claim
+from documents.models import DocumentRecord, DocumentLink
 from documents.services import add_document_version, create_document
 
 
@@ -515,3 +517,51 @@ class SpecialistUnlinkedDocumentConfidentialityTests(TestCase):
 
         self.assertIn(normal_document.pk, visible_ids)
         self.assertNotIn(confidential_document.pk, visible_ids)
+
+    def test_health_specialist_can_see_linked_documents_for_legacy_claim_without_contract(self):
+        specialist = User.objects.create_user(
+            username="legacy-health-document-specialist",
+            password="StrongPass!2026",
+            role="insurance_specialist",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code="health",
+            reason="دسترسی رشته درمان برای خسارت قدیمی",
+        )
+        company = Company.objects.create(code="DOC-LEGACY-HEALTH", name="شرکت خسارت قدیمی")
+        person = Person.objects.create(
+            company=company,
+            national_id="9876543210",
+            first_name="شخص",
+            last_name="خسارت قدیمی",
+            birth_date=date(1990, 1, 1),
+        )
+        claim = Claim.objects.create(
+            claim_number="DOC-LEGACY-HEALTH-CLAIM",
+            person=person,
+            service_type="خسارت درمانی قدیمی",
+            requested_amount=100,
+        )
+        self.assertIsNone(claim.contract_id)
+        self.assertEqual(claim.line_code, "health")
+
+        document = create_document(
+            title="سند مرتبط با خسارت درمان قدیمی",
+            category="مدارک خسارت",
+            upload=SimpleUploadedFile("legacy-health-claim.pdf", b"%PDF-1.7\\nlegacy"),
+            uploaded_by=specialist,
+            security_level=DocumentRecord.SecurityLevel.CONFIDENTIAL,
+        )
+        DocumentLink.objects.create(
+            document=document,
+            content_type=ContentType.objects.get_for_model(Claim),
+            object_id=str(claim.pk),
+            created_by=specialist,
+        )
+
+        from documents.views import _visible_documents
+        visible_ids = set(_visible_documents(specialist).values_list("pk", flat=True))
+        self.assertIn(document.pk, visible_ids)
