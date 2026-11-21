@@ -501,3 +501,12 @@ Commitها:
 - `96c7ef3412b47f5c15df4b1bb42301b6a7a83ac7` — به‌روزرسانی سند قرارداد provisioning.
 
 تست ارتقای v3→v4 نیز نوشته شده، اما هنوز اجرا نشده است.
+
+
+## اصلاح خطای فرم ایجاد حساب دوم — 2026-11-21
+
+- در اجرای محلی آزمون‌های متمرکز، مسیر اعتبارسنجی نام کاربری با `AttributeError` متوقف شد؛ علت این بود که `SystemAdminUserCreationForm.clean_username` خروجی `super().clean_username()` را رشته فرض می‌کرد و روی آن `strip()` اجرا می‌کرد.
+- اصلاح روی `main` ثبت شد: متد والد همچنان فراخوانی می‌شود تا رفتار اعتبارسنجی پایه حفظ شود، اما مقدار نام کاربری از `self.cleaned_data` خوانده و سپس trim می‌شود.
+- آزمون رگرسیون موجود `test_admin_add_form_rejects_blank_names_and_duplicate_username` دقیقاً مسیر نام کاربری تکراری را پوشش می‌دهد و باید پس از همگام‌سازی checkout اجرا شود.
+- Commit اصلاح: `acb180759e1864b45c6c085fadb1912649afea93`.
+- **وضعیت runtime: UNVERIFIED**؛ ابزار GitHub امکان اجرای Django/venv محلی را ندارد. تا اجرای موفق تست متمرکز و سپس full suite روی همین commit، این اصلاح PASS اعلام نمی‌شود.
