@@ -357,17 +357,32 @@ def can_transition_request(user, item, target_status):
     return False
 
 
+def _has_claim_specialist_scope(user, claim):
+    """Require the specialist grant to match this claim's actual insurance line."""
+    line_code = getattr(claim, "line_code", None)
+    if not line_code:
+        return False
+    return has_role(
+        user,
+        RoleAssignment.Role.INSURANCE_SPECIALIST,
+        line_code=line_code,
+    )
+
+
 def can_edit_claim(user, claim):
     if has_global_access(user):
         return True
-    # Insurer representatives submit source data; accepted claim changes require staff approval.
-    return can_view_claim(user, claim) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    # An insurer grant may provide read visibility, but it must never combine
+    # with an unrelated specialist-line grant to authorize claim changes.
+    return can_view_claim(user, claim) and _has_claim_specialist_scope(user, claim)
 
 
 def can_decide_claim(user, claim):
     if has_global_access(user):
         return True
-    return can_view_claim(user, claim) and has_role(user, RoleAssignment.Role.INSURANCE_SPECIALIST)
+    # Decision authority is line-scoped even when another role independently
+    # makes the same claim visible to this user.
+    return can_view_claim(user, claim) and _has_claim_specialist_scope(user, claim)
 
 
 def can_edit_iban(user, person):
