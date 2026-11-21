@@ -30,7 +30,9 @@ class SystemAdminUserCreationForm(UserCreationForm):
         fields = ("username", "first_name", "last_name", "mobile", "national_id")
 
     def clean_username(self):
-        username = super().clean_username().strip()
+        # The parent hook performs its validation but may return None.
+        super().clean_username()
+        username = (self.cleaned_data.get("username") or "").strip()
         if not re.fullmatch(r"\d{10}", username):
             raise forms.ValidationError("نام کاربری باید کد ملی ده‌رقمی باشد.")
         return username
