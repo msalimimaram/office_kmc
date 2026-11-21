@@ -544,3 +544,26 @@ python manage.py test accounts.tests.SystemAdminUserProvisioningFormTests accoun
 3. پس از full suite سبز، تست‌های seed را گسترش دهید و نقص فراخوانی workflow seed و قرارداد idempotent را در یک تغییر هدفمند اصلاح کنید.
 
 **وضعیت فاز یک:** OPEN؛ focused tests گزارش‌شده سبز، اما SHA آن‌ها نامشخص و full suite روی HEAD فعلی تأییدنشده است. **Production: NO-GO.**
+
+
+## اصلاح مجوز ترکیبی خسارت بر اساس رشته بیمه — 2026-11-21
+
+بازبینی ایستای مجوزهای خسارت یک نقص دامنه‌ای پیدا کرد: `can_decide_claim` و `can_edit_claim` قبلاً «قابلیت مشاهده از هر نقش» را با «داشتن هرگونه نقش کارشناس» ترکیب می‌کردند، بدون اینکه انتصاب کارشناس با رشته همان خسارت تطبیق داده شود. در نتیجه کاربری که مثلاً برای یک بیمه‌گر حق مشاهده داشت و هم‌زمان فقط در رشته درمان کارشناس بود، می‌توانست یادداشت داخلی یا مجوز تصمیم‌گیری خسارت شخص ثالث همان بیمه‌گر را دریافت کند.
+
+تغییر هدفمند:
+- helper جدید `_has_claim_specialist_scope` رشته واقعی `claim.line_code` را الزام می‌کند و در نبود رشته، fail-closed است.
+- هر دو مجوز `can_decide_claim` و `can_edit_claim` اکنون علاوه بر visibility، انتصاب کارشناس همان رشته را لازم دارند؛ دسترسی سراسری رئیس اداره/مدیر سامانه بدون تغییر باقی مانده است.
+- تست رگرسیون در `ClaimVisibilityTests` اضافه شد: نقش بیمه‌گر به‌تنهایی امکان مشاهده پرونده را می‌دهد، اما انتصاب کارشناس در رشته درمان نباید یادداشت داخلی/تصمیم خسارت شخص ثالث را باز کند؛ پس از اعطای انتصاب صریح شخص ثالث، مجوز برقرار می‌شود.
+
+Commitهای این اصلاح:
+- کد: `43a7d05c30394ab818365352cbb9cfab60ccdd37`
+- آزمون رگرسیون: `722dfdbad5ad20df2aa0ac88e174808803f0b677`
+
+**اجرای runtime این اصلاح: NOT RUN.** محیط اجرای Django/venv مخزن در این نوبت در دسترس نبود؛ هیچ ادعای PASS برای تست جدید یا full suite وجود ندارد. هیچ migration یا تغییر دیتابیس ایجاد نشده است.
+
+فرمان لازم روی checkout همگام‌شده با همین HEAD:
+```powershell
+python manage.py test claims.tests.ClaimVisibilityTests.test_insurer_visibility_does_not_combine_with_unrelated_specialist_line --verbosity 2
+```
+
+پس از PASS این آزمون، `python manage.py test claims.tests --verbosity 2` و سپس full suite و بررسی‌های `manage.py check` و `makemigrations --check --dry-run` باید روی همان SHA اجرا شوند. تا آن زمان وضعیت انتشار **NO-GO** باقی می‌ماند.
