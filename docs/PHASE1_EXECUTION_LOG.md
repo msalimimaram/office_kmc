@@ -510,3 +510,37 @@ Commitها:
 - آزمون رگرسیون موجود `test_admin_add_form_rejects_blank_names_and_duplicate_username` دقیقاً مسیر نام کاربری تکراری را پوشش می‌دهد و باید پس از همگام‌سازی checkout اجرا شود.
 - Commit اصلاح: `acb180759e1864b45c6c085fadb1912649afea93`.
 - **وضعیت runtime: UNVERIFIED**؛ ابزار GitHub امکان اجرای Django/venv محلی را ندارد. تا اجرای موفق تست متمرکز و سپس full suite روی همین commit، این اصلاح PASS اعلام نمی‌شود.
+
+
+## اجرای متمرکز پس از اصلاح فرم مدیر سامانه — گزارش مالک، 2026-11-21
+
+**محیط گزارش‌شده:** Windows PowerShell، Python 3.13.1، Django 5.2.19  
+**شاخه گزارش‌شده:** `main`  
+**SHA محلی:** در پیام خروجی این اجرا درج نشده است؛ بنابراین نتیجه به HEAD فعلی GitHub یعنی `02343ebaaf011a3d306ee719932f9275f2a29995` منتسب نمی‌شود.
+
+فرمان دقیق:
+```powershell
+python manage.py test accounts.tests.SystemAdminUserProvisioningFormTests accounts.tests.InitialSystemAdminBootstrapCommandTests workflow.tests --verbosity 2
+```
+
+نتیجه گزارش‌شده:
+- `Found 61 test(s)`
+- `Ran 61 tests in 148.018s`
+- `OK`؛ صفر failure و صفر error
+- پایگاه داده تست ایجاد و پس از اجرا تخریب شد.
+
+**طبقه‌بندی شواهد:** focused suite = PASS طبق خروجی مالک؛ انتساب به SHA فعلی = UNVERIFIED، چون `git rev-parse HEAD` همراه خروجی ارائه نشده است. اجرای full suite پس از این اجرا گزارش نشده است. این نتیجه جایگزین full suite روی SHA دقیق نیست.
+
+### یافته ایستای جدید در مسیر داده نمایشی — اجرا نشده
+
+بازبینی `core/management/commands/demo_seed_support.py` نشان داد `seed_extended_fixtures` در خط فراخوانی، `WorkflowSeedCommand().handle()` را بدون گزینه صدا می‌زند؛ در حالی که `core/management/commands/seed_operational_workflows.py` گزینه‌های اجباری `created_by` و `approved_by` را از `options` می‌خواند و انتشار نیز فقط با `publish=True` انجام می‌شود. در نتیجه این مسیر در وضعیت فعلی هنگام اجرای واقعی seed به `KeyError` می‌رسد یا کاتالوگ workflow لازم برای fixtureها را منتشر نمی‌کند. این مسیر عمداً اجرا نشده است.
+
+همچنین قرارداد فعلی `seed_demo` هنوز one-shot و وابسته به دیتابیس خالی است و idempotent نیست؛ این با الزام جدید مالک برای seed مصنوعی idempotent و غیرمخرب یکسان نیست. تا پایان تثبیت تست‌های اصلی، هیچ seed یا fixture داده‌ای اجرا/بازطراحی نمی‌شود. پس از عبور از full suite، باید این مسیر به‌صورت یک طراحی مستقل، DEBUG-only، namespaced، تراکنشی و verify-before-reuse بازنویسی و برای هر مدل concrete و رابطه‌ها تست شود؛ نه اینکه صرفاً guard دیتابیس خالی حذف شود.
+
+### اقدام بعدی
+
+1. SHA و وضعیت working tree checkout محلی را ثبت و با `main` تطبیق دهید.
+2. فقط اگر checkout دقیقاً روی SHA فعلی `main` باشد، full suite را یک بار اجرا و خروجی کامل را ثبت کنید؛ در غیر این صورت ابتدا فقط با fast-forward همگام شوید و تغییرات محلی را دور نریزید.
+3. پس از full suite سبز، تست‌های seed را گسترش دهید و نقص فراخوانی workflow seed و قرارداد idempotent را در یک تغییر هدفمند اصلاح کنید.
+
+**وضعیت فاز یک:** OPEN؛ focused tests گزارش‌شده سبز، اما SHA آن‌ها نامشخص و full suite روی HEAD فعلی تأییدنشده است. **Production: NO-GO.**
