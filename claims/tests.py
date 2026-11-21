@@ -196,6 +196,77 @@ class ClaimVisibilityTests(TestCase):
         ).exists())
 
 
+    def test_insurer_visibility_does_not_combine_with_unrelated_specialist_line(self):
+        from datetime import timedelta
+        from accounts.models import RoleAssignment
+        from core.permissions import can_decide_claim, can_edit_claim, can_view_claim
+        from insurance.models import Contract, InsuranceLine, Insurer
+
+        today = timezone.localdate()
+        insurer = Insurer.objects.create(name="بیمه‌گر آزمون تداخل نقش")
+        contract = Contract.objects.create(
+            code="ROLE-INTERSECTION-TP",
+            title="قرارداد شخص ثالث آزمون تداخل نقش",
+            insurer=insurer,
+            line=InsuranceLine.THIRD_PARTY,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=365),
+            status=Contract.Status.ACTIVE,
+            is_active=True,
+        )
+        claim = Claim.objects.create(
+            claim_number="ROLE-INTERSECTION-CLAIM",
+            person=self.person_a,
+            contract=contract,
+            insurer=insurer,
+            service_type="خسارت خودرو",
+            requested_amount=100,
+            assessed_amount=80,
+            payable_amount=80,
+            assessment_note="یادداشت داخلی آزمون تداخل نقش",
+        )
+        multi_role_user = User.objects.create_user(
+            username="insurer-health-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=multi_role_user,
+            role=RoleAssignment.Role.INSURER_REP,
+            insurer=insurer,
+            reason="مشاهده پرونده‌های همین بیمه‌گر",
+        )
+        RoleAssignment.objects.create(
+            user=multi_role_user,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.HEALTH,
+            reason="انتصاب تخصصی فقط در رشته درمان",
+        )
+
+        # Insurer visibility must not reveal internal notes or authorize
+        # decisions outside the user's specialist insurance-line grant.
+        self.assertTrue(can_view_claim(multi_role_user, claim))
+        self.assertFalse(can_decide_claim(multi_role_user, claim))
+        self.assertFalse(can_edit_claim(multi_role_user, claim))
+        client = Client()
+        client.force_login(multi_role_user)
+        response = client.get(reverse("claim_detail", args=[claim.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "یادداشت داخلی آزمون تداخل نقش")
+
+        RoleAssignment.objects.create(
+            user=multi_role_user,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.THIRD_PARTY,
+            reason="انتصاب مستقل برای رشته شخص ثالث",
+        )
+        self.assertTrue(can_decide_claim(multi_role_user, claim))
+        self.assertTrue(can_edit_claim(multi_role_user, claim))
+        client.force_login(multi_role_user)
+        scoped_response = client.get(reverse("claim_detail", args=[claim.pk]))
+        self.assertContains(scoped_response, "یادداشت داخلی آزمون تداخل نقش")
+
+
 class ClaimObjectionReviewFlowTests(TestCase):
     def setUp(self):
         from datetime import timedelta
@@ -670,68 +741,3 @@ class ManualClaimWorkflowTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.source_duplicate_status, Claim.DuplicateStatus.DECLARED_DUPLICATE)
         self.assertEqual(claim.source_duplicate_reported_by_id, insurer_rep.pk)
-
-
-class ClaimRoleIntersectionScopeTests(TestCase):
-    def test_insurer_visibility_does_not_combine_with_unrelated_specialist_line(self):
-        from datetime import timedelta
-        from accounts.models import RoleAssignment
-        from core.permissions import can_decide_claim, can_edit_claim, can_view_claim
-        from insurance.models import Contract, InsuranceLine, Insurer
-
-        today = timezone.localdate()
-        insurer = Insurer.objects.create(name="بیمه‌گر آزمون تداخل نقش")
-        contract = Contract.objects.create(
-            code="ROLE-INTERSECTION-TP",
-            title="قرارداد شخص ثالث آزمون تداخل نقش",
-            insurer=insurer,
-            line=InsuranceLine.THIRD_PARTY,
-            start_date=today - timedelta(days=30),
-            end_date=today + timedelta(days=365),
-            status=Contract.Status.ACTIVE,
-            is_active=True,
-        )
-        claim = Claim.objects.create(
-            claim_number="ROLE-INTERSECTION-CLAIM",
-            person=self.person_a,
-            contract=contract,
-            insurer=insurer,
-            service_type="خسارت خودرو",
-            requested_amount=100,
-            assessed_amount=80,
-            payable_amount=80,
-            assessment_note="یادداشت داخلی آزمون تداخل نقش",
-        )
-        multi_role_user = User.objects.create_user(
-            username="insurer-health-specialist",
-            password="StrongPass!2026",
-            must_change_password=False,
-        )
-        RoleAssignment.objects.create(
-            user=multi_role_user,
-            role=RoleAssignment.Role.INSURER_REP,
-            insurer=insurer,
-            reason="مشاهده پرونده‌های همین بیمه‌گر",
-        )
-        RoleAssignment.objects.create(
-            user=multi_role_user,
-            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
-            line_code=InsuranceLine.HEALTH,
-            reason="انتصاب تخصصی فقط در رشته درمان",
-        )
-
-        # The insurer role legitimately makes the claim visible, but the
-        # unrelated health-specialist grant must not reveal internal notes or
-        # authorize decisions on a motor claim.
-        self.assertTrue(can_view_claim(multi_role_user, claim))
-        self.assertFalse(can_decide_claim(multi_role_user, claim))
-        self.assertFalse(can_edit_claim(multi_role_user, claim))
-
-        RoleAssignment.objects.create(
-            user=multi_role_user,
-            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
-            line_code=InsuranceLine.THIRD_PARTY,
-            reason="انتصاب مستقل برای رشته شخص ثالث",
-        )
-        self.assertTrue(can_decide_claim(multi_role_user, claim))
-        self.assertTrue(can_edit_claim(multi_role_user, claim))
