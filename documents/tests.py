@@ -565,3 +565,22 @@ class SpecialistUnlinkedDocumentConfidentialityTests(TestCase):
         from documents.views import _visible_documents
         visible_ids = set(_visible_documents(specialist).values_list("pk", flat=True))
         self.assertIn(document.pk, visible_ids)
+        
+        # A contractless legacy claim is classified as health; its linked
+        # confidential document must not leak to specialists of other lines.
+        from insurance.models import InsuranceLine
+        other_line_specialist = User.objects.create_user(
+            username="legacy-fire-document-specialist",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=other_line_specialist,
+            role=RoleAssignment.Role.INSURANCE_SPECIALIST,
+            line_code=InsuranceLine.FIRE,
+            reason="عدم دسترسی رشته آتش‌سوزی به خسارت درمانی قدیمی",
+        )
+        other_line_visible_ids = set(
+            _visible_documents(other_line_specialist).values_list("pk", flat=True)
+        )
+        self.assertNotIn(document.pk, other_line_visible_ids)
