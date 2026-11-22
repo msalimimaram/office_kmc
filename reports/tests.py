@@ -65,7 +65,7 @@ class ManagementReportWorkflowTests(TestCase):
             user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای گردش گزارش",
         )
-        call_command("seed_operational_workflows")
+        call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
 
     def _create_report(self):
         client = Client()
