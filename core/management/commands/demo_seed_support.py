@@ -119,7 +119,7 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
 def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, employee_a, employee_b, created_counts=None, reused_counts=None):
     """Create interconnected demo records across the discovered domain-model manifest."""
     from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
-    WorkflowSeedCommand().handle()
+    WorkflowSeedCommand().handle(created_by=users["admin.demo"].pk, approved_by=users["head.demo"].pk, publish=True)
 
     today = timezone.localdate()
     now = timezone.now()
