@@ -169,7 +169,7 @@ class ClaimVisibilityTests(TestCase):
             line_code="health",
             reason="دریافت گردش اعتراض در آزمون",
         )
-        call_command("seed_operational_workflows")
+        call_command("seed_operational_workflows", created_by=specialist.pk, approved_by=self.admin.pk, publish=True),call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True),call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
 
         client = Client()
         client.force_login(self.admin)
