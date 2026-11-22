@@ -483,7 +483,7 @@ class PersonChangeWorkflowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش‌های پایه",
         )
-        call_command("seed_operational_workflows")
+        call_command("seed_operational_workflows", created_by=self.company_rep.pk, approved_by=self.head.pk, publish=True)
 
     def test_mobile_change_follows_company_insurer_company_and_applies_only_after_final_close(self):
         from django.contrib.contenttypes.models import ContentType
