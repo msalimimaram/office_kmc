@@ -169,7 +169,7 @@ class ClaimVisibilityTests(TestCase):
             line_code="health",
             reason="دریافت گردش اعتراض در آزمون",
         )
-        call_command("seed_operational_workflows", created_by=specialist.pk, approved_by=self.admin.pk, publish=True),call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True),call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
+        call_command("seed_operational_workflows", created_by=specialist.pk, approved_by=self.admin.pk, publish=True)
 
         client = Client()
         client.force_login(self.admin)
@@ -320,7 +320,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             defaults={"reason": "راه‌اندازی گردش اعتراض در آزمون"},
         )
-        call_command("seed_operational_workflows")
+        call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
         return start_workflow(
             obj=self.objection,
             code="claim_objection",
@@ -557,7 +557,7 @@ class ManualClaimWorkflowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تصمیم نهایی خسارت",
         )
-        call_command("seed_operational_workflows")
+        call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
 
     def test_manual_claim_assessment_head_decision_and_result_dispatch(self):
         from datetime import timedelta
