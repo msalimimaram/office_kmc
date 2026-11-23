@@ -1,4 +1,20 @@
-# وضعیت آمادگی انتشار — به‌روزرسانی 2026-11-18
+# وضعیت آمادگی انتشار — به‌روزرسانی 2026-11-23
+
+
+## Snapshot مهندسی روی main — 2026-11-23
+
+**HEAD فعلی main:** `1ce4193d009fd6ea0baba16773194668031c0872`  
+**آخرین commit کد:** [`feecf3b`](https://github.com/msalimimaram/office_kmc/commit/feecf3bb5206c0c9930b0eb89a4a6a8b54fe5ddc)  
+**آخرین commit مستندات:** [`1ce4193`](https://github.com/msalimimaram/office_kmc/commit/1ce4193d009fd6ea0baba16773194668031c0872)
+
+- بازبینی remote روی `main` انجام شد. در فهرست شاخه‌ها، علاوه بر `main` یک شاخهٔ از قبل موجود به نام `work/access-control-test-matrix-2026-11-20` دیده شد؛ در این نوبت هیچ شاخه‌ای ساخته، تغییر یا حذف نشد و تمام commitهای این نوبت مستقیماً روی `main` ثبت شدند.
+- آخرین اصلاح کد، تنها مصرف‌کنندهٔ باقی‌ماندهٔ فرمان سخت‌گیرانهٔ `seed_operational_workflows` در `imports/test_wizard.py` را اصلاح کرد تا کارشناس بدنه ایجادکننده و رئیس اداره تأییدکنندهٔ مستقل باشد و انتشار صریح انجام شود. آزمون‌های دیگر در ۲۱ فایل تست از نظر actorهای مجزا و گزینهٔ انتشار ایستا بازبینی شدند؛ آزمون dry-run عمداً بدون انتشار باقی مانده است.
+- commitهای قبلی همین سری، مجوز تصمیم/ویرایش خسارت را به انتصاب صریح همان رشته بیمه محدود کردند، دسترسی سند خسارت درمانی legacy فاقد قرارداد را برای کارشناس درمان اصلاح کردند و فراخوانی‌های workflow seed در claims، imports، organizations، reports و مسیر seed نمونه را با actorهای مجزا هماهنگ کردند.
+- آخرین اجرای کامل گزارش‌شده توسط مالک مربوط به SHA قدیمی‌تر `19471210902c5fc1f24f5e4a70036ed1a9318190` بود: ۳۷۷ تست، ۳۵۸ موفق و ۱۹ ناموفق. اصلاحات بعدی روی HEAD فعلی ثبت شده‌اند، اما هیچ اجرای مجددی روی HEAD فعلی در دسترس نیست؛ بنابراین هیچ‌یک از آن اصلاحات هنوز runtime PASS محسوب نمی‌شوند.
+- در محیط این بازبینی، checkout و virtualenv محلی کاربر mount نبودند؛ تلاش اتصال Git از محیط اجرا نیز با خطای DNS به `github.com` شکست خورد. در نتیجه Django tests، `manage.py check`، `makemigrations --check`، `migrate --check`، `audit_workflows` و preflight روی HEAD فعلی **اجرا نشده‌اند**. وضعیت commit status برای HEAD نیز خالی است؛ نبود status معادل PASS نیست.
+- migration، دیتابیس محلی و داده‌ها دست‌کاری نشده‌اند. `seed_demo` اجرا نشده است. قرارداد فعلی آن همچنان one-shot، fail-closed و محدود به دیتابیس دورریختنی خالی در DEBUG است و idempotent نیست؛ بازطراحی آن تا پس از سبز شدن پایدار تست‌ها به تعویق افتاده است.
+
+**گام مهندسی بعدی:** اجرای آزمون متمرکز ورود دارایی، کل مجموعهٔ imports و سپس full suite روی همین SHA؛ پس از PASS، اجرای check، migration drift/state، schema verification و `audit_workflows`. تا ثبت این شواهد و تکمیل آزمون‌های PostgreSQL/ClamAV/backup-restore/IDOR و پذیرش staging، Production **NO-GO** باقی می‌ماند.
 
 ## تصمیم فعلی
 
