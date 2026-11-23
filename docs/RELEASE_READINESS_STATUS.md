@@ -3,9 +3,8 @@
 
 ## Snapshot مهندسی روی main — 2026-11-23
 
-**HEAD فعلی main:** `1ce4193d009fd6ea0baba16773194668031c0872`  
-**آخرین commit کد:** [`feecf3b`](https://github.com/msalimimaram/office_kmc/commit/feecf3bb5206c0c9930b0eb89a4a6a8b54fe5ddc)  
-**آخرین commit مستندات:** [`1ce4193`](https://github.com/msalimimaram/office_kmc/commit/1ce4193d009fd6ea0baba16773194668031c0872)
+**آخرین commit کد روی main:** [`feecf3b`](https://github.com/msalimimaram/office_kmc/commit/feecf3bb5206c0c9930b0eb89a4a6a8b54fe5ddc)  
+**یادداشت:** commitهای پس از این commit در این snapshot فقط مستندات آمادگی انتشار/گزارش فاز یک را به‌روزرسانی کرده‌اند؛ فایل اجرایی یا migration جدیدی به آن‌ها افزوده نشده است.
 
 - بازبینی remote روی `main` انجام شد. در فهرست شاخه‌ها، علاوه بر `main` یک شاخهٔ از قبل موجود به نام `work/access-control-test-matrix-2026-11-20` دیده شد؛ در این نوبت هیچ شاخه‌ای ساخته، تغییر یا حذف نشد و تمام commitهای این نوبت مستقیماً روی `main` ثبت شدند.
 - آخرین اصلاح کد، تنها مصرف‌کنندهٔ باقی‌ماندهٔ فرمان سخت‌گیرانهٔ `seed_operational_workflows` در `imports/test_wizard.py` را اصلاح کرد تا کارشناس بدنه ایجادکننده و رئیس اداره تأییدکنندهٔ مستقل باشد و انتشار صریح انجام شود. آزمون‌های دیگر در ۲۱ فایل تست از نظر actorهای مجزا و گزینهٔ انتشار ایستا بازبینی شدند؛ آزمون dry-run عمداً بدون انتشار باقی مانده است.
