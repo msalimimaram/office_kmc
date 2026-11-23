@@ -313,7 +313,11 @@ class SpecialistAssetImportTests(TestCase):
         from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
         from workflow.models import WorkflowCase
 
-        WorkflowSeedCommand().handle()
+        WorkflowSeedCommand().handle(
+            created_by=self.specialist.pk,
+            approved_by=self.reviewer.pk,
+            publish=True,
+        )
         self.client.force_login(self.specialist)
         response = self.client.post(
             reverse("asset_import"),
