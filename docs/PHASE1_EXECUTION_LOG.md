@@ -611,3 +611,31 @@ python manage.py test --verbosity 2
 - گزارش قبلی مالک از اجرای full suite روی SHA قدیمی‌تر `19471210902c5fc1f24f5e4a70036ed1a9318190` شامل 377 تست، 358 موفق و 19 ناموفق بود؛ بخشی از tracebackهای گزارش‌شده با فراخوانی بدون گزینهٔ فرمان seed هم‌خوانی داشت. این نتیجه به HEAD فعلی تعمیم داده نمی‌شود.
 
 **وضعیت:** اصلاح فراخوانی‌ها روی `main` ثبت شد؛ runtime verification همچنان **NOT RUN**، فاز یک **OPEN** و Production **NO-GO** است.
+
+## رفع آخرین فراخوانی بدون actor در آزمون ورود دارایی — 2026-11-23
+
+بازبینی تمام فایل‌های آزمون Python در HEAD قبلی `1496f9568a2ba43b00ce5dd355e9f2ec2467bb74` نشان داد، با وجود اصلاح فراخوانی‌های `claims`، `organizations`، `reports` و `imports/tests.py`، یک مصرف‌کنندهٔ قدیمی باقی مانده بود: `imports/test_wizard.py::SpecialistAssetImportTests.test_asset_import_creates_vehicle_and_pending_approval_workflows`، که `WorkflowSeedCommand().handle()` را بدون گزینه‌های اجباری فراخوانی می‌کرد.
+
+تغییر هدفمند:
+- فراخوانی اکنون `created_by=self.specialist.pk`، `approved_by=self.reviewer.pk` و `publish=True` را صریح می‌فرستد.
+- این دو کاربر در setup همان آزمون از قبل ساخته می‌شوند: کارشناس رشتهٔ بدنه به‌عنوان ایجادکننده و رئیس اداره به‌عنوان تأییدکننده؛ تفکیک وظایف و کنترل نقش تأییدکننده حفظ شده است.
+- تمام ارجاع‌های موجود در فایل‌های آزمون به `seed_operational_workflows` بازبینی شدند؛ سایر فراخوانی‌ها actorهای مجزا و `publish=True` دارند، به‌جز آزمون dry-run که عمداً بدون انتشار باقی مانده است.
+- منطق فرمان، immutable بودن workflowهای منتشرشده و کنترل مجوزها تغییر نکرده است.
+
+Commit کد: `feecf3bb5206c0c9930b0eb89a4a6a8b54fe5ddc`.
+
+اعتبارسنجی:
+- بازبینی ایستای call-siteها انجام شد؛ runtime هنوز اجرا نشده است.
+- checkout و venv کاربر در محیط اجرای دستیار mount نیستند و اتصال مستقیم Git از محیط اجرا نیز با خطای DNS به `github.com` شکست خورد. بنابراین هیچ تست Django، `manage.py check`، `makemigrations --check` یا تست full suite در این نوبت اجرا نشده است.
+- migration و دیتابیس تغییر نکرده‌اند؛ `seed_demo` اجرا نشده است.
+
+دستورهای لازم روی checkout همگام‌شده با HEAD:
+```powershell
+python manage.py test imports.test_wizard.SpecialistAssetImportTests.test_asset_import_creates_vehicle_and_pending_approval_workflows --verbosity 2
+python manage.py test imports --verbosity 2
+python manage.py test --verbosity 2
+python manage.py check
+python manage.py makemigrations --check --dry-run
+```
+
+**وضعیت:** این call-site اصلاح شد اما PASS آن هنوز اثبات نشده است؛ فاز یک OPEN و Production همچنان NO-GO است. بازطراحی seed غیرمخرب/idempotent طبق ترتیب توافق‌شده تا سبز شدن پایدار full suite به تعویق می‌ماند.
