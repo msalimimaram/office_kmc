@@ -483,7 +483,17 @@ class PersonChangeWorkflowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش‌های پایه",
         )
-        call_command("seed_operational_workflows", created_by=self.company_rep.pk, approved_by=self.head.pk, publish=True)
+        self.workflow_admin = User.objects.create_user(
+            username="person-change-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش اصلاح اطلاعات",
+        )
+        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
 
     def test_mobile_change_follows_company_insurer_company_and_applies_only_after_final_close(self):
         from django.contrib.contenttypes.models import ContentType
@@ -628,6 +638,17 @@ class PersonChangeRequestWorkflowTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             valid_from=self.today,
             reason="مدیر سامانه برای آزمون اصلاح اطلاعات",
+        )
+        self.head = User.objects.create_user(
+            username="pcr-department-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=self.today,
+            reason="رئیس اداره تأییدکننده گردش اصلاح اطلاعات",
         )
         self.insured = User.objects.create_user(
             username="1234567890",
@@ -808,7 +829,7 @@ class PersonChangeRequestWorkflowTests(TestCase):
                 recipient_roles=recipients,
                 closes_case=closes,
             )
-        definition.approved_by = self.admin
+        definition.approved_by = self.head
         definition.is_active = True
         definition.save()
 

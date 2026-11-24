@@ -289,7 +289,7 @@ class AssetOperationalWorkflowTests(TestCase):
             allowed_roles=roles,
             closes_case=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.head
         definition.is_active = True
         definition.save()
 

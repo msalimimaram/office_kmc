@@ -259,6 +259,16 @@ class SpecialistAssetImportTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تأیید مستقل ورود دارایی",
         )
+        self.workflow_admin = User.objects.create_user(
+            username="asset-import-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده ورود دارایی",
+        )
 
     def _asset_row(self, *, asset_code="AST-XLS-VEH-001", contract_number=None):
         return [
@@ -314,7 +324,7 @@ class SpecialistAssetImportTests(TestCase):
         from workflow.models import WorkflowCase
 
         WorkflowSeedCommand().handle(
-            created_by=self.specialist.pk,
+            created_by=self.workflow_admin.pk,
             approved_by=self.reviewer.pk,
             publish=True,
         )
