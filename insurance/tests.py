@@ -228,7 +228,7 @@ class ContractWorkflowLifecycleTests(TestCase):
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             closes_case=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.head
         definition.is_active = True
         definition.save()
         return definition
