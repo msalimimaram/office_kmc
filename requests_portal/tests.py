@@ -28,7 +28,17 @@ class ServiceRequestTests(TestCase):
         RoleAssignment.objects.create(
             user=self.workflow_admin,
             role=RoleAssignment.Role.SYSTEM_ADMIN,
-            reason="مدیر سامانه برای تأیید گردش درخواست در آزمون",
+            reason="مدیر سامانه برای پیشنهاد گردش درخواست در آزمون",
+        )
+        self.workflow_head = User.objects.create_user(
+            username="request-workflow-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای تصویب گردش درخواست در آزمون",
         )
 
     def test_user_can_submit_request(self):
@@ -65,7 +75,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             closes_case=True,
         )
-        definition.approved_by = self.workflow_admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
 
@@ -529,7 +539,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             is_initial=True,
         )
-        definition.approved_by = admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
 
@@ -913,11 +923,26 @@ class RequestWorkflowConfigurationFailureTests(TestCase):
             is_staff=True,
             must_change_password=False,
         )
+        RoleAssignment.objects.create(
+            user=administrator,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش ناقص در آزمون",
+        )
+        approver = User.objects.create_user(
+            username="wf-admin-head",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=approver,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            reason="رئیس اداره برای آزمون گردش ناقص",
+        )
         definition = WorkflowDefinition.objects.create(
             code=ServiceRequest.Kind.OTHER,
             title="گردش آزمایشی بدون گیرنده",
             created_by=administrator,
-            approved_by=administrator,
+            approved_by=approver,
             is_active=False,
         )
         WorkflowStep.objects.create(
