@@ -58,6 +58,16 @@ class WorkflowDashboardQueueTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش",
         )
+        self.workflow_admin = User.objects.create_user(
+            username="dash-wf-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش داشبورد",
+        )
 
         self.own_request = ServiceRequest.objects.create(
             reference="IB-DASH-WF-OWN",
@@ -79,7 +89,7 @@ class WorkflowDashboardQueueTests(TestCase):
         definition = WorkflowDefinition.objects.create(
             code="dashboard-workflow-queue",
             title="گردش صف داشبورد",
-            created_by=self.head,
+            created_by=self.workflow_admin,
         )
         initial = WorkflowStep.objects.create(
             definition=definition,
