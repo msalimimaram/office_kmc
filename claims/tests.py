@@ -569,6 +569,11 @@ class ManualClaimWorkflowTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        self.workflow_admin = User.objects.create_user(
+            username="claim-review-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
         RoleAssignment.objects.create(
             user=self.specialist,
             role=RoleAssignment.Role.INSURANCE_SPECIALIST,
@@ -579,6 +584,11 @@ class ManualClaimWorkflowTests(TestCase):
             user=self.head,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تصمیم نهایی خسارت",
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش خسارت دستی",
         )
         call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
 
