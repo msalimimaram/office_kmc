@@ -1477,7 +1477,7 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 closes_case=True,
                 requires_note=True,
             )
-            definition.approved_by = admin
+            definition.approved_by = head
             definition.is_active = True
             definition.save()
         workflow_index += 1
