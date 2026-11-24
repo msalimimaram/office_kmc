@@ -50,13 +50,23 @@ class ConfidentialRequestScopeTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        creator = User.objects.create_user(
+            username="scope-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=creator,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش محرمانه در آزمون",
+        )
         RoleAssignment.objects.create(
             user=approver,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="تأیید گردش کار در آزمون محدوده محرمانه",
         )
         definition = WorkflowDefinition.objects.create(
-            code="scope-medical", title="گردش محرمانه", created_by=approver,
+            code="scope-medical", title="گردش محرمانه", created_by=creator,
         )
         step = WorkflowStep.objects.create(
             definition=definition, code="review", title="بررسی درمان", order=1,
