@@ -1,4 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
+from django.utils import timezone
 
 from accounts.models import RoleAssignment
 from assets.models import AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation
@@ -35,6 +37,7 @@ class Command(BaseCommand):
         )
         definitions = {}
         errors = []
+        warnings = []
         for definition in active_definitions:
             if definition.code in definitions:
                 errors.append(f"{definition.code}: بیش از یک نسخه فعال گردش‌کار وجود دارد.")
@@ -52,7 +55,22 @@ class Command(BaseCommand):
         insurer_role = RoleAssignment.Role.INSURER_REP
         specialist_role = RoleAssignment.Role.INSURANCE_SPECIALIST
 
+        today = timezone.localdate()
         for code, definition in sorted(definitions.items()):
+            if not definition.published_at:
+                errors.append(f"{code}: تعریف فعال فاقد زمان انتشار معتبر است.")
+            if definition.created_by_id == definition.approved_by_id:
+                errors.append(f"{code}: ایجادکننده و تأییدکننده گردش کار نباید یک نفر باشند.")
+            if not RoleAssignment.objects.filter(
+                user_id=definition.created_by_id, role=RoleAssignment.Role.SYSTEM_ADMIN,
+                is_active=True, valid_from__lte=today,
+            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists():
+                errors.append(f"{code}: ایجادکننده نسخه فعال باید مدیر سامانه با انتصاب معتبر باشد.")
+            if not RoleAssignment.objects.filter(
+                user_id=definition.approved_by_id, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+                is_active=True, valid_from__lte=today,
+            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists():
+                errors.append(f"{code}: تأییدکننده نسخه فعال باید رئیس اداره بیمه با انتصاب معتبر باشد.")
             steps = list(definition.steps.all())
             transitions = list(definition.transitions.select_related("source_step", "target_step"))
             initial_steps = [step for step in steps if step.is_initial]
@@ -61,6 +79,8 @@ class Command(BaseCommand):
 
             valid_statuses, decision_steps = self._domain_contract(code)
             for step in steps:
+                if not step.is_terminal and step.sla_minutes <= 0:
+                    warnings.append(f"{code}/{step.code}: مهلت SLA هنوز تعیین نشده است.")
                 if step.is_terminal and step.outgoing_transitions.exists():
                     errors.append(f"{code}/{step.code}: مرحله پایانی نباید مسیر خروجی داشته باشد.")
                 if step.code not in valid_statuses:
@@ -200,16 +220,16 @@ class Command(BaseCommand):
                         transition.recipient_roles
                         or (transition.target_step.allowed_roles if transition.target_step else [])
                     )
-                    if not actor_roles.issubset(allowed):
-                        errors.append(f"{code}/{action_code}: نقش اقدام با مسیر کسب‌وکار سازگار نیست.")
-                    if not recipient_roles.issubset(recipients):
-                        errors.append(f"{code}/{action_code}: گیرنده مرحله بعد با مسیر کسب‌وکار سازگار نیست.")
+                    if allowed != actor_roles:
+                        errors.append(f"{code}/{action_code}: نقش‌های اقدام باید دقیقاً با نقش‌های مصوب کسب‌وکار منطبق باشند.")
+                    if recipients != recipient_roles:
+                        errors.append(f"{code}/{action_code}: نقش‌های گیرنده باید دقیقاً با نقش‌های مصوب کسب‌وکار منطبق باشند.")
                 submitted = next((step for step in steps if step.code == ServiceRequest.Status.SUBMITTED), None)
-                if not submitted or RoleAssignment.Role.SUBSIDIARY_REP not in (submitted.allowed_roles or []):
-                    errors.append(f"{code}: مرحله ثبت اولیه باید به نماینده همان شرکت تخصیص یابد.")
+                if not submitted or set(submitted.allowed_roles or []) != {RoleAssignment.Role.SUBSIDIARY_REP} or submitted.allowed_position_levels:
+                    errors.append(f"{code}: مرحله ثبت اولیه باید منحصراً به نماینده همان شرکت تخصیص یابد.")
                 referred = next((step for step in steps if step.code == ServiceRequest.Status.REFERRED), None)
-                if not referred or insurer_role not in (referred.allowed_roles or []):
-                    errors.append(f"{code}: مرحله ارجاع‌شده باید فقط به نقش بیمه‌گر مجاز باشد.")
+                if not referred or set(referred.allowed_roles or []) != {insurer_role} or referred.allowed_position_levels:
+                    errors.append(f"{code}: مرحله ارجاع‌شده باید منحصراً به نماینده بیمه‌گر تخصیص یابد.")
                 for transition in transitions:
                     if transition.closes_case:
                         closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
@@ -349,6 +369,9 @@ class Command(BaseCommand):
                         and RoleAssignment.Role.SUBSIDIARY_REP not in (transition.recipient_roles or [])
                     ):
                         errors.append("person_change: نتیجه بیمه‌گر باید به نماینده شرکت بازگردد.")
+
+        for warning in warnings:
+            self.stdout.write(self.style.WARNING("هشدار SLA: " + warning))
 
         if errors:
             for error in errors:

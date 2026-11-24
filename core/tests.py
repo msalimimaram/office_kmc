@@ -171,6 +171,8 @@ class WorkflowCoverageCommandTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             reason="مدیر سامانه برای آزمون ممیزی گردش‌کار",
         )
+        head_user = User.objects.create_user(username="workflow-audit-head", password="StrongPass!123")
+        RoleAssignment.objects.create(user=head_user, role=RoleAssignment.Role.DEPARTMENT_HEAD, reason="رئیس اداره برای آزمون ممیزی گردش‌کار")
         for kind, _label in ServiceRequest.Kind.choices:
             definition = WorkflowDefinition.objects.create(
                 code=kind,
@@ -187,7 +189,7 @@ class WorkflowCoverageCommandTests(TestCase):
                 is_terminal=True,
                 allow_return=False,
             )
-            definition.approved_by = admin_user
+            definition.approved_by = head_user
             definition.is_active = True
             definition.save()
 

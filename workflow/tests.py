@@ -100,7 +100,7 @@ class WorkflowEngineTests(TestCase):
             recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             requires_note=True,
         )
-        self.definition.approved_by = self.admin
+        self.definition.approved_by = self.department_head
         self.definition.is_active = True
         self.definition.save()
 
@@ -143,7 +143,7 @@ class WorkflowEngineTests(TestCase):
             recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             requires_note=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
 
@@ -219,7 +219,7 @@ class WorkflowEngineTests(TestCase):
         )
         definition = WorkflowDefinition.objects.create(
             code="person_change", title="گردش اصلاح اطلاعات", version=91,
-            created_by=self.admin, approved_by=self.admin,
+            created_by=self.admin, approved_by=self.department_head,
         )
         step = WorkflowStep.objects.create(
             definition=definition, code="company_final_review",
@@ -456,7 +456,7 @@ class WorkflowEngineTests(TestCase):
             ],
             is_initial=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
 
@@ -526,7 +526,7 @@ class WorkflowEngineTests(TestCase):
             allowed_position_levels=[int(OrganizationalPosition.Level.SUPERVISOR)],
             is_initial=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
         item = ServiceRequest.objects.create(
@@ -655,7 +655,7 @@ class WorkflowEngineTests(TestCase):
             ],
             recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
 
@@ -824,7 +824,7 @@ class WorkflowEngineTests(TestCase):
             ],
             recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
         case = start_workflow(
@@ -923,7 +923,7 @@ class WorkflowEngineTests(TestCase):
             ],
             recipient_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
 
@@ -1053,7 +1053,7 @@ class WorkflowEngineTests(TestCase):
             allowed_roles=[RoleAssignment.Role.INSURER_REP],
             closes_case=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
         case = start_workflow(
@@ -1113,7 +1113,7 @@ class WorkflowEngineTests(TestCase):
             allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD],
             closes_case=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.department_head
         definition.is_active = True
         definition.save()
 
@@ -1513,7 +1513,7 @@ class WorkflowEngineTests(TestCase):
             allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
             is_initial=True,
         )
-        next_definition.approved_by = self.admin
+        next_definition.approved_by = self.department_head
         next_definition.is_active = True
         next_definition.save()
 
@@ -1568,7 +1568,7 @@ class WorkflowEngineTests(TestCase):
             allowed_roles=[RoleAssignment.Role.INSURANCE_SPECIALIST],
             is_initial=True,
         )
-        draft.approved_by = self.admin
+        draft.approved_by = self.department_head
         draft.is_active = True
         draft.save(update_fields=["is_active"])
 
@@ -1820,6 +1820,8 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         head = User.objects.create_user(
             username="workflow-seed-upgrade-head",
             password="StrongPass!2026",
@@ -1834,7 +1836,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             code="other",
             title="گردش قدیمی درخواست",
             version=1,
-            created_by=head,
+            created_by=creator,
             description="تعریف قدیمی بدون نسخه مسیر جدید",
         )
         WorkflowStep.objects.create(
@@ -1872,6 +1874,8 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         head = User.objects.create_user(
             username="workflow-v3-upgrade-head",
             password="StrongPass!2026",
@@ -1891,7 +1895,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             code="claim_objection",
             title="نسخه قبلی گردش اعتراض",
             version=1,
-            created_by=head,
+            created_by=creator,
             description="baseline-route-v3: prior catalog",
         )
         in_review = WorkflowStep.objects.create(
@@ -1953,6 +1957,8 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         head = User.objects.create_user(
             username="workflow-rebase-head",
             password="StrongPass!2026",
@@ -1980,7 +1986,7 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             code=ServiceRequest.Kind.OTHER,
             title="گردش قدیمی سایر درخواست‌ها",
             version=1,
-            created_by=head,
+            created_by=creator,
             description="نسخه قدیمی",
         )
         WorkflowStep.objects.create(
@@ -2037,6 +2043,8 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             username="workflow-seed-creator",
             password="StrongPass!123",
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         head = User.objects.create_user(
             username="workflow-seed-head",
             password="StrongPass!123",
@@ -2133,6 +2141,31 @@ class OperationalWorkflowSeedCommandTests(TestCase):
 
 
 class OperationalWorkflowProvisioningSafetyTests(TestCase):
+    def test_provisioning_requires_system_admin_creator(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+        creator = User.objects.create_user(username="workflow-non-admin-creator", password="StrongPass!2026")
+        head = User.objects.create_user(username="workflow-valid-head", password="StrongPass!2026")
+        RoleAssignment.objects.create(user=head, role=RoleAssignment.Role.DEPARTMENT_HEAD, reason="رئیس اداره آزمون")
+        with self.assertRaises(CommandError):
+            call_command("seed_operational_workflows", created_by=creator.pk, approved_by=head.pk, publish=True)
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
+
+    def test_provisioning_requires_department_head_approver_not_system_admin(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+        creator = User.objects.create_user(username="workflow-valid-creator", password="StrongPass!2026")
+        admin_approver = User.objects.create_user(username="workflow-admin-only-approver", password="StrongPass!2026")
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه آزمون")
+        RoleAssignment.objects.create(user=admin_approver, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه بدون اختیار تأیید")
+        with self.assertRaises(CommandError):
+            call_command("seed_operational_workflows", created_by=creator.pk, approved_by=admin_approver.pk, publish=True)
+        self.assertEqual(WorkflowDefinition.objects.count(), 0)
+
     def test_provisioning_rejects_same_creator_and_approver(self):
         from django.core.management import call_command
         from django.core.management.base import CommandError
@@ -2170,6 +2203,8 @@ class OperationalWorkflowProvisioningSafetyTests(TestCase):
             username="workflow-expired-approver-creator",
             password="StrongPass!2026",
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         approver = User.objects.create_user(
             username="workflow-expired-approver",
             password="StrongPass!2026",
@@ -2202,6 +2237,8 @@ class OperationalWorkflowProvisioningSafetyTests(TestCase):
             username="workflow-audit-rollback-creator",
             password="StrongPass!2026",
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         approver = User.objects.create_user(
             username="workflow-audit-rollback-approver",
             password="StrongPass!2026",
@@ -2237,6 +2274,8 @@ class OperationalWorkflowProvisioningSafetyTests(TestCase):
             username="workflow-dry-run-creator",
             password="StrongPass!2026",
         )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(user=creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه برای ایجاد نسخه گردش کار در آزمون")
         approver = User.objects.create_user(
             username="workflow-dry-run-approver",
             password="StrongPass!2026",
@@ -2254,3 +2293,42 @@ class OperationalWorkflowProvisioningSafetyTests(TestCase):
         )
 
         self.assertEqual(WorkflowDefinition.objects.count(), 0)
+
+
+class WorkflowDefinitionPublicationGovernanceTests(TestCase):
+    def setUp(self):
+        self.creator = User.objects.create_user(username="workflow-governance-admin", password="StrongPass!2026")
+        self.head = User.objects.create_user(username="workflow-governance-head", password="StrongPass!2026")
+        self.other_admin = User.objects.create_user(username="workflow-governance-other-admin", password="StrongPass!2026")
+        RoleAssignment.objects.create(user=self.creator, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه پیشنهاددهنده")
+        RoleAssignment.objects.create(user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD, reason="رئیس اداره تأییدکننده")
+        RoleAssignment.objects.create(user=self.other_admin, role=RoleAssignment.Role.SYSTEM_ADMIN, reason="مدیر سامانه فاقد اختیار تصویب")
+
+    def _definition(self, *, creator=None, approver=None):
+        definition = WorkflowDefinition.objects.create(code="governance-test", title="آزمون حاکمیت گردش کار", created_by=creator or self.creator, approved_by=approver)
+        WorkflowStep.objects.create(definition=definition, code="initial", title="مرحله آغازین", order=1, allowed_roles=[RoleAssignment.Role.DEPARTMENT_HEAD], is_initial=True)
+        definition.is_active = True
+        return definition
+
+    def test_system_admin_proposal_and_department_head_approval_publish(self):
+        definition = self._definition(approver=self.head)
+        definition.save()
+        self.assertTrue(definition.is_active)
+        self.assertIsNotNone(definition.published_at)
+
+    def test_system_admin_cannot_approve_without_department_head_assignment(self):
+        definition = self._definition(approver=self.other_admin)
+        with self.assertRaises(ValidationError):
+            definition.save()
+
+    def test_creator_must_have_active_system_admin_assignment(self):
+        specialist = User.objects.create_user(username="workflow-governance-specialist", password="StrongPass!2026")
+        RoleAssignment.objects.create(user=specialist, role=RoleAssignment.Role.INSURANCE_SPECIALIST, line_code="health", reason="کارشناس آزمون")
+        definition = self._definition(creator=specialist, approver=self.head)
+        with self.assertRaises(ValidationError):
+            definition.save()
+
+    def test_creator_and_approver_must_be_different_people(self):
+        definition = self._definition(approver=self.creator)
+        with self.assertRaises(ValidationError):
+            definition.save()

@@ -114,14 +114,26 @@ class WorkflowDefinition(models.Model):
         if self.version < 1:
             raise ValidationError({"version": "شماره نسخه باید حداقل یک باشد."})
         if self.is_active and not self.approved_by_id:
-            raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره یا مدیر سامانه است."})
+            raise ValidationError({"approved_by": "انتشار گردش کار نیازمند تأیید رئیس اداره بیمه است."})
         if self.is_active and (not self.pk or self.steps.filter(is_initial=True).count() != 1):
             raise ValidationError("گردش کار منتشرشده باید دقیقاً یک مرحله آغازین داشته باشد.")
-        if self.is_active and self.approved_by_id:
-            from accounts.access import has_role
+        if self.is_active:
             from accounts.models import RoleAssignment
-            if not has_role(self.approved_by, RoleAssignment.Role.SYSTEM_ADMIN, RoleAssignment.Role.DEPARTMENT_HEAD):
-                raise ValidationError({"approved_by": "تأییدکننده باید رئیس اداره یا مدیر سامانه باشد."})
+            today = timezone.localdate()
+            if self.created_by_id == self.approved_by_id:
+                raise ValidationError("ایجادکننده و تأییدکننده گردش کار باید دو شخص مستقل باشند.")
+            creator_is_admin = RoleAssignment.objects.filter(
+                user_id=self.created_by_id, role=RoleAssignment.Role.SYSTEM_ADMIN,
+                is_active=True, valid_from__lte=today,
+            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+            if not creator_is_admin:
+                raise ValidationError({"created_by": "ایجادکننده نسخه گردش کار باید مدیر سامانه با انتصاب معتبر باشد."})
+            approver_is_head = RoleAssignment.objects.filter(
+                user_id=self.approved_by_id, role=RoleAssignment.Role.DEPARTMENT_HEAD,
+                is_active=True, valid_from__lte=today,
+            ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+            if not approver_is_head:
+                raise ValidationError({"approved_by": "تأییدکننده و منتشرکننده نسخه گردش کار باید رئیس اداره بیمه با انتصاب معتبر باشد."})
 
     def save(self, *args, **kwargs):
         previous = None

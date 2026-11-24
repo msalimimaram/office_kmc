@@ -55,14 +55,22 @@ class Command(BaseCommand):
         if creator.pk == approver.pk:
             raise CommandError("Creator and approver must be different users (separation of duties).")
 
+        creator_assignment = RoleAssignment.objects.filter(
+            user=creator,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            is_active=True,
+            valid_from__lte=today,
+        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
+        if not creator_assignment:
+            raise CommandError("The creator must have an active System Admin assignment.")
         approver_assignment = RoleAssignment.objects.filter(
             user=approver,
-            role__in=global_roles,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
             is_active=True,
             valid_from__lte=today,
         ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
         if not approver_assignment:
-            raise CommandError("The approver must have an active Department Head or System Admin assignment.")
+            raise CommandError("The approver must have an active Department Head assignment.")
 
         actor = creator
         created = []
@@ -89,7 +97,7 @@ class Command(BaseCommand):
                 created_by=creator,
                 description=(
                     f"{self.BASELINE_SCHEMA_VERSION}: گردش پایه نسخه‌دار. تغییر مسیر فقط با ایجاد و انتشار نسخه جدید "
-                    "و تأیید رئیس اداره بیمه یا مدیر سامانه مجاز است."
+                    "و پیشنهاد مدیر سامانه و تأیید رئیس اداره بیمه مجاز است."
                 ),
             )
             if code == "person_change":
@@ -130,7 +138,7 @@ class Command(BaseCommand):
                 created_by=creator,
                 description=(
                     f"{self.BASELINE_SCHEMA_VERSION}: گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
-                    "تأیید رئیس اداره بیمه یا مدیر سامانه تغییر می‌کنند."
+                    "با پیشنهاد مدیر سامانه و تأیید رئیس اداره بیمه تغییر می‌کنند."
                 ),
             )
             self._build_service_request(definition, global_roles)
