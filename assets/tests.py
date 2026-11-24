@@ -210,6 +210,12 @@ class AssetOperationalWorkflowTests(TestCase):
         RoleAssignment.objects.create(
             user=self.head,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=timezone.localdate(),
+            reason="رئیس اداره برای تأیید گردش دارایی",
+        )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای آزمون تأیید دارایی",
         )
         for workflow_code in (
@@ -289,7 +295,7 @@ class AssetOperationalWorkflowTests(TestCase):
             allowed_roles=roles,
             closes_case=True,
         )
-        definition.approved_by = self.admin
+        definition.approved_by = self.head
         definition.is_active = True
         definition.save()
 
