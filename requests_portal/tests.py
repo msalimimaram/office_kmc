@@ -118,7 +118,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             is_initial=True,
         )
-        definition.approved_by = self.workflow_admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
 
@@ -292,7 +292,7 @@ class ServiceRequestTests(TestCase):
             title="بررسی نماینده شرکت", order=1,
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP], is_initial=True,
         )
-        definition.approved_by = self.workflow_admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
         from django.contrib.contenttypes.models import ContentType
@@ -431,7 +431,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             is_initial=True,
         )
-        definition.approved_by = self.workflow_admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
 
@@ -629,7 +629,7 @@ class ServiceRequestTests(TestCase):
             allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
             is_initial=True,
         )
-        definition.approved_by = self.workflow_admin
+        definition.approved_by = self.workflow_head
         definition.is_active = True
         definition.save()
 
