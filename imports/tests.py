@@ -108,12 +108,22 @@ class ImportBatchApprovalFlowTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        workflow_admin = User.objects.create_user(
+            username="import-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش واردسازی",
+        )
         RoleAssignment.objects.create(
             user=workflow_owner,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش‌کارهای آزمون",
         )
-        WorkflowSeedCommand().handle(created_by=self.reviewer.pk, approved_by=workflow_owner.pk, publish=True)
+        WorkflowSeedCommand().handle(created_by=workflow_admin.pk, approved_by=workflow_owner.pk, publish=True)
         self.batch = ImportBatch.objects.create(
             batch_number="IMP-TEST-0001",
             file=SimpleUploadedFile("claims.xlsx", b"test-file"),
@@ -263,12 +273,22 @@ class AssetImportApprovalSnapshotTests(TestCase):
             password="StrongPass!2026",
             must_change_password=False,
         )
+        workflow_admin = User.objects.create_user(
+            username="asset-import-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش ورود دارایی",
+        )
         RoleAssignment.objects.create(
             user=reviewer,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تأیید ورود دارایی",
         )
-        WorkflowSeedCommand().handle(created_by=uploader.pk, approved_by=reviewer.pk, publish=True)
+        WorkflowSeedCommand().handle(created_by=workflow_admin.pk, approved_by=reviewer.pk, publish=True)
 
         batch = ImportBatch.objects.create(
             batch_number="IMP-ASSET-SNAPSHOT-001",
