@@ -22,6 +22,17 @@ class ClaimVisibilityTests(TestCase):
         self.employee = User.objects.create_user(username=NATIONAL_ID_A, password="StrongPass!2026", must_change_password=False, national_id=NATIONAL_ID_A, role="employee", company=self.company_a)
         self.rep = User.objects.create_user(username="rep-a", password="StrongPass!2026", must_change_password=False, role="subsidiary_rep", company=self.company_a)
         self.admin = User.objects.create_user(username="head", password="StrongPass!2026", must_change_password=False, role="department_head")
+        self.workflow_admin = User.objects.create_user(
+            username="claim-visibility-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        from accounts.models import RoleAssignment
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه پیشنهاددهنده گردش اعتراض در آزمون",
+        )
         self.insurer_without_link = User.objects.create_user(username="insurer-a", password="StrongPass!2026", must_change_password=False, role="insurer")
         Claim.objects.create(claim_number="CL-1", person=self.person_a, service_type="ویزیت", requested_amount=100)
         Claim.objects.create(claim_number="CL-2", person=self.person_b, service_type="دارو", requested_amount=200)
@@ -169,7 +180,7 @@ class ClaimVisibilityTests(TestCase):
             line_code="health",
             reason="دریافت گردش اعتراض در آزمون",
         )
-        call_command("seed_operational_workflows", created_by=specialist.pk, approved_by=self.admin.pk, publish=True)
+        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.admin.pk, publish=True)
 
         client = Client()
         client.force_login(self.admin)
@@ -301,6 +312,18 @@ class ClaimObjectionReviewFlowTests(TestCase):
             username="objection-head", password="StrongPass!2026", must_change_password=False,
             role="department_head",
         )
+        self.workflow_admin = User.objects.create_user(
+            username="objection-workflow-admin",
+            password="StrongPass!2026",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=today,
+            is_active=True,
+            reason="مدیر سامانه پیشنهاددهنده گردش اعتراض",
+        )
         self.specialist = User.objects.create_user(
             username="objection-specialist", password="StrongPass!2026", must_change_password=False,
             role="insurance_specialist",
@@ -320,7 +343,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             defaults={"reason": "راه‌اندازی گردش اعتراض در آزمون"},
         )
-        call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
+        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
         return start_workflow(
             obj=self.objection,
             code="claim_objection",
@@ -424,7 +447,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
         definition = WorkflowDefinition.objects.create(
             code="claim_objection",
             title="گردش کار اعتراض خسارت",
-            created_by=self.head,
+            created_by=self.workflow_admin,
         )
         initial = WorkflowStep.objects.create(
             definition=definition,
