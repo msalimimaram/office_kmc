@@ -590,7 +590,7 @@ class ManualClaimWorkflowTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             reason="مدیر سامانه پیشنهاددهنده گردش خسارت دستی",
         )
-        call_command("seed_operational_workflows", created_by=self.specialist.pk, approved_by=self.head.pk, publish=True)
+        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
 
     def test_manual_claim_assessment_head_decision_and_result_dispatch(self):
         from datetime import timedelta
