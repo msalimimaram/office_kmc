@@ -498,10 +498,10 @@ class ServiceRequestTests(TestCase):
 
         today = timezone.localdate()
         admin = self.workflow_admin
-        RoleAssignment.objects.create(
+        RoleAssignment.objects.get_or_create(
             user=admin,
             role=RoleAssignment.Role.SYSTEM_ADMIN,
-            reason="تأییدکننده استثنای چندشرکتی",
+            defaults={"reason": "مدیر سامانه تأییدکننده استثنای چندشرکتی"},
         )
         representative = User.objects.create_user(
             username="multi-company-request-rep",
