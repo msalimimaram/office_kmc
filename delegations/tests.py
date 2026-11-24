@@ -34,6 +34,18 @@ class DelegationRoutingTests(TestCase):
             user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD,
             is_active=True, valid_from=today,
         )
+        self.workflow_admin = User.objects.create_user(
+            username="delegation.workflow-admin",
+            password="TestPass!23456",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.workflow_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            is_active=True,
+            valid_from=today,
+            reason="مدیر سامانه پیشنهاددهنده گردش‌های آزمون تفویض",
+        )
         self.company = Company.objects.create(code="DELEGATION-CO", name="شرکت آزمون تفویض")
         self.representative = User.objects.create_user(username="delegation.rep", password="TestPass!23456", must_change_password=False, company=self.company)
         RoleAssignment.objects.create(
@@ -46,7 +58,7 @@ class DelegationRoutingTests(TestCase):
             line_code="health", is_active=True, valid_from=today,
         )
         self.definition = WorkflowDefinition.objects.create(
-            code="person_change", title="اصلاح اطلاعات", version=77, created_by=self.head,
+            code="person_change", title="اصلاح اطلاعات", version=77, created_by=self.workflow_admin,
         )
         WorkflowStep.objects.create(
             definition=self.definition, code="company_review",
