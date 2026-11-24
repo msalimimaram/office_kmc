@@ -149,7 +149,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=83,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         initial = WorkflowStep.objects.create(
@@ -221,7 +221,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=78,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         initial = WorkflowStep.objects.create(
@@ -307,7 +307,7 @@ class DelegationRoutingTests(TestCase):
         definition = WorkflowDefinition.objects.create(
             code="delegation-same-recipient",
             title="گردش آزمون پایان تفویض در مرحله بعد",
-            created_by=self.head,
+            created_by=self.workflow_admin,
         )
         initial = WorkflowStep.objects.create(
             definition=definition,
@@ -559,7 +559,7 @@ class DelegationRoutingTests(TestCase):
             code="person_change",
             title="اصلاح اطلاعات ـ نسخه مرحله تخصصی",
             version=78,
-            created_by=self.head,
+            created_by=self.workflow_admin,
         )
         initial_step = WorkflowStep.objects.create(
             definition=definition,
@@ -689,7 +689,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=79,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         initial = WorkflowStep.objects.create(
@@ -915,7 +915,7 @@ class DelegationRoutingTests(TestCase):
             code="delegation-position-release",
             title="گردش کار اولیه سمت‌محور",
             version=1,
-            created_by=self.head,
+            created_by=self.workflow_admin,
         )
         WorkflowStep.objects.create(
             definition=definition,
@@ -974,7 +974,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=81,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         WorkflowStep.objects.create(
@@ -1037,7 +1037,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=82,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         WorkflowStep.objects.create(
@@ -1088,7 +1088,7 @@ class DelegationRoutingTests(TestCase):
             code=ServiceRequest.Kind.MEDICAL_ASSISTANCE,
             title="درخواست درمان",
             version=80,
-            created_by=self.head,
+            created_by=self.workflow_admin,
             approved_by=self.head,
         )
         WorkflowStep.objects.create(
