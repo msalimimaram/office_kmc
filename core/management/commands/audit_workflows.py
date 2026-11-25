@@ -27,14 +27,36 @@ class Command(BaseCommand):
         "management_report_approval",
     }
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--definition-id",
+            type=int,
+            help="Audit one draft proposal before Department Head approval instead of the active catalog.",
+        )
+
     def handle(self, *args, **options):
         required_codes = set(ServiceRequest.Kind.values) | self.DOMAIN_CODES
-        active_definitions = list(
-            WorkflowDefinition.objects.filter(
-                code__in=required_codes,
-                is_active=True,
-            ).prefetch_related("steps__outgoing_transitions", "transitions__source_step", "transitions__target_step")
-        )
+        proposal_mode = bool(options.get("definition_id"))
+        if proposal_mode:
+            definition = WorkflowDefinition.objects.filter(
+                pk=options["definition_id"]
+            ).prefetch_related(
+                "steps__outgoing_transitions",
+                "transitions__source_step",
+                "transitions__target_step",
+            ).first()
+            if definition is None:
+                raise CommandError("تعریف گردش‌کار موردنظر پیدا نشد.")
+            if definition.code not in required_codes:
+                raise CommandError("کد این تعریف در کاتالوگ ۱۹ فرآیند عملیاتی ثبت نشده است.")
+            active_definitions = [definition]
+        else:
+            active_definitions = list(
+                WorkflowDefinition.objects.filter(
+                    code__in=required_codes,
+                    is_active=True,
+                ).prefetch_related("steps__outgoing_transitions", "transitions__source_step", "transitions__target_step")
+            )
         definitions = {}
         errors = []
         warnings = []
@@ -43,7 +65,7 @@ class Command(BaseCommand):
                 errors.append(f"{definition.code}: بیش از یک نسخه فعال گردش‌کار وجود دارد.")
             definitions[definition.code] = definition
 
-        missing = sorted(required_codes - set(definitions))
+        missing = [] if proposal_mode else sorted(required_codes - set(definitions))
         if missing:
             errors.append("گردش‌کار فعال برای این فرآیندها تعریف نشده است: " + ", ".join(missing))
 
@@ -57,7 +79,10 @@ class Command(BaseCommand):
 
         today = timezone.localdate()
         for code, definition in sorted(definitions.items()):
-            if not definition.published_at:
+            if proposal_mode:
+                if definition.is_active or definition.published_at or definition.approved_by_id:
+                    errors.append(f"{code}: پیشنهاد باید پیش‌نویس و فاقد تأیید/انتشار باشد.")
+            elif not definition.published_at:
                 errors.append(f"{code}: تعریف فعال فاقد زمان انتشار معتبر است.")
             if definition.created_by_id == definition.approved_by_id:
                 errors.append(f"{code}: ایجادکننده و تأییدکننده گردش کار نباید یک نفر باشند.")
@@ -66,7 +91,7 @@ class Command(BaseCommand):
                 is_active=True, valid_from__lte=today,
             ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists():
                 errors.append(f"{code}: ایجادکننده نسخه فعال باید مدیر سامانه با انتصاب معتبر باشد.")
-            if not RoleAssignment.objects.filter(
+            if not proposal_mode and not RoleAssignment.objects.filter(
                 user_id=definition.approved_by_id, role=RoleAssignment.Role.DEPARTMENT_HEAD,
                 is_active=True, valid_from__lte=today,
             ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists():
@@ -379,9 +404,14 @@ class Command(BaseCommand):
             raise CommandError(
                 f"ممیزی گردش‌کار ناموفق بود؛ {len(missing)} فرآیند فاقد گردش‌کار و {len(errors)} مغایرت."
             )
-        self.stdout.write(self.style.SUCCESS(
-            f"ممیزی موفق: هر {len(required_codes)} فرآیند دارای گردش‌کار فعال و معتبر است."
-        ))
+        if proposal_mode:
+            self.stdout.write(self.style.SUCCESS(
+                f"ممیزی پیشنهاد موفق: گردش‌کار {active_definitions[0].code} از نظر ساختار، نقش‌ها و مسیرهای دامنه معتبر است."
+            ))
+        else:
+            self.stdout.write(self.style.SUCCESS(
+                f"ممیزی موفق: هر {len(required_codes)} فرآیند دارای گردش‌کار فعال و معتبر است."
+            ))
 
     @staticmethod
     def _domain_contract(code):

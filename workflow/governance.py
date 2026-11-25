@@ -6,6 +6,9 @@ from django.utils import timezone
 
 from accounts.models import RoleAssignment
 from auditlog.services import record_event
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from io import StringIO
 from .models import WorkflowDefinition
 
 
@@ -163,6 +166,24 @@ def approve_workflow_definition(*, definition_id, approver, request=None):
             "مراحل زیر از مرحله آغازین قابل دسترسی نیستند: "
             + ", ".join(unreachable)
         )
+
+    # Reuse the exact same domain-specific routing audit used for the
+    # final catalog gate, scoped to this single draft before activation.
+    audit_output = StringIO()
+    try:
+        call_command(
+            "audit_workflows",
+            definition_id=definition.pk,
+            stdout=audit_output,
+        )
+    except CommandError as exc:
+        details = audit_output.getvalue().strip()
+        raise ValidationError(
+            "ممیزی اختصاصی گردش‌کار ناموفق بود. "
+            + details
+            + (" " if details else "")
+            + str(exc)
+        ) from exc
 
     proposal_snapshot = build_workflow_snapshot(definition)
 

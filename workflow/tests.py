@@ -1967,6 +1967,7 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
         )
 
     def _draft(self, *, creator=None, code="governance-test", version=1):
+        code = "contract_approval" if code == "governance-test" else code
         definition = WorkflowDefinition.objects.create(
             code=code,
             title="پیشنهاد آزمون حاکمیت گردش‌کار",
@@ -1974,20 +1975,65 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
             created_by=creator or self.creator,
             description="پیشنهاد پیش‌نویس برای آزمون مسیر تأیید",
         )
-        initial = WorkflowStep.objects.create(
+        global_roles = [
+            RoleAssignment.Role.SYSTEM_ADMIN,
+            RoleAssignment.Role.DEPARTMENT_HEAD,
+        ]
+        pending = WorkflowStep.objects.create(
             definition=definition,
-            code="pending",
-            title="در انتظار اقدام",
+            code="pending_approval",
+            title="در انتظار تأیید",
             order=1,
-            allowed_roles=[RoleAssignment.Role.SYSTEM_ADMIN],
+            allowed_roles=global_roles,
             is_initial=True,
+        )
+        approved = WorkflowStep.objects.create(
+            definition=definition,
+            code="approved",
+            title="تأییدشده",
+            order=2,
+            allowed_roles=global_roles,
+        )
+        rejected = WorkflowStep.objects.create(
+            definition=definition,
+            code="rejected",
+            title="ردشده",
+            order=3,
+            allowed_roles=global_roles,
         )
         WorkflowTransition.objects.create(
             definition=definition,
-            source_step=initial,
-            action_code="close",
-            title="بستن آزمایشی",
-            allowed_roles=[RoleAssignment.Role.SYSTEM_ADMIN],
+            source_step=pending,
+            target_step=approved,
+            action_code="approve",
+            title="تأیید",
+            allowed_roles=global_roles,
+            recipient_roles=global_roles,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=pending,
+            target_step=rejected,
+            action_code="reject",
+            title="رد",
+            allowed_roles=global_roles,
+            recipient_roles=global_roles,
+            requires_note=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=approved,
+            action_code="finalize",
+            title="ثبت نهایی تأیید",
+            allowed_roles=global_roles,
+            closes_case=True,
+        )
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=rejected,
+            action_code="finalize-rejection",
+            title="ثبت نهایی رد",
+            allowed_roles=global_roles,
             closes_case=True,
         )
         return definition
@@ -2038,6 +2084,24 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
             reverse("workflow_definition_approve", args=[definition.pk])
         )
         self.assertEqual(response.status_code, 403)
+        definition.refresh_from_db()
+        self.assertFalse(definition.is_active)
+        self.assertIsNone(definition.approved_by_id)
+
+    def test_department_head_cannot_approve_domain_invalid_workflow_proposal(self):
+        from workflow.models import WorkflowTransition
+
+        definition = self._draft()
+        WorkflowTransition.objects.filter(
+            definition=definition,
+            action_code="approve",
+        ).delete()
+        client = Client()
+        client.force_login(self.head)
+        response = client.post(
+            reverse("workflow_definition_approve", args=[definition.pk])
+        )
+        self.assertEqual(response.status_code, 302)
         definition.refresh_from_db()
         self.assertFalse(definition.is_active)
         self.assertIsNone(definition.approved_by_id)
