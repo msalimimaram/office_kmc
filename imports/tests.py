@@ -297,7 +297,11 @@ class AssetImportApprovalSnapshotTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تأیید ورود دارایی",
         )
-        WorkflowSeedCommand().handle(created_by=workflow_admin.pk, approved_by=reviewer.pk, publish=True)
+        _seed_and_approve_workflows(
+            admin=workflow_admin,
+            head=reviewer,
+            codes=("asset_valuation_approval", "asset_policy_approval"),
+        )
 
         batch = ImportBatch.objects.create(
             batch_number="IMP-ASSET-SNAPSHOT-001",
