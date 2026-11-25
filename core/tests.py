@@ -212,9 +212,15 @@ class StaticAndPrivateMediaUrlTests(SimpleTestCase):
 
 @override_settings(DEBUG=True)
 class DemoSeedCommandSafetyTests(TestCase):
-    def test_seed_guard_allows_only_pristine_migration_bootstrap_calendar(self):
+    def test_seed_guard_allows_only_pristine_migration_bootstrap_catalogs(self):
+        from accounts.models import OrganizationalPosition, OrganizationalUnit
         from workflow.models import BusinessCalendar
         from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        unit = OrganizationalUnit.objects.get(code="insurance-department")
+        self.assertEqual(unit.name, "اداره بیمه")
+        self.assertEqual(OrganizationalUnit.objects.count(), 1)
+        self.assertEqual(OrganizationalPosition.objects.count(), 25)
 
         calendar = BusinessCalendar.objects.get(code="iran-default")
         self.assertEqual(calendar.title, "تقویم کاری مجموعه")
@@ -224,8 +230,8 @@ class DemoSeedCommandSafetyTests(TestCase):
         self.assertEqual(calendar.end_time.isoformat(timespec="minutes"), "16:00")
         self.assertTrue(calendar.is_active)
 
-        # The pristine singleton is created by workflow.0001_initial and is
-        # the only existing application row permitted by the seed guard.
+        # Migration-created calendar and organization catalogs are allowed only
+        # while every value still matches the exact bootstrap definitions.
         _assert_empty_disposable_database()
 
     def test_seed_guard_rejects_a_modified_migrated_organization_position(self):
