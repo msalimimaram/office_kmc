@@ -219,54 +219,174 @@ class Command(BaseCommand):
                     errors.append(f"{code}: تأیید دارایی فقط باید به رئیس اداره/مدیر سامانه واگذار شود.")
 
             if code in set(ServiceRequest.Kind.values):
-                by_action = {item.action_code: item for item in transitions}
+                company_roles = {RoleAssignment.Role.SUBSIDIARY_REP}
+                employee_roles = {RoleAssignment.Role.INSURED_PERSON}
+                review_roles = {specialist_role} | global_roles
                 required_routes = {
                     "accept_for_review": (
-                        {RoleAssignment.Role.SUBSIDIARY_REP} | global_roles,
-                        {specialist_role} | global_roles,
+                        ServiceRequest.Status.SUBMITTED,
+                        ServiceRequest.Status.IN_REVIEW,
+                        company_roles | global_roles,
+                        review_roles,
+                        False,
                     ),
                     "request_information": (
-                        {specialist_role} | global_roles,
-                        {RoleAssignment.Role.INSURED_PERSON},
+                        ServiceRequest.Status.IN_REVIEW,
+                        ServiceRequest.Status.NEEDS_INFO,
+                        review_roles,
+                        employee_roles,
+                        False,
                     ),
                     "refer_to_insurer": (
-                        {specialist_role} | global_roles,
+                        ServiceRequest.Status.IN_REVIEW,
+                        ServiceRequest.Status.REFERRED,
+                        review_roles,
                         {insurer_role},
+                        False,
                     ),
                     "submit_information": (
-                        {RoleAssignment.Role.INSURED_PERSON},
-                        {specialist_role} | global_roles,
+                        ServiceRequest.Status.NEEDS_INFO,
+                        ServiceRequest.Status.IN_REVIEW,
+                        employee_roles,
+                        review_roles,
+                        False,
                     ),
                     "return_from_insurer": (
+                        ServiceRequest.Status.REFERRED,
+                        ServiceRequest.Status.IN_REVIEW,
                         {insurer_role},
-                        {specialist_role} | global_roles,
+                        review_roles,
+                        False,
+                    ),
+                    "approve": (
+                        ServiceRequest.Status.IN_REVIEW,
+                        ServiceRequest.Status.APPROVED,
+                        global_roles,
+                        global_roles,
+                        False,
+                    ),
+                    "reject": (
+                        ServiceRequest.Status.IN_REVIEW,
+                        ServiceRequest.Status.REJECTED,
+                        global_roles,
+                        global_roles,
+                        False,
+                    ),
+                    "mark_completed": (
+                        ServiceRequest.Status.APPROVED,
+                        ServiceRequest.Status.COMPLETED,
+                        global_roles,
+                        global_roles,
+                        False,
+                    ),
+                    "finalize_rejection": (
+                        ServiceRequest.Status.REJECTED,
+                        None,
+                        global_roles,
+                        set(),
+                        True,
+                    ),
+                    "finalize_completion": (
+                        ServiceRequest.Status.COMPLETED,
+                        None,
+                        global_roles,
+                        set(),
+                        True,
                     ),
                 }
-                for action_code, (actor_roles, recipient_roles) in required_routes.items():
-                    transition = by_action.get(action_code)
-                    if transition is None:
-                        errors.append(f"{code}: اقدام ضروری {action_code} تعریف نشده است.")
-                        continue
-                    allowed = set(transition.allowed_roles or transition.source_step.allowed_roles)
-                    recipients = set(
-                        transition.recipient_roles
-                        or (transition.target_step.allowed_roles if transition.target_step else [])
-                    )
-                    if allowed != actor_roles:
-                        errors.append(f"{code}/{action_code}: نقش‌های اقدام باید دقیقاً با نقش‌های مصوب کسب‌وکار منطبق باشند.")
-                    if recipients != recipient_roles:
-                        errors.append(f"{code}/{action_code}: نقش‌های گیرنده باید دقیقاً با نقش‌های مصوب کسب‌وکار منطبق باشند.")
-                submitted = next((step for step in steps if step.code == ServiceRequest.Status.SUBMITTED), None)
-                if not submitted or set(submitted.allowed_roles or []) != {RoleAssignment.Role.SUBSIDIARY_REP} or submitted.allowed_position_levels:
-                    errors.append(f"{code}: مرحله ثبت اولیه باید منحصراً به نماینده همان شرکت تخصیص یابد.")
-                referred = next((step for step in steps if step.code == ServiceRequest.Status.REFERRED), None)
-                if not referred or set(referred.allowed_roles or []) != {insurer_role} or referred.allowed_position_levels:
-                    errors.append(f"{code}: مرحله ارجاع‌شده باید منحصراً به نماینده بیمه‌گر تخصیص یابد.")
+                transitions_by_action = {}
                 for transition in transitions:
-                    if transition.closes_case:
-                        closing_roles = set(transition.allowed_roles or transition.source_step.allowed_roles)
-                        if not closing_roles or not closing_roles.issubset(global_roles):
-                            errors.append(f"{code}/{transition.action_code}: بستن درخواست عمومی فقط برای رئیس اداره/مدیر سامانه مجاز است.")
+                    transitions_by_action.setdefault(transition.action_code, []).append(transition)
+
+                for action_code, (
+                    expected_source,
+                    expected_target,
+                    actor_roles,
+                    recipient_roles,
+                    closes_case,
+                ) in required_routes.items():
+                    matches = transitions_by_action.get(action_code, [])
+                    if len(matches) != 1:
+                        errors.append(
+                            f"{code}: اقدام ضروری {action_code} باید دقیقاً یک‌بار تعریف شود."
+                        )
+                        continue
+
+                    transition = matches[0]
+                    if transition.source_step.code != expected_source:
+                        errors.append(
+                            f"{code}/{action_code}: مرحله مبدأ باید {expected_source} باشد."
+                        )
+                    actual_target = (
+                        transition.target_step.code if transition.target_step else None
+                    )
+                    if actual_target != expected_target or transition.closes_case != closes_case:
+                        errors.append(
+                            f"{code}/{action_code}: مرحله مقصد یا قاعده بستن با مسیر مصوب منطبق نیست."
+                        )
+                    if set(transition.allowed_roles or []) != actor_roles:
+                        errors.append(
+                            f"{code}/{action_code}: نقش‌های اقدام باید دقیقاً با نقش‌های مصوب منطبق باشند."
+                        )
+                    if transition.allowed_position_levels:
+                        errors.append(
+                            f"{code}/{action_code}: مجوز سمت‌محور برای اقدام نقش‌محور مجاز نیست."
+                        )
+                    if set(transition.recipient_roles or []) != recipient_roles:
+                        errors.append(
+                            f"{code}/{action_code}: نقش‌های گیرنده باید دقیقاً با نقش‌های مصوب منطبق باشند."
+                        )
+                    if transition.recipient_position_levels:
+                        errors.append(
+                            f"{code}/{action_code}: گیرنده سمت‌محور برای این مسیر نقش‌محور مجاز نیست."
+                        )
+
+                    if expected_target is not None:
+                        target_step = transition.target_step
+                        if target_step is None:
+                            errors.append(
+                                f"{code}/{action_code}: مرحله مقصد مصوب تعریف نشده است."
+                            )
+                        else:
+                            if set(target_step.allowed_roles or []) != recipient_roles:
+                                errors.append(
+                                    f"{code}/{action_code}: نقش‌های مرحله مقصد باید دقیقاً با نقش گیرنده منطبق باشند."
+                                )
+                            if target_step.allowed_position_levels:
+                                errors.append(
+                                    f"{code}/{action_code}: مرحله مقصد نباید مجوز سمت‌محور اضافی داشته باشد."
+                                )
+
+                unexpected_actions = set(transitions_by_action) - set(required_routes)
+                if unexpected_actions:
+                    errors.append(
+                        f"{code}: اقدام‌های خارج از قرارداد گردش‌کار درخواست عمومی مجاز نیستند: "
+                        + ", ".join(sorted(unexpected_actions))
+                    )
+
+                required_steps = {
+                    ServiceRequest.Status.SUBMITTED: company_roles,
+                    ServiceRequest.Status.IN_REVIEW: review_roles,
+                    ServiceRequest.Status.NEEDS_INFO: employee_roles,
+                    ServiceRequest.Status.REFERRED: {insurer_role},
+                    ServiceRequest.Status.APPROVED: global_roles,
+                    ServiceRequest.Status.REJECTED: global_roles,
+                    ServiceRequest.Status.COMPLETED: global_roles,
+                }
+                for step_code, expected_roles in required_steps.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if (
+                        not step
+                        or set(step.allowed_roles or []) != expected_roles
+                        or step.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"{code}/{step_code}: نقش‌های مرحله باید دقیقاً با ماتریس مصوب منطبق باشند و مجوز سمت‌محور نداشته باشند."
+                        )
+                if not initial_steps or initial_steps[0].code != ServiceRequest.Status.SUBMITTED:
+                    errors.append(
+                        f"{code}: مرحله آغازین درخواست عمومی باید submitted باشد."
+                    )
 
             if code == "management_report_approval":
                 required_steps = {
@@ -303,45 +423,124 @@ class Command(BaseCommand):
                     errors.append("claim_review: ارجاع تصمیم نهایی باید به رئیس اداره/مدیر سامانه باشد.")
 
             if code == "claim_objection":
+                expected_steps = {
+                    ClaimObjection.Status.IN_REVIEW: {specialist_role},
+                    ClaimObjection.Status.ANSWERED: global_roles,
+                }
+                for step_code, expected_roles in expected_steps.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if (
+                        not step
+                        or set(step.allowed_roles or []) != expected_roles
+                        or step.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"claim_objection/{step_code}: نقش‌های مرحله باید دقیقاً با ماتریس مصوب منطبق باشند و مجوز سمت‌محور نداشته باشند."
+                        )
+
                 if not initial_steps or initial_steps[0].code != ClaimObjection.Status.IN_REVIEW:
                     errors.append("claim_objection: مرحله آغازین باید in_review باشد.")
-                answer = next((item for item in transitions if item.action_code == "answer"), None)
-                close = next((item for item in transitions if item.action_code == "close_objection"), None)
-                answer_roles = set(answer.allowed_roles or []) if answer else set()
-                answer_recipients = set(answer.recipient_roles or []) if answer else set()
-                if (
-                    not answer
-                    or specialist_role not in answer_roles
-                    or not answer_roles.issubset({specialist_role})
-                ):
-                    errors.append(
-                        "claim_objection: ثبت پاسخ فقط باید در اختیار کارشناس بیمه باشد."
+
+                required_routes = {
+                    "answer": (
+                        ClaimObjection.Status.IN_REVIEW,
+                        ClaimObjection.Status.ANSWERED,
+                        {specialist_role},
+                        global_roles,
+                        False,
+                        False,
+                    ),
+                    "reopen_review": (
+                        ClaimObjection.Status.ANSWERED,
+                        ClaimObjection.Status.IN_REVIEW,
+                        global_roles,
+                        {specialist_role},
+                        False,
+                        True,
+                    ),
+                    "close_objection": (
+                        ClaimObjection.Status.ANSWERED,
+                        None,
+                        global_roles,
+                        set(),
+                        True,
+                        False,
+                    ),
+                }
+                transitions_by_action = {}
+                for transition in transitions:
+                    transitions_by_action.setdefault(transition.action_code, []).append(transition)
+
+                for action_code, (
+                    expected_source,
+                    expected_target,
+                    actor_roles,
+                    recipient_roles,
+                    closes_case,
+                    is_return,
+                ) in required_routes.items():
+                    matches = transitions_by_action.get(action_code, [])
+                    if len(matches) != 1:
+                        errors.append(
+                            f"claim_objection: اقدام {action_code} باید دقیقاً یک‌بار تعریف شود."
+                        )
+                        continue
+
+                    transition = matches[0]
+                    if transition.source_step.code != expected_source:
+                        errors.append(
+                            f"claim_objection/{action_code}: مرحله مبدأ باید {expected_source} باشد."
+                        )
+                    actual_target = (
+                        transition.target_step.code if transition.target_step else None
                     )
-                if not answer or not answer_recipients or not answer_recipients.issubset(global_roles):
+                    if actual_target != expected_target or transition.closes_case != closes_case:
+                        errors.append(
+                            f"claim_objection/{action_code}: مرحله مقصد یا قاعده بستن با مسیر مصوب منطبق نیست."
+                        )
+                    if set(transition.allowed_roles or []) != actor_roles:
+                        errors.append(
+                            f"claim_objection/{action_code}: نقش‌های اقدام باید دقیقاً با ماتریس مصوب منطبق باشند."
+                        )
+                    if transition.allowed_position_levels:
+                        errors.append(
+                            f"claim_objection/{action_code}: مجوز سمت‌محور برای اقدام نقش‌محور مجاز نیست."
+                        )
+                    if set(transition.recipient_roles or []) != recipient_roles:
+                        errors.append(
+                            f"claim_objection/{action_code}: نقش‌های گیرنده باید دقیقاً با ماتریس مصوب منطبق باشند."
+                        )
+                    if transition.recipient_position_levels:
+                        errors.append(
+                            f"claim_objection/{action_code}: گیرنده سمت‌محور برای این مسیر نقش‌محور مجاز نیست."
+                        )
+                    if transition.is_return != is_return:
+                        errors.append(
+                            f"claim_objection/{action_code}: نشانگر ارجاع مجدد با قرارداد مسیر منطبق نیست."
+                        )
+
+                    if expected_target is not None:
+                        target_step = transition.target_step
+                        if target_step is None:
+                            errors.append(
+                                f"claim_objection/{action_code}: مرحله مقصد مصوب تعریف نشده است."
+                            )
+                        else:
+                            if set(target_step.allowed_roles or []) != recipient_roles:
+                                errors.append(
+                                    f"claim_objection/{action_code}: نقش‌های مرحله مقصد باید دقیقاً با نقش گیرنده منطبق باشند."
+                                )
+                            if target_step.allowed_position_levels:
+                                errors.append(
+                                    f"claim_objection/{action_code}: مرحله مقصد نباید مجوز سمت‌محور اضافی داشته باشد."
+                                )
+
+                unexpected_actions = set(transitions_by_action) - set(required_routes)
+                if unexpected_actions:
                     errors.append(
-                        "claim_objection: پاسخ کارشناسی باید برای تصمیم رئیس اداره/مدیر سامانه ارجاع شود."
+                        "claim_objection: اقدام‌های خارج از قرارداد گردش‌کار اعتراض مجاز نیستند: "
+                        + ", ".join(sorted(unexpected_actions))
                     )
-                answered_step = next((item for item in steps if item.code == ClaimObjection.Status.ANSWERED), None)
-                if (
-                    not answered_step
-                    or not set(answered_step.allowed_roles or [])
-                    or not set(answered_step.allowed_roles or []).issubset(global_roles)
-                ):
-                    errors.append(
-                        "claim_objection: مرحله پاسخ‌داده‌شده فقط باید در اختیار رئیس اداره/مدیر سامانه باشد."
-                    )
-                reopen = next((item for item in transitions if item.action_code == "reopen_review"), None)
-                if (
-                    not reopen
-                    or not set(reopen.allowed_roles or []).issubset(global_roles)
-                    or not set(reopen.recipient_roles or [])
-                    or not set(reopen.recipient_roles or []).issubset({specialist_role})
-                ):
-                    errors.append(
-                        "claim_objection: ارجاع مجدد باید از رئیس/مدیر به کارشناس بیمه انجام شود."
-                    )
-                if not close or not close.closes_case or not set(close.allowed_roles or []).issubset(global_roles):
-                    errors.append("claim_objection: بستن اعتراض فقط برای رئیس اداره/مدیر سامانه مجاز است.")
 
             if code == "person_change":
                 if not initial_steps or initial_steps[0].code != PersonChangeRequest.Status.COMPANY_REVIEW:
