@@ -310,6 +310,7 @@ class DemoSeedCommandSafetyTests(TestCase):
         from django.core.management import call_command
         from django.core.management.base import CommandError
         from accounts.models import OrganizationalPosition, User
+        from workflow.models import WorkflowDefinition
 
         seed_environment = {"DEMO_SEED_PASSWORD": "unit-test-only-seed-password"}
         with patch.dict("os.environ", seed_environment):
@@ -331,7 +332,7 @@ class DemoSeedCommandSafetyTests(TestCase):
             Person, PersonEmployment, PersonRelationship,
         )
         from workflow.models import (
-            WorkflowCase, WorkflowDefinition, WorkflowSatisfactionSurvey, WorkflowTransition,
+            WorkflowCase, WorkflowSatisfactionSurvey, WorkflowTransition,
         )
 
         self.assertGreaterEqual(CompanyLeadershipPosition.objects.count(), 50)
