@@ -114,7 +114,7 @@ class OrganizationalPosition(models.Model):
     is_active = models.BooleanField("فعال", default=True)
     allow_multiple_holders = models.BooleanField(
         "امکان انتصاب هم‌زمان چند نفر", default=True,
-        help_text="برای همه سطوح به‌جز کارشناس، امکان انتصاب هم‌زمان چند نفر ممنوع است.",
+        help_text="برای سمت‌های رئیس، سرپرست و مسئول، سیستم به‌صورت خودکار انتصاب هم‌زمان چند نفر را ممنوع می‌کند.",
     )
 
     class Meta:
