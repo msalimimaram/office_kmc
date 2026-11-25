@@ -1989,6 +1989,9 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
             order=1,
             allowed_roles=global_roles,
             is_initial=True,
+            sla_minutes=480,
+            sla_confirmed_by=self.head,
+            sla_confirmed_at=timezone.now(),
         )
         approved = WorkflowStep.objects.create(
             definition=definition,
@@ -1996,6 +1999,9 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
             title="تأییدشده",
             order=2,
             allowed_roles=global_roles,
+            sla_minutes=480,
+            sla_confirmed_by=self.head,
+            sla_confirmed_at=timezone.now(),
         )
         rejected = WorkflowStep.objects.create(
             definition=definition,
@@ -2073,6 +2079,53 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
         )
         self.assertEqual(event.actor_id, self.head.pk)
         self.assertEqual(event.after_data["approved_by_id"], self.head.pk)
+
+    def test_publication_requires_head_confirmed_sla_and_head_can_set_it(self):
+        definition = self._draft()
+        step = definition.steps.get(code="pending_approval")
+        step.sla_minutes = 0
+        step.sla_confirmed_by = None
+        step.sla_confirmed_at = None
+        step.save(update_fields=["sla_minutes", "sla_confirmed_by", "sla_confirmed_at"])
+
+        client = Client()
+        client.force_login(self.head)
+        response = client.post(
+            reverse("workflow_definition_approve", args=[definition.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertFalse(definition.is_active)
+
+        response = client.post(
+            reverse("workflow_step_sla_set", args=[definition.pk, step.pk]),
+            {"sla_minutes": "960"},
+        )
+        self.assertEqual(response.status_code, 302)
+        step.refresh_from_db()
+        self.assertEqual(step.sla_minutes, 960)
+        self.assertEqual(step.sla_confirmed_by_id, self.head.pk)
+        self.assertIsNotNone(step.sla_confirmed_at)
+
+        response = client.post(
+            reverse("workflow_definition_approve", args=[definition.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertTrue(definition.is_active)
+
+    def test_system_admin_cannot_set_or_confirm_sla(self):
+        definition = self._draft()
+        step = definition.steps.get(code="pending_approval")
+        client = Client()
+        client.force_login(self.other_admin)
+        response = client.post(
+            reverse("workflow_step_sla_set", args=[definition.pk, step.pk]),
+            {"sla_minutes": "240"},
+        )
+        self.assertEqual(response.status_code, 403)
+        step.refresh_from_db()
+        self.assertEqual(step.sla_confirmed_by_id, self.head.pk)
 
     def test_creator_cannot_approve_own_proposal_even_with_both_assignments(self):
         from datetime import timedelta
