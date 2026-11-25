@@ -12,7 +12,6 @@ from accounts.models import RoleAssignment, User
 from imports.models import ImportBatch
 from organizations.models import Company, Person, PersonEmployment
 from workflow.models import WorkflowDefinition
-from workflow.governance import approve_workflow_definition
 
 
 @override_settings(DEBUG=True, CLAMD_HOST="")
