@@ -388,9 +388,11 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         (unit_hq, "DEMO-HEAD", "رئیس اداره بیمه", OrganizationalPosition.Level.HEAD),
         (unit_health, "DEMO-HEALTH-SUPERVISOR", "سرپرست واحد درمان", OrganizationalPosition.Level.SUPERVISOR),
         (unit_health, "DEMO-HEALTH-EXPERT", "کارشناس درمان", OrganizationalPosition.Level.SPECIALIST),
-        (unit_property, "DEMO-FIRE-RESPONSIBLE", "مسئول واحد اموال و مسئولیت", OrganizationalPosition.Level.RESPONSIBLE),
+        (unit_property, "DEMO-FIRE-RESPONSIBLE", "مسئول رشته آتش‌سوزی", OrganizationalPosition.Level.RESPONSIBLE),
+        (unit_property, "DEMO-LIABILITY-RESPONSIBLE", "مسئول رشته مسئولیت", OrganizationalPosition.Level.RESPONSIBLE),
         (unit_property, "DEMO-FIRE-EXPERT", "کارشناس آتش‌سوزی", OrganizationalPosition.Level.SPECIALIST),
-        (unit_motor, "DEMO-MOTOR-RESPONSIBLE", "مسئول واحد خودرو", OrganizationalPosition.Level.RESPONSIBLE),
+        (unit_motor, "DEMO-THIRD-PARTY-RESPONSIBLE", "مسئول شخص ثالث", OrganizationalPosition.Level.RESPONSIBLE),
+        (unit_motor, "DEMO-BODY-RESPONSIBLE", "مسئول بدنه", OrganizationalPosition.Level.RESPONSIBLE),
     )
     positions = {}
     for unit, code, title, level in position_specs:
@@ -403,10 +405,10 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
         (health_supervisor, unit_health, "DEMO-HEALTH-SUPERVISOR", "health"),
         (specialist, unit_health, "DEMO-HEALTH-EXPERT", "health"),
         (fire_specialist, unit_property, "DEMO-FIRE-RESPONSIBLE", "fire"),
-        (fire_specialist, unit_property, "DEMO-FIRE-RESPONSIBLE", "liability"),
+        (fire_specialist, unit_property, "DEMO-LIABILITY-RESPONSIBLE", "liability"),
         (fire_specialist, unit_property, "DEMO-FIRE-EXPERT", "fire"),
-        (motor_specialist, unit_motor, "DEMO-MOTOR-RESPONSIBLE", "third_party"),
-        (motor_specialist, unit_motor, "DEMO-MOTOR-RESPONSIBLE", "body"),
+        (motor_specialist, unit_motor, "DEMO-THIRD-PARTY-RESPONSIBLE", "third_party"),
+        (motor_specialist, unit_motor, "DEMO-BODY-RESPONSIBLE", "body"),
     )
     for user, unit, code, line_code in position_assignments:
         position = positions[code]
