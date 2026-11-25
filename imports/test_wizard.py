@@ -365,21 +365,14 @@ class SpecialistAssetImportTests(TestCase):
         return data
 
     def test_asset_import_creates_vehicle_and_pending_approval_workflows(self):
-        from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
         from workflow.models import WorkflowCase
+        from workflow.test_support import seed_and_approve_workflows
 
-        WorkflowSeedCommand().handle(
-            created_by=self.workflow_admin.pk,
-            commit_proposals=True,
+        seed_and_approve_workflows(
+            admin=self.workflow_admin,
+            head=self.reviewer,
+            codes=("asset_valuation_approval", "asset_policy_approval"),
         )
-        for code in ("asset_valuation_approval", "asset_policy_approval"):
-            proposal = WorkflowDefinition.objects.get(
-                code=code, is_active=False, approved_by__isnull=True,
-                published_at__isnull=True,
-            )
-            approve_workflow_definition(
-                definition_id=proposal.pk, approver=self.reviewer
-            )
         self.client.force_login(self.specialist)
         response = self.client.post(
             reverse("asset_import"),
