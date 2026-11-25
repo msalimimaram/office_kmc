@@ -11,6 +11,8 @@ from insurance.models import Contract, Insurer, InsuranceLine
 from accounts.models import RoleAssignment, User
 from imports.models import ImportBatch
 from organizations.models import Company, Person, PersonEmployment
+from workflow.models import WorkflowDefinition
+from workflow.governance import approve_workflow_definition
 
 
 @override_settings(DEBUG=True, CLAMD_HOST="")
@@ -368,9 +370,16 @@ class SpecialistAssetImportTests(TestCase):
 
         WorkflowSeedCommand().handle(
             created_by=self.workflow_admin.pk,
-            approved_by=self.reviewer.pk,
-            publish=True,
+            commit_proposals=True,
         )
+        for code in ("asset_valuation_approval", "asset_policy_approval"):
+            proposal = WorkflowDefinition.objects.get(
+                code=code, is_active=False, approved_by__isnull=True,
+                published_at__isnull=True,
+            )
+            approve_workflow_definition(
+                definition_id=proposal.pk, approver=self.reviewer
+            )
         self.client.force_login(self.specialist)
         response = self.client.post(
             reverse("asset_import"),
