@@ -411,16 +411,107 @@ class Command(BaseCommand):
                     errors.append(f"{code}: مختومه‌سازی گزارش فقط برای رئیس اداره/مدیر سامانه مجاز است.")
 
             if code == "claim_review":
+                intake_roles = {specialist_role} | global_roles
+                required_steps = {
+                    Claim.Status.UNDER_REVIEW: intake_roles,
+                    Claim.Status.NEEDS_INFO: intake_roles,
+                    "pending_decision": global_roles,
+                    Claim.Status.APPROVED: global_roles,
+                    Claim.Status.REJECTED: global_roles,
+                }
+                for step_code, expected_roles in required_steps.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if (
+                        not step
+                        or set(step.allowed_roles or []) != expected_roles
+                        or step.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"claim_review/{step_code}: نقش مرحله باید دقیقاً با قرارداد مصوب منطبق باشد."
+                        )
                 if not initial_steps or initial_steps[0].code != Claim.Status.UNDER_REVIEW:
                     errors.append("claim_review: مرحله آغازین باید under_review باشد.")
-                elif not (
-                    specialist_role in (initial_steps[0].allowed_roles or [])
-                    or bool(set(initial_steps[0].allowed_roles or []) & global_roles)
-                ):
-                    errors.append("claim_review: مرحله آغازین باید به کارشناس بیمه یا مرجع سراسری مجاز باشد.")
-                submit = next((item for item in transitions if item.action_code == "submit_for_decision"), None)
-                if not submit or not (global_roles & set(submit.recipient_roles or [])):
-                    errors.append("claim_review: ارجاع تصمیم نهایی باید به رئیس اداره/مدیر سامانه باشد.")
+
+                required_routes = {
+                    "request_information": (
+                        Claim.Status.UNDER_REVIEW, Claim.Status.NEEDS_INFO,
+                        intake_roles, intake_roles, False, False,
+                    ),
+                    "submit_for_decision": (
+                        Claim.Status.UNDER_REVIEW, "pending_decision",
+                        intake_roles, global_roles, False, False,
+                    ),
+                    "resume_review": (
+                        Claim.Status.NEEDS_INFO, Claim.Status.UNDER_REVIEW,
+                        intake_roles, intake_roles, False, True,
+                    ),
+                    "approve": (
+                        "pending_decision", Claim.Status.APPROVED,
+                        global_roles, global_roles, False, False,
+                    ),
+                    "reject": (
+                        "pending_decision", Claim.Status.REJECTED,
+                        global_roles, global_roles, False, False,
+                    ),
+                    "finalize": (
+                        Claim.Status.APPROVED, None,
+                        global_roles, set(), True, False,
+                    ),
+                    "finalize-rejection": (
+                        Claim.Status.REJECTED, None,
+                        global_roles, set(), True, False,
+                    ),
+                }
+                transitions_by_action = {}
+                for transition in transitions:
+                    transitions_by_action.setdefault(transition.action_code, []).append(transition)
+
+                for action_code, expected in required_routes.items():
+                    matches = transitions_by_action.get(action_code, [])
+                    if len(matches) != 1:
+                        errors.append(
+                            f"claim_review/{action_code}: اقدام باید دقیقاً یک‌بار تعریف شود."
+                        )
+                        continue
+                    transition = matches[0]
+                    source, target, actors, recipients, closes, is_return = expected
+                    actual_target = transition.target_step.code if transition.target_step else None
+                    if transition.source_step.code != source or actual_target != target:
+                        errors.append(
+                            f"claim_review/{action_code}: مبدأ یا مقصد با مسیر مصوب منطبق نیست."
+                        )
+                    if (
+                        set(transition.allowed_roles or []) != actors
+                        or transition.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"claim_review/{action_code}: نقش یا مجوز سمت‌محور اقدام غیرمجاز است."
+                        )
+                    if (
+                        set(transition.recipient_roles or []) != recipients
+                        or transition.recipient_position_levels
+                    ):
+                        errors.append(
+                            f"claim_review/{action_code}: نقش یا مجوز سمت‌محور گیرنده غیرمجاز است."
+                        )
+                    if transition.closes_case != closes or transition.is_return != is_return:
+                        errors.append(
+                            f"claim_review/{action_code}: قاعده بستن یا بازگشت با قرارداد مصوب منطبق نیست."
+                        )
+                    if transition.target_step and (
+                        set(transition.target_step.allowed_roles or []) != recipients
+                        or transition.target_step.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"claim_review/{action_code}: مجوزهای مرحله مقصد با گیرنده مصوب منطبق نیست."
+                        )
+
+                unexpected_actions = set(transitions_by_action) - set(required_routes)
+                if unexpected_actions:
+                    errors.append(
+                        "claim_review: اقدام‌های خارج از قرارداد مجاز نیستند: "
+                        + ", ".join(sorted(unexpected_actions))
+                    )
 
             if code == "claim_objection":
                 expected_steps = {
