@@ -815,7 +815,7 @@ class Command(BaseCommand):
                         errors.append(
                             f"person_change/{action_code}: قاعده بستن یا بازگشت با قرارداد مصوب منطبق نیست."
                         )
-                    if transition.target_step:
+                    if transition.target_step and recipients:
                         target_step = transition.target_step
                         if (
                             set(target_step.allowed_roles or []) != recipients
