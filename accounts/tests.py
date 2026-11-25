@@ -1196,6 +1196,8 @@ class InitialSystemAdminDesignationAdminTests(TestCase):
             username="bootstrap-root",
             password="StrongBootstrap!2026",
         )
+        self.technical_admin.must_change_password = False
+        self.technical_admin.save(update_fields=["must_change_password"])
         self.candidate = User.objects.create_user(
             username="1234567890",
             password="StrongCandidate!2026",
@@ -1234,6 +1236,12 @@ class InitialSystemAdminDesignationAdminTests(TestCase):
             list(form.fields["user"].queryset.values_list("pk", flat=True)),
             [self.candidate.pk],
         )
+        from django.test import Client
+        client = Client()
+        client.force_login(self.technical_admin)
+        response = client.get("/admin/accounts/roleassignment/add/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "مدیر سامانه")
 
     def test_superuser_can_designate_one_active_non_superuser_and_is_audited(self):
         from accounts.admin import InitialSystemAdminAssignmentForm
