@@ -115,7 +115,7 @@ class Command(BaseCommand):
             definition.full_clean()
             created.append(f"{code} v{version}")
 
-        if options["commit_proposals"]:
+        if options.get("commit_proposals", False):
             if created:
                 self.stdout.write(self.style.SUCCESS("Draft proposals created: " + ", ".join(created)))
             else:
