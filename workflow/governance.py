@@ -167,6 +167,26 @@ def approve_workflow_definition(*, definition_id, approver, request=None):
             + ", ".join(unreachable)
         )
 
+    # Every operational stage must have a positive SLA explicitly confirmed
+    # by a currently appointed Department Head. Seed values are examples only.
+    unconfirmed_sla = [
+        step.code for step in steps
+        if not step.is_terminal
+        and (
+            step.sla_minutes <= 0
+            or not step.sla_confirmed_by_id
+            or not step.sla_confirmed_at
+            or not has_active_governance_assignment(
+                step.sla_confirmed_by, RoleAssignment.Role.DEPARTMENT_HEAD
+            )
+        )
+    ]
+    if unconfirmed_sla:
+        raise ValidationError(
+            "مهلت مراحل زیر هنوز توسط رئیس اداره بیمه تعیین و تأیید نشده است: "
+            + ", ".join(unconfirmed_sla)
+        )
+
     # Reuse the exact same domain-specific routing audit used for the
     # final catalog gate, scoped to this single draft before activation.
     audit_output = StringIO()
