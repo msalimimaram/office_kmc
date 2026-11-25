@@ -1,3 +1,40 @@
+## 2026-11-25 — وضعیت پس از اجرای کامل و سخت‌گیری ممیزی گردش‌کار
+
+**HEAD فعلی main:** [`4aeb152`](https://github.com/msalimimaram/office_kmc/commit/4aeb152bf62470a47d52dc3bae98ff736d5f6aef)  
+**زنجیره تغییرات این نوبت:** [`2eec75a`](https://github.com/msalimimaram/office_kmc/commit/2eec75a88ad9d7f2e10af1ba68b598b80bc2e9f6)، [`989fbf6`](https://github.com/msalimimaram/office_kmc/commit/989fbf638a4089abb272b7b399e752e97e1967fe)، [`4aeb152`](https://github.com/msalimimaram/office_kmc/commit/4aeb152bf62470a47d52dc3bae98ff736d5f6aef).
+
+### نتیجه آخرین اجرای واقعی تست توسط مالک
+
+- اجرای گزارش‌شده با دستور `git pull --ff-only origin main && python manage.py test --verbosity 2`، شاخه محلی را از `06ad8e6` تا `9c8e738` به‌روزرسانی کرد.
+- نتیجه همان SHA: **۳۹۷ تست اجراشده، یک خطا و بدون شکست assertion گزارش‌شده**؛ زمان ۳۹۰٫۲۳۱ ثانیه.
+- خطا در `core.tests.DemoSeedCommandSafetyTests.test_seed_is_one_shot_and_rerun_fails_without_mutating_existing_data` رخ داد. ایجاد `PositionAssignment` در `demo_seed_support.py:413` به‌علت انتصاب هم‌زمان همان شخص به همان سمت در بازه زمانی هم‌پوشان، توسط `full_clean()` رد شد.
+- این اجرا پیش از commit `2eec75a` بود. آن commit برای رشته‌های آتش‌سوزی/مسئولیت و شخص ثالث/بدنه، سمت‌های سازمانی متمایز تعریف کرد تا یک سمت واحد به چند رشته نسبت داده نشود. این اصلاح **هنوز روی HEAD فعلی runtime-verified نیست**.
+- فراخوانی `seed_demo` در خروجی بالا فقط در دیتابیس موقت تست انجام شده است؛ فرمان روی دیتابیس محلی کاربر به‌صورت دستی اجرا نشده است.
+
+### اصلاح ممیزی امنیتی روی main
+
+- `audit_workflows` اکنون برای ۱۹ فرآیند درخواست عمومی، یکتایی actionهای اجباری، مرحله مبدأ و مقصد دقیق، نقش‌های دقیق اقدام/گیرنده، نقش‌های مرحله مقصد و نبود مجوز سمت‌محور اضافی را بررسی می‌کند؛ action خارج از قرارداد نیز رد می‌شود.
+- مسیرهای اعتراض خسارت `answer`، `reopen_review` و `close_objection` اکنون از نظر مرحله مبدأ/مقصد، نقش‌های دقیق کاربر و گیرنده، مجوزهای سمت‌محور، علامت ارجاع مجدد و بستن نهایی به‌صورت صریح ممیزی می‌شوند.
+- پنج آزمون رگرسیون منفی برای مسیر اشتباه درخواست عمومی، مجوز سمت‌محور اضافی، گیرنده ناقص اعتراض، ارجاع مجدد سمت‌محور و محدودیت نقش بستن اعتراض افزوده شده است.
+- این اصلاحات در commitهای `989fbf6` و `4aeb152` ثبت شده‌اند؛ **هیچ‌کدام هنوز در محیط Django اجرا نشده‌اند**.
+
+### محدودیت اعتبارسنجی و تصمیم انتشار
+
+- در محیط این بازبینی checkout و virtualenv پروژه موجود نبودند و اتصال Git به `github.com` با خطای DNS شکست خورد. بنابراین روی SHA فعلی `4aeb152` هیچ Django test، `manage.py check`، `makemigrations --check` یا `audit_workflows` اجرا نشده است.
+- برای commitهای فعلی status check ثبت نشده است؛ خالی بودن status به معنی PASS نیست.
+- migration، دیتابیس محلی و داده‌های کاربر تغییر نکرده‌اند. هیچ شاخه، PR یا GitHub Actions ساخته نشده است.
+- فرمان `seed_demo` همچنان one-shot است و بازطراحی idempotent آن آغاز نشده؛ تا سبز شدن تست‌ها و تکمیل بازبینی امنیتی نباید اجرا شود.
+- **تصمیم: Production NO-GO.** رفع خطای seed و سخت‌گیری ممیزی در کد ثبت شده‌اند، اما هنوز نتیجه اجرای تست روی HEAD فعلی، پذیرش عملیاتی، PostgreSQL staging، آزمون واقعی ClamAV، backup/restore و آزمون امنیتی IDOR در دست نیست.
+
+### گام بعدی لازم
+
+1. دریافت `main` تا SHA `4aeb152` با `git pull --ff-only origin main`.
+2. اجرای متمرکز `python manage.py test workflow.tests.OperationalWorkflowSeedCommandTests workflow.tests.WorkflowDefinitionPublicationGovernanceTests core.tests.DemoSeedCommandSafetyTests --verbosity 2` برای تأیید اصلاح seed و دروازه ممیزی.
+3. در صورت PASS، اجرای `python manage.py test --verbosity 2`، سپس `python manage.py check` و `python manage.py makemigrations --check --dry-run`. خروجی‌ها باید به همین SHA منتسب شوند.
+4. پس از سبز شدن پایدار تست‌ها، بازبینی باقی‌مانده دسترسی/IDOR و SLA، سپس طراحی seed مصنوعی idempotent و غیرمخرب در DEBUG؛ تا آن زمان seed موجود اجرا یا بازنویسی نشود.
+
+---
+
 ## 2026-11-24 — اصلاح حاکمیت انتشار گردش‌کار (در حال اعتبارسنجی)
 
 - سیاست انتشار در مدل و فرمان provisioning سخت‌گیرانه شد: ایجادکننده باید انتصاب فعال مدیر سامانه داشته باشد؛ تأییدکننده باید شخصی مستقل با انتصاب فعال رئیس اداره بیمه باشد. مدیر سامانه نمی‌تواند به‌جای رئیس اداره نسخه را تصویب کند.
