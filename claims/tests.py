@@ -313,6 +313,13 @@ class ClaimObjectionReviewFlowTests(TestCase):
             username="objection-head", password="StrongPass!2026", must_change_password=False,
             role="department_head",
         )
+        RoleAssignment.objects.create(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+            valid_from=today,
+            is_active=True,
+            reason="رئیس اداره معتبر برای آزمون انتشار گردش اعتراض",
+        )
         self.workflow_admin = User.objects.create_user(
             username="objection-workflow-admin",
             password="StrongPass!2026",
