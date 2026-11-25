@@ -7,6 +7,7 @@ from django.utils import timezone
 from accounts.models import User
 from organizations.models import Company, Person, PersonEmployment
 from claims.models import Claim, ClaimObjection
+from workflow.test_support import seed_and_approve_workflows
 
 NATIONAL_ID_A = "1" * 10
 NATIONAL_ID_B = "2" * 10
@@ -180,7 +181,7 @@ class ClaimVisibilityTests(TestCase):
             line_code="health",
             reason="دریافت گردش اعتراض در آزمون",
         )
-        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.admin.pk, publish=True)
+        seed_and_approve_workflows(admin=self.workflow_admin, head=self.admin, codes=("claim_objection",))
 
         client = Client()
         client.force_login(self.admin)
@@ -343,7 +344,7 @@ class ClaimObjectionReviewFlowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             defaults={"reason": "راه‌اندازی گردش اعتراض در آزمون"},
         )
-        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
+        seed_and_approve_workflows(admin=self.workflow_admin, head=self.head, codes=("claim_objection",))
         return start_workflow(
             obj=self.objection,
             code="claim_objection",
@@ -590,7 +591,7 @@ class ManualClaimWorkflowTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             reason="مدیر سامانه پیشنهاددهنده گردش خسارت دستی",
         )
-        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
+        seed_and_approve_workflows(admin=self.workflow_admin, head=self.head, codes=("claim_review",))
 
     def test_manual_claim_assessment_head_decision_and_result_dispatch(self):
         from datetime import timedelta
