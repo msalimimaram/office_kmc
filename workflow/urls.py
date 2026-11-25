@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("governance/", views.workflow_governance, name="workflow_governance"),
+    path("governance/<int:definition_pk>/steps/<int:step_pk>/sla/", views.workflow_step_sla_set, name="workflow_step_sla_set"),
     path("governance/<int:pk>/approve/", views.workflow_definition_approve, name="workflow_definition_approve"),
     path("", views.workflow_case_list, name="workflow_case_list"),
     path("<int:pk>/", views.workflow_case_detail, name="workflow_case_detail"),
