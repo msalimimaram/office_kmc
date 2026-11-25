@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django import forms
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
+from django.utils import timezone
 
 from auditlog.services import record_event
 from .access import has_role
@@ -153,6 +156,23 @@ def _position_snapshot(obj):
     }
 
 
+def initial_system_admin_bootstrap_available():
+    """The technical bootstrap account may designate exactly the first operational admin."""
+    return not RoleAssignment.objects.filter(
+        role=RoleAssignment.Role.SYSTEM_ADMIN
+    ).exists()
+
+
+def is_initial_system_admin_bootstrap_user(user):
+    return bool(
+        user
+        and user.is_authenticated
+        and user.is_active
+        and user.is_superuser
+        and initial_system_admin_bootstrap_available()
+    )
+
+
 def is_system_admin(request):
     return bool(
         request.user
@@ -206,7 +226,9 @@ class CustomUserAdmin(UserAdmin):
         return is_system_admin(request)
 
     def has_view_permission(self, request, obj=None):
-        return is_system_admin(request)
+        return is_system_admin(request) or (
+            obj is None and is_initial_system_admin_bootstrap_user(request.user)
+        )
 
     def has_add_permission(self, request):
         # Human accounts originate from the approved insured-person roster.
@@ -220,6 +242,47 @@ class CustomUserAdmin(UserAdmin):
         return False
 
 
+class InitialSystemAdminAssignmentForm(forms.ModelForm):
+    """Narrow, one-time form shown only to the technical bootstrap superuser."""
+
+    class Meta:
+        model = RoleAssignment
+        fields = ("user", "role", "valid_from", "valid_until", "is_active", "reason")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["role"].choices = (
+            (RoleAssignment.Role.SYSTEM_ADMIN, RoleAssignment.Role.SYSTEM_ADMIN.label),
+        )
+        self.fields["user"].queryset = User.objects.filter(
+            is_active=True, is_superuser=False
+        ).order_by("last_name", "first_name", "username")
+        self.fields["is_active"].initial = True
+        self.fields["reason"].help_text = (
+            "دلیل انتخاب مدیر سامانه و مرجع/مجوز سازمانی انتصاب را ثبت کنید."
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        user = cleaned.get("user")
+        today = timezone.localdate()
+        if cleaned.get("role") != RoleAssignment.Role.SYSTEM_ADMIN:
+            self.add_error("role", "در مرحله راه‌اندازی فقط انتخاب مدیر سامانه مجاز است.")
+        if user and (not user.is_active or user.is_superuser):
+            self.add_error("user", "مدیر سامانه باید یک حساب عملیاتی فعال و غیرسوپریوزر باشد.")
+        if not cleaned.get("is_active"):
+            self.add_error("is_active", "انتصاب اولیه مدیر سامانه باید در زمان ثبت فعال باشد.")
+        if cleaned.get("valid_from") and cleaned["valid_from"] > today:
+            self.add_error("valid_from", "برای جلوگیری از قفل‌شدن راه‌اندازی، انتصاب اولیه باید از امروز یا قبل معتبر باشد.")
+        if cleaned.get("valid_until") and cleaned["valid_until"] < today:
+            self.add_error("valid_until", "انتصاب اولیه نمی‌تواند در زمان ثبت منقضی باشد.")
+        if RoleAssignment.objects.filter(role=RoleAssignment.Role.SYSTEM_ADMIN).exists():
+            raise forms.ValidationError(
+                "برای مدیر سامانه قبلاً سابقه انتصاب ثبت شده است؛ راه‌اندازی اولیه دیگر در دسترس نیست."
+            )
+        return cleaned
+
+
 @admin.register(RoleAssignment)
 class RoleAssignmentAdmin(admin.ModelAdmin):
     list_display = ("user", "role", "company", "insurer", "line_code", "valid_from", "valid_until", "is_active")
@@ -228,14 +291,35 @@ class RoleAssignmentAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at", "granted_by")
     autocomplete_fields = ("user", "company", "insurer", "organizational_unit", "position", "approved_by")
 
+    bootstrap_fields = ("user", "role", "valid_from", "valid_until", "is_active", "reason")
+
+    def _bootstrap_request(self, request):
+        return is_initial_system_admin_bootstrap_user(request.user)
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.none() if self._bootstrap_request(request) else queryset
+
+    def get_fields(self, request, obj=None):
+        if obj is None and self._bootstrap_request(request):
+            return self.bootstrap_fields
+        return super().get_fields(request, obj)
+
+    def get_form(self, request, obj=None, **kwargs):
+        if obj is None and self._bootstrap_request(request):
+            kwargs["form"] = InitialSystemAdminAssignmentForm
+        return super().get_form(request, obj, **kwargs)
+
     def has_module_permission(self, request):
-        return is_system_admin(request)
+        return is_system_admin(request) or self._bootstrap_request(request)
 
     def has_view_permission(self, request, obj=None):
-        return is_system_admin(request)
+        if is_system_admin(request):
+            return True
+        return obj is None and self._bootstrap_request(request)
 
     def has_add_permission(self, request):
-        return is_system_admin(request)
+        return is_system_admin(request) or self._bootstrap_request(request)
 
     def has_change_permission(self, request, obj=None):
         return is_system_admin(request)
@@ -244,6 +328,54 @@ class RoleAssignmentAdmin(admin.ModelAdmin):
         return False
 
     def save_model(self, request, obj, form, change):
+        if self._bootstrap_request(request):
+            if change or obj.pk:
+                raise PermissionDenied("حساب راه‌انداز فقط مجاز به تعیین نخستین مدیر سامانه است.")
+            from workflow.models import BusinessCalendar
+
+            with transaction.atomic():
+                # Serialize concurrent first-designation attempts against the
+                # migrated singleton calendar row, then re-check the one-time gate.
+                BusinessCalendar.objects.select_for_update().get(code="iran-default")
+                if RoleAssignment.objects.filter(
+                    role=RoleAssignment.Role.SYSTEM_ADMIN
+                ).exists():
+                    raise ValidationError(
+                        "سابقه مدیر سامانه وجود دارد؛ انتخاب اولیه فقط یک‌بار مجاز است."
+                    )
+                if (
+                    obj.role != RoleAssignment.Role.SYSTEM_ADMIN
+                    or not obj.user_id
+                    or not obj.user.is_active
+                    or obj.user.is_superuser
+                    or not obj.is_active
+                    or obj.valid_from > timezone.localdate()
+                    or (obj.valid_until and obj.valid_until < timezone.localdate())
+                ):
+                    raise ValidationError("اطلاعات انتصاب نخستین مدیر سامانه معتبر نیست.")
+                obj.company = None
+                obj.insurer = None
+                obj.organizational_unit = None
+                obj.position = None
+                obj.line_code = ""
+                obj.granted_by = request.user
+                obj.approved_by = None
+                super().save_model(request, obj, form, change)
+                record_event(
+                    actor=request.user,
+                    action="accounts.initial_system_admin_designated",
+                    obj=obj,
+                    summary="انتخاب نخستین مدیر سامانه توسط سوپریوزر راه‌انداز",
+                    after_data={
+                        **_role_assignment_snapshot(obj),
+                        "bootstrap_actor_is_superuser": True,
+                    },
+                    request=request,
+                )
+            return
+
+        if not is_system_admin(request):
+            raise PermissionDenied("مدیریت انتصاب‌ها فقط برای مدیر سامانه مجاز است.")
         before = _role_assignment_snapshot(RoleAssignment.objects.get(pk=obj.pk)) if change else {}
         if not change and not obj.granted_by_id:
             obj.granted_by = request.user
