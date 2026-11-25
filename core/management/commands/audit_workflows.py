@@ -13,7 +13,7 @@ from reports.models import Report
 
 
 class Command(BaseCommand):
-    help = "ممیزی کامل پوشش، نقش‌ها و مسیرهای بستن گردش‌کار پیش از انتشار."
+    help = "ممیزی کاتالوگ فعال یا ممیزی دامنه‌ای یک پیش‌نویس پیش از تأیید رئیس اداره بیمه."
 
     DOMAIN_CODES = {
         "claim_review",

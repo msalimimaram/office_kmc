@@ -1846,6 +1846,9 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         for item in proposals:
             self.assertEqual(item.steps.filter(is_initial=True).count(), 1)
             self.assertTrue(item.transitions.exists())
+            # Apply the production domain-specific audit to every proposal
+            # before any Department Head is allowed to publish it.
+            call_command("audit_workflows", definition_id=item.pk)
 
     def test_proposal_generation_is_idempotent(self):
         from django.core.management import call_command
