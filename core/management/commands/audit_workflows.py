@@ -104,8 +104,15 @@ class Command(BaseCommand):
 
             valid_statuses, decision_steps = self._domain_contract(code)
             for step in steps:
-                if not step.is_terminal and step.sla_minutes <= 0:
-                    warnings.append(f"{code}/{step.code}: مهلت SLA هنوز تعیین نشده است.")
+                if not step.is_terminal and (
+                    step.sla_minutes <= 0
+                    or not step.sla_confirmed_by_id
+                    or not step.sla_confirmed_at
+                ):
+                    warnings.append(
+                        f"{code}/{step.code}: مهلت نمونه {step.sla_minutes} دقیقه است؛ "
+                        "تعیین و تأیید رئیس اداره بیمه الزامی است."
+                    )
                 if step.is_terminal and step.outgoing_transitions.exists():
                     errors.append(f"{code}/{step.code}: مرحله پایانی نباید مسیر خروجی داشته باشد.")
                 if step.code not in valid_statuses:
