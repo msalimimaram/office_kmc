@@ -457,6 +457,13 @@ class Command(BaseCommand):
                             f"{code}/{action_code}: تعداد مسیرها با قرارداد مصوب منطبق نیست."
                         )
                         continue
+                    if action_code == "return_to_creator":
+                        matches = sorted(
+                            matches,
+                            key=lambda item: (
+                                0 if item.source_step.code == "supervisor_review" else 1
+                            ),
+                        )
                     for transition, expected in zip(matches, expected_routes):
                         (
                             source, target, actors, actor_levels, recipients,
