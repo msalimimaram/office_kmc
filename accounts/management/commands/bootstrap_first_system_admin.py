@@ -11,13 +11,17 @@ import re
 from datetime import time
 
 from django.apps import apps
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from accounts.models import PositionAssignment, RoleAssignment, User
+from accounts.models import (
+    OrganizationalPosition,
+    OrganizationalUnit,
+    PositionAssignment,
+    RoleAssignment,
+    User,
+)
 from auditlog.services import record_event
 from workflow.models import BusinessCalendar
 
@@ -65,7 +69,40 @@ class Command(BaseCommand):
                     "Bootstrap refused: the database is not the expected pristine baseline."
                 )
 
+            # Migration 0007 creates a fixed, empty department/position catalog.
+            # Permit only that exact baseline while rejecting any other organizational data.
+            try:
+                baseline_unit = OrganizationalUnit.objects.get(
+                    code="insurance-department",
+                    company__isnull=True,
+                    is_active=True,
+                )
+            except OrganizationalUnit.DoesNotExist as exc:
+                raise CommandError(
+                    "Bootstrap refused: the baseline insurance-department unit is missing."
+                ) from exc
+
+            line_codes = ("health", "life", "liability", "fire", "third_party", "body")
+            expected_position_codes = {"department-head"}
+            for line_code in line_codes:
+                expected_position_codes.update({
+                    f"{line_code}-head",
+                    f"{line_code}-supervisor",
+                    f"{line_code}-responsible",
+                    f"{line_code}-specialist",
+                })
+            baseline_positions = OrganizationalPosition.objects.filter(unit=baseline_unit)
+            if (
+                set(baseline_positions.values_list("code", flat=True)) != expected_position_codes
+                or OrganizationalUnit.objects.exclude(pk=baseline_unit.pk).exists()
+                or OrganizationalPosition.objects.exclude(unit=baseline_unit).exists()
+            ):
+                raise CommandError(
+                    "Bootstrap refused: organizational data differs from the empty baseline catalog."
+                )
+
             framework_apps = {"admin", "auth", "contenttypes", "sessions"}
+            baseline_models = {OrganizationalUnit, OrganizationalPosition}
             for model in apps.get_models(include_auto_created=False):
                 if (
                     not model._meta.managed
@@ -73,6 +110,7 @@ class Command(BaseCommand):
                     or model._meta.swapped
                     or model._meta.app_label in framework_apps
                     or model is BusinessCalendar
+                    or model in baseline_models
                 ):
                     continue
                 if model._default_manager.exists():
@@ -92,23 +130,21 @@ class Command(BaseCommand):
             if input(f'Type "{self.CONFIRMATION}" to continue: ').strip() != self.CONFIRMATION:
                 raise CommandError("Bootstrap confirmation did not match; no account was created.")
 
-            username = input("National ID / username (10 digits): ").strip()
+            from organizations.models import normalize_national_id
+            from accounts.provisioning import normalize_mobile
+
+            username = normalize_national_id(input("National ID / username (10 digits): "))
             if not re.fullmatch(r"\d{10}", username):
                 raise CommandError("National ID / username must contain exactly 10 digits.")
 
             first_name = input("First name: ").strip()
             last_name = input("Last name: ").strip()
-            mobile = input("Mobile number (09xxxxxxxxx): ").strip()
+            mobile = normalize_mobile(input("Mobile number (09xxxxxxxxx): "))
             if not first_name or not last_name:
                 raise CommandError("First name and last name are required.")
             if not re.fullmatch(r"09\d{9}", mobile):
                 raise CommandError("Mobile number must use the 11-digit 09xxxxxxxxx format.")
 
-            password = getpass.getpass("Initial password (input hidden): ")
-            password_confirmation = getpass.getpass("Repeat initial password: ")
-            if not password or password != password_confirmation:
-                raise CommandError("Passwords are empty or do not match.")
-            
             candidate = User(
                 username=username,
                 first_name=first_name,
@@ -120,14 +156,9 @@ class Command(BaseCommand):
                 is_superuser=False,
                 must_change_password=True,
             )
-            try:
-                validate_password(password, user=candidate)
-            except ValidationError as exc:
-                raise CommandError(
-                    "Initial password does not meet the configured password policy: "
-                    + "; ".join(exc.messages)
-                ) from exc
-            candidate.set_password(password)
+            # The person's verified mobile is the agreed initial credential.
+            # It is stored only as a Django password hash and must be changed at first login.
+            candidate.set_password(mobile)
             candidate.save()
 
             assignment = RoleAssignment(

@@ -112,6 +112,10 @@ class OrganizationalPosition(models.Model):
     title = models.CharField("عنوان سمت", max_length=120)
     level = models.PositiveSmallIntegerField("سطح سلسله‌مراتب", choices=Level.choices)
     is_active = models.BooleanField("فعال", default=True)
+    allow_multiple_holders = models.BooleanField(
+        "امکان انتصاب هم‌زمان چند نفر", default=True,
+        help_text="برای همه سطوح به‌جز کارشناس، امکان انتصاب هم‌زمان چند نفر ممنوع است.",
+    )
 
     class Meta:
         ordering = ("level", "title")
@@ -120,6 +124,15 @@ class OrganizationalPosition(models.Model):
         ]
         verbose_name = "سمت سازمانی اداره"
         verbose_name_plural = "سمت‌های سازمانی اداره"
+
+    def clean(self):
+        super().clean()
+        if self.level != self.Level.SPECIALIST:
+            self.allow_multiple_holders = False
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} — {self.unit.name}"
@@ -230,6 +243,60 @@ class RoleAssignment(models.Model):
         errors = {}
         if self.valid_until and self.valid_until < self.valid_from:
             errors["valid_until"] = "پایان اعتبار نمی‌تواند قبل از شروع اعتبار باشد."
+        if self.role == self.Role.DEPARTMENT_HEAD and self.is_active and self.valid_from:
+            overlapping_heads = type(self)._base_manager.filter(
+                role=self.Role.DEPARTMENT_HEAD,
+                is_active=True,
+                valid_from__lte=self.valid_until or date.max,
+            ).filter(
+                models.Q(valid_until__isnull=True)
+                | models.Q(valid_until__gte=self.valid_from)
+            ).exclude(pk=self.pk)
+            if overlapping_heads.exists():
+                errors["role"] = "سمت رئیس اداره بیمه فقط یک متصدی هم‌زمان می‌تواند داشته باشد."
+        if self.role == self.Role.DEPARTMENT_HEAD and self.line_code:
+            errors["line_code"] = "نقش رئیس اداره بیمه دارای دسترسی سراسری است و نباید کد رشته داشته باشد."
+        if self.role in {self.Role.SYSTEM_ADMIN, self.Role.DEPARTMENT_HEAD}:
+            if self.company_id or self.insurer_id:
+                errors["role"] = "نقش‌های سراسری مدیر سامانه و رئیس اداره نباید به شرکت یا بیمه‌گر محدود شوند."
+            if self.role == self.Role.DEPARTMENT_HEAD and self.organizational_unit_id:
+                if self.organizational_unit.code != "insurance-department":
+                    errors["organizational_unit"] = "رئیس اداره بیمه فقط به واحد مرکزی اداره بیمه متصل می‌شود."
+        if self.position_id:
+            position = self.position
+            if self.role == self.Role.DEPARTMENT_HEAD and position.code != "department-head":
+                errors["position"] = "نقش رئیس اداره بیمه فقط به سمت رئیس کل اداره متصل می‌شود."
+            elif position.code == "department-head" and self.role != self.Role.DEPARTMENT_HEAD:
+                errors["role"] = "سمت رئیس اداره بیمه فقط دسترسی رئیس اداره بیمه می‌گیرد."
+            expected_line = position.code.split("-", 1)[0]
+            line_codes = {"health", "life", "liability", "fire", "third_party", "body"}
+            if position.code == "department-head":
+                if self.line_code:
+                    errors["line_code"] = "رئیس کل اداره بیمه نباید به یک رشته خاص محدود شود."
+            elif expected_line in line_codes and self.line_code != expected_line:
+                errors["line_code"] = "رشته دسترسی با رشته تعریف‌شده برای این سمت یکسان نیست."
+            if self.organizational_unit_id and position.unit_id != self.organizational_unit_id:
+                errors["organizational_unit"] = "واحد سازمانی دسترسی با واحد تعریف‌شده برای سمت یکسان نیست."
+            if self.is_active and not position.allow_multiple_holders and self.valid_from:
+                overlapping_post_access = type(self)._base_manager.filter(
+                    position_id=self.position_id,
+                    is_active=True,
+                    valid_from__lte=self.valid_until or date.max,
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=self.valid_from)
+                ).exclude(pk=self.pk)
+                if overlapping_post_access.exists():
+                    errors["position"] = "این سمت تک‌متصدی است و در بازه انتخاب‌شده قبلاً به شخص دیگری واگذار شده است."
+                if PositionAssignment._base_manager.filter(
+                    position_id=self.position_id,
+                    is_active=True,
+                    valid_from__lte=self.valid_until or date.max,
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=self.valid_from)
+                ).exclude(user_id=self.user_id).exists():
+                    errors["position"] = "این سمت در بازه انتخاب‌شده از طریق انتصاب سازمانی به شخص دیگری واگذار شده است."
         if self.role == self.Role.SUBSIDIARY_REP:
             if not self.company_id:
                 errors["company"] = "نماینده شرکت باید به یک شرکت مشخص متصل باشد."
@@ -421,6 +488,22 @@ class RoleAssignment(models.Model):
 
     def save(self, *args, **kwargs):
         with transaction.atomic():
+            if self.role == self.Role.DEPARTMENT_HEAD:
+                OrganizationalUnit.objects.select_for_update().filter(
+                    code="insurance-department"
+                ).only("pk").first()
+            else:
+                lock_unit_id = self.organizational_unit_id
+                if not lock_unit_id and self.position_id:
+                    lock_unit_id = self.position.unit_id
+                if lock_unit_id:
+                    OrganizationalUnit.objects.select_for_update().filter(
+                        pk=lock_unit_id
+                    ).only("pk").first()
+            if self.position_id:
+                OrganizationalPosition.objects.select_for_update().filter(
+                    pk=self.position_id
+                ).only("pk").first()
             if self.role == self.Role.SUBSIDIARY_REP:
                 User.objects.select_for_update().filter(pk=self.user_id).only("pk").first()
                 if self.company_id:
@@ -498,14 +581,54 @@ class PositionAssignment(models.Model):
 
     def clean(self):
         super().clean()
+        errors = {}
         if self.valid_until and self.valid_until < self.valid_from:
-            raise ValidationError({"valid_until": "پایان اعتبار نمی‌تواند قبل از شروع باشد."})
+            errors["valid_until"] = "پایان اعتبار نمی‌تواند قبل از شروع باشد."
         if self.position_id and self.unit_id and self.position.unit_id != self.unit_id:
-            raise ValidationError({"position": "سمت انتخاب‌شده متعلق به واحد سازمانی دیگری است."})
+            errors["position"] = "سمت انتخاب‌شده متعلق به واحد سازمانی دیگری است."
         if self.is_active and self.unit_id and not self.unit.is_active:
-            raise ValidationError({"unit": "انتصاب فعال به واحد سازمانی غیرفعال مجاز نیست."})
+            errors["unit"] = "انتصاب فعال به واحد سازمانی غیرفعال مجاز نیست."
         if self.is_active and self.position_id and not self.position.is_active:
-            raise ValidationError({"position": "انتصاب فعال به سمت غیرفعال مجاز نیست."})
+            errors["position"] = "انتصاب فعال به سمت غیرفعال مجاز نیست."
+        if self.position_id:
+            position = self.position
+            expected_line = position.code.split("-", 1)[0]
+            line_codes = {"health", "life", "liability", "fire", "third_party", "body"}
+            if position.code == "department-head":
+                if self.line_code:
+                    errors["line_code"] = "رئیس کل اداره بیمه نباید به یک رشته خاص محدود شود."
+            elif expected_line in line_codes and self.line_code != expected_line:
+                errors["line_code"] = "رشته انتصاب با رشته تعریف‌شده برای این سمت یکسان نیست."
+        if self.is_active and self.position_id and self.user_id and self.valid_from:
+            overlapping = type(self)._base_manager.filter(
+                position_id=self.position_id,
+                is_active=True,
+                valid_from__lte=self.valid_until or date.max,
+            ).filter(
+                models.Q(valid_until__isnull=True)
+                | models.Q(valid_until__gte=self.valid_from)
+            ).exclude(pk=self.pk)
+            if overlapping.filter(user_id=self.user_id).exists():
+                errors["position"] = "برای این شخص در بازه انتخاب‌شده، انتصاب فعال به همین سمت از قبل ثبت شده است."
+            elif not self.position.allow_multiple_holders:
+                incumbent = overlapping.select_related("user").first()
+                if incumbent:
+                    incumbent_name = incumbent.user.get_full_name() or incumbent.user.username
+                    errors["position"] = (
+                        f"این سمت تک‌متصدی است و در بازه انتخاب‌شده قبلاً به «{incumbent_name}» واگذار شده است. "
+                        "ابتدا انتصاب قبلی را با ثبت پایان اعتبار خاتمه دهید."
+                    )
+                if RoleAssignment._base_manager.filter(
+                    position_id=self.position_id,
+                    is_active=True,
+                    valid_from__lte=self.valid_until or date.max,
+                ).filter(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=self.valid_from)
+                ).exists():
+                    errors["position"] = "این سمت در بازه انتخاب‌شده از طریق دسترسی سازمانی به شخص دیگری واگذار شده است."
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         with transaction.atomic():

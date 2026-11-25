@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}مدیریت سمت و دسترسی افراد{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">مدیریت هویت و انتصاب سازمانی</p>
+    <h1>تخصیص سمت و دسترسی</h1>
+    <p class="muted">ابتدا شخص باید در فهرست بیمه‌شدگان ثبت شده باشد. جست‌وجو فقط با کد ملی انجام می‌شود و نام کاربری از همان کد ملی ساخته می‌شود.</p>
+  </div>
+</div>
+
+<section class="panel">
+  <h2>۱. جست‌وجوی شخص در فهرست بیمه‌شدگان</h2>
+  <form method="get">
+    <div class="form-row">
+      <label for="national_id">کد ملی شخص</label>
+      <input id="national_id" name="national_id" value="{{ national_id }}" inputmode="numeric" maxlength="10" required>
+    </div>
+    <button class="btn primary" type="submit">جست‌وجو</button>
+  </form>
+  {% if search_error %}<p class="error">{{ search_error }}</p>{% endif %}
+</section>
+
+{% if person %}
+<section class="panel">
+  <h2>۲. اطلاعات شخص انتخاب‌شده</h2>
+  <div class="stats">
+    <article class="stat"><div><span class="muted">نام و نام خانوادگی</span><strong>{{ person.first_name }} {{ person.last_name }}</strong></div></article>
+    <article class="stat"><div><span class="muted">کد ملی / نام کاربری</span><strong>{{ person.national_id }}</strong></div></article>
+    <article class="stat"><div><span class="muted">شرکت</span><strong>{{ person.company.name|default:"از روی سابقه اشتغال" }}</strong></div></article>
+    <article class="stat"><div><span class="muted">وضعیت حساب</span><strong>{% if person.user_id %}حساب متصل است{% else %}حساب هنگام انتصاب ساخته می‌شود{% endif %}</strong></div></article>
+  </div>
+  {% if person.user_id %}
+    <p class="muted">نام کاربری: {{ person.user.username }} · شماره همراه ثبت‌شده: {{ person.mobile|default:"ثبت نشده" }}</p>
+  {% else %}
+    <p class="notice info">با ثبت اولین انتصاب، حساب با نام کاربری کد ملی و رمز اولیه هش‌شده از شماره همراه همین پرونده ایجاد می‌شود. تغییر رمز در اولین ورود اجباری است.</p>
+  {% endif %}
+  {% if not person.is_active or not person.is_insured or person.relationship != "employee" %}
+    <p class="notice warning">این پرونده بیمه‌شده اصلیِ فعال نیست؛ انتصاب سمت داخلی برای آن مجاز نیست.</p>
+  {% else %}
+  <h2>۳. ثبت سمت و دسترسی</h2>
+  <p class="muted">سمت رئیس اداره به‌صورت خودکار دسترسی «رئیس اداره بیمه» می‌گیرد. سایر سمت‌های تخصصی، سرپرستی و مسئولیت به دسترسی کارشناس همان رشته متصل می‌شوند.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="assign">
+    <input type="hidden" name="national_id" value="{{ person.national_id }}">
+    <div class="form-row">
+      <label for="id_position">سمت سازمانی</label>
+      {{ form.position }}
+      {% for error in form.position.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="form-row">
+      <label for="id_line_code">رشته بیمه</label>
+      {{ form.line_code }}
+      {% for error in form.line_code.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="form-row">
+      <label for="id_valid_from">شروع اعتبار</label>
+      {{ form.valid_from }}
+      {% for error in form.valid_from.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="form-row">
+      <label for="id_valid_until">پایان اعتبار (اختیاری)</label>
+      {{ form.valid_until }}
+      {% for error in form.valid_until.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="form-row">
+      <label for="id_reason">دلیل انتصاب</label>
+      {{ form.reason }}
+      {% for error in form.reason.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    {% if form.non_field_errors %}<div class="error-list">{{ form.non_field_errors }}</div>{% endif %}
+    <button class="btn primary" type="submit">ثبت سمت و دسترسی</button>
+  </form>
+  {% endif %}
+</section>
+
+{% if current_assignments %}
+<section class="panel">
+  <h2>سمت‌های فعال فعلی و برنامه‌ریزی‌شده</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>واحد</th><th>سمت</th><th>رشته بیمه</th><th>اعتبار از</th><th>اعتبار تا</th><th>عملیات</th></tr></thead>
+      <tbody>
+      {% for assignment in current_assignments %}
+        <tr>
+          <td>{{ assignment.unit.name }}</td>
+          <td>{{ assignment.position.title }}</td>
+          <td>{{ assignment.line_code|default:"—" }}</td>
+          <td>{{ assignment.valid_from }}</td>
+          <td>{{ assignment.valid_until|default:"بدون پایان" }}</td>
+          <td>
+            <form method="post" action="{% url 'personnel_assignment_end' assignment.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="national_id" value="{{ person.national_id }}">
+              <button class="btn danger" type="submit">پایان انتصاب</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

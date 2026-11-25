@@ -140,16 +140,27 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
 
     additional_users_created = []
 
-    def demo_user(username, role, *, company=None, national_id="", insurer_obj=None):
+    def demo_user(account_key, role, *, company=None, national_id="", insurer_obj=None):
+        demo_identity = {
+            "Saman2": ("9999900008", "09123330002"),
+            "Namayande3": ("9820000003", "09121110003"),
+            "Namayande4": ("9820000004", "09121110004"),
+        }
+        fallback_national_id, mobile = demo_identity[account_key]
+        national_id = national_id or fallback_national_id
+        if not national_id.isdigit() or len(national_id) != 10:
+            raise CommandError(f"Demo identity for {account_key} has an invalid national ID.")
+        login_username = national_id
         defaults = {
             "role": role,
             "company": company,
             "national_id": national_id,
             "insurer": insurer_obj,
+            "mobile": mobile,
             "is_active": True,
-            "must_change_password": False,
+            "must_change_password": True,
         }
-        user = User.objects.filter(username=username).first()
+        user = User.objects.filter(username=login_username).first()
         if user:
             if reused_counts is not None:
                 reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
@@ -158,24 +169,21 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
                     continue
                 if getattr(user, field) != value:
                     raise CommandError(
-                        f"Seed collision in User ({username}): {field} differs; account untouched."
+                        f"Seed collision in User ({login_username}): {field} differs; account untouched."
                     )
             if not user.has_usable_password():
                 raise CommandError(
-                    f"Seed collision in accounts.User ({username}): "
+                    f"Seed collision in accounts.User ({login_username}): "
                     "the existing account has no usable password. "
                     "Existing credentials and account state were not changed."
                 )
             return user
-        demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
-        if not demo_password:
-            raise CommandError("DEMO_SEED_PASSWORD is required for demo accounts.")
-        user = User(username=username, **defaults)
-        user.set_password(demo_password)
+        user = User(username=login_username, **defaults)
+        user.set_password(mobile)
         user.save()
         if created_counts is not None:
             created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
-        additional_users_created.append(username)
+        additional_users_created.append(account_key)
         return user
 
     # Additional company and insurer scopes allow cross-company and cross-insurer tests.
@@ -1132,14 +1140,15 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
 
     # Verify that a namespaced demo fixture exists for every concrete domain model.
     solar_day = correspondence_solar_day
-    demo_usernames = (
-        "Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod",
-        "Namayande1", "Namayande2", "Namayande3", "Namayande4",
-        "employee.a", "employee.b", "Saman", "Saman2",
+    demo_national_ids = (
+        "9999900001", "9999900002", "9999900003", "9999900004",
+        "9999900005", "9999900006", "9999900007", "9999900008",
+        "9820000001", "9820000002", "9820000003", "9820000004",
+        employee_a.national_id, employee_b.national_id,
     )
     service_workflow_codes = [code for code, _label in ServiceRequest.Kind.choices]
     coverage_checks = {
-        "accounts.user": User.objects.filter(username__startswith="Namayande").count() >= 50 and User.objects.filter(username__in=("Admin", "Shahamat", "Salimi", "Amiri", "Delbari", "Mahbod", "Saman")).count() == 7,
+        "accounts.user": User.objects.filter(username__in=demo_national_ids).count() == len(demo_national_ids),
         "accounts.organizationalunit": OrganizationalUnit.objects.filter(code__startswith="DEMO-").exists(),
         "accounts.organizationalposition": OrganizationalPosition.objects.filter(code__startswith="DEMO-").exists(),
         "accounts.roleassignment": RoleAssignment.objects.count() >= 50,

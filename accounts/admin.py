@@ -1,8 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.forms import UserCreationForm
 from django import forms
-import re
 
 from auditlog.services import record_event
 from .access import has_role
@@ -17,25 +15,19 @@ from .models import (
 
 
 
-class SystemAdminUserCreationForm(UserCreationForm):
-    """Create a real person-linked account without exposing Django privileges."""
-
+class SystemAdminUserCreationForm(forms.ModelForm):
+    username = forms.CharField(required=False, widget=forms.HiddenInput())
     first_name = forms.CharField(max_length=150, required=True, label="نام")
     last_name = forms.CharField(max_length=150, required=True, label="نام خانوادگی")
     mobile = forms.CharField(max_length=20, required=True, label="شماره همراه")
     national_id = forms.CharField(max_length=10, required=True, label="کد ملی")
 
-    class Meta(UserCreationForm.Meta):
+    class Meta:
         model = User
         fields = ("username", "first_name", "last_name", "mobile", "national_id")
 
     def clean_username(self):
-        # The parent hook performs its validation but may return None.
-        super().clean_username()
-        username = (self.cleaned_data.get("username") or "").strip()
-        if not re.fullmatch(r"\d{10}", username):
-            raise forms.ValidationError("نام کاربری باید کد ملی ده‌رقمی باشد.")
-        return username
+        return (self.cleaned_data.get("username") or "").strip()
 
     def clean_first_name(self):
         value = self.cleaned_data["first_name"].strip()
@@ -50,31 +42,49 @@ class SystemAdminUserCreationForm(UserCreationForm):
         return value
 
     def clean_national_id(self):
-        national_id = self.cleaned_data["national_id"].strip()
-        if not re.fullmatch(r"\d{10}", national_id):
+        from organizations.models import normalize_national_id
+        national_id = normalize_national_id(self.cleaned_data.get("national_id"))
+        if len(national_id) != 10:
             raise forms.ValidationError("کد ملی باید دقیقاً ده رقم باشد.")
-        if national_id != self.cleaned_data.get("username"):
-            raise forms.ValidationError("کد ملی باید با نام کاربری یکسان باشد.")
-        if User.objects.filter(national_id=national_id).exclude(pk=self.instance.pk).exists():
-            raise forms.ValidationError("این کد ملی قبلاً برای حساب دیگری ثبت شده است.")
+        duplicate_national_id = User.objects.filter(
+            national_id=national_id
+        ).exclude(pk=self.instance.pk).exists()
+        duplicate_username = User.objects.filter(
+            username=national_id
+        ).exclude(pk=self.instance.pk).exists()
+        if duplicate_national_id or duplicate_username:
+            raise forms.ValidationError("این کد ملی یا نام کاربری متناظر با آن قبلاً ثبت شده است.")
         return national_id
 
     def clean_mobile(self):
-        mobile = self.cleaned_data["mobile"].strip()
-        if not re.fullmatch(r"09\d{9}", mobile):
+        from .provisioning import normalize_mobile
+        mobile = normalize_mobile(self.cleaned_data.get("mobile"))
+        if len(mobile) != 11 or not mobile.startswith("09"):
             raise forms.ValidationError("شماره همراه باید با قالب 09xxxxxxxxx وارد شود.")
         return mobile
 
+    def clean(self):
+        cleaned = super().clean()
+        national_id = cleaned.get("national_id")
+        submitted = cleaned.get("username") or ""
+        if national_id:
+            if submitted and submitted != national_id:
+                self.add_error("national_id", "نام کاربری انسانی فقط کد ملی همان شخص است.")
+            cleaned["username"] = national_id
+        return cleaned
+
     def save(self, commit=True):
         user = super().save(commit=False)
+        user.username = self.cleaned_data["national_id"]
+        user.national_id = self.cleaned_data["national_id"]
         user.first_name = self.cleaned_data["first_name"].strip()
         user.last_name = self.cleaned_data["last_name"].strip()
-        user.mobile = self.cleaned_data["mobile"].strip()
-        user.national_id = self.cleaned_data["national_id"].strip()
+        user.mobile = self.cleaned_data["mobile"]
         user.is_active = True
         user.is_staff = False
         user.is_superuser = False
         user.must_change_password = True
+        user.set_password(user.mobile)
         if commit:
             user.save()
             self.save_m2m()
@@ -165,15 +175,12 @@ class CustomUserAdmin(UserAdmin):
     )
     add_fieldsets = ((None, {
         "classes": ("wide",),
-        "fields": (
-            "username", "first_name", "last_name", "national_id", "mobile",
-            "password1", "password2",
-        ),
+        "fields": ("username", "first_name", "last_name", "national_id", "mobile"),
     }),)
     list_display = ("username", "first_name", "last_name", "role", "company", "insurer", "is_active")
     list_filter = ("role", "company", "insurer", "is_active")
     readonly_fields = (
-        "date_joined", "last_login", "role", "mobile", "national_id",
+        "date_joined", "last_login", "username", "role", "mobile", "national_id",
         "company", "insurer", "mfa_enabled",
     )
 
@@ -202,7 +209,9 @@ class CustomUserAdmin(UserAdmin):
         return is_system_admin(request)
 
     def has_add_permission(self, request):
-        return is_system_admin(request)
+        # Human accounts originate from the approved insured-person roster.
+        # This admin is for controlled review/updates of already provisioned accounts.
+        return False
 
     def has_change_permission(self, request, obj=None):
         return is_system_admin(request)
@@ -285,8 +294,8 @@ class OrganizationalUnitAdmin(admin.ModelAdmin):
 
 @admin.register(OrganizationalPosition)
 class OrganizationalPositionAdmin(admin.ModelAdmin):
-    list_display = ("title", "code", "unit", "level", "is_active")
-    list_filter = ("unit", "level", "is_active")
+    list_display = ("title", "code", "unit", "level", "allow_multiple_holders", "is_active")
+    list_filter = ("unit", "level", "allow_multiple_holders", "is_active")
     search_fields = ("title", "code", "unit__name")
 
     def has_module_permission(self, request):

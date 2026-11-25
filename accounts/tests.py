@@ -1178,27 +1178,22 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
         "سامانه",
         "09123456789",
     ]
-    strong_password = "V3ry-Strong-Initial-Admin-Password!"
 
-    def run_bootstrap(self, inputs=None, passwords=None):
-        with (
-            patch("builtins.input", side_effect=inputs or self.command_inputs),
-            patch("getpass.getpass", side_effect=passwords or [
-                self.strong_password,
-                self.strong_password,
-            ]),
-        ):
+    def run_bootstrap(self, inputs=None):
+        with patch("builtins.input", side_effect=inputs or self.command_inputs):
             call_command("bootstrap_first_system_admin", stdout=StringIO())
 
-    def test_bootstrap_creates_least_privilege_first_admin_and_audit_event(self):
+    def test_bootstrap_creates_admin_with_national_id_and_mobile_initial_credential(self):
         self.run_bootstrap()
-
         user = User.objects.get(username="1234567890")
+        self.assertEqual(user.national_id, user.username)
+        self.assertEqual(user.mobile, "09123456789")
         self.assertTrue(user.is_active)
         self.assertTrue(user.is_staff)
         self.assertFalse(user.is_superuser)
         self.assertTrue(user.must_change_password)
-        self.assertTrue(user.check_password(self.strong_password))
+        self.assertTrue(user.check_password("09123456789"))
+        self.assertNotEqual(user.password, "09123456789")
 
         assignment = RoleAssignment.objects.get(user=user)
         self.assertEqual(assignment.role, RoleAssignment.Role.SYSTEM_ADMIN)
@@ -1211,12 +1206,11 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
             object_id=str(user.pk),
         )
         self.assertIsNone(event.actor_id)
-        self.assertEqual(
-            event.after_data["role"],
-            RoleAssignment.Role.SYSTEM_ADMIN,
-        )
+        self.assertEqual(event.after_data["role"], RoleAssignment.Role.SYSTEM_ADMIN)
         self.assertNotIn("password", event.after_data)
         self.assertNotIn("password", event.metadata)
+        self.assertNotIn("09123456789", str(event.after_data))
+        self.assertNotIn("09123456789", str(event.metadata))
 
     def test_bootstrap_refuses_any_existing_account_before_prompting(self):
         User.objects.create_user(
@@ -1231,8 +1225,7 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
         self.assertEqual(User.objects.count(), 1)
 
     def test_bootstrap_confirmation_mismatch_creates_nothing(self):
-        inputs = ["NO"]
-        with patch("builtins.input", side_effect=inputs):
+        with patch("builtins.input", side_effect=["NO"]):
             with self.assertRaises(CommandError):
                 call_command("bootstrap_first_system_admin", stdout=StringIO())
         self.assertFalse(User.objects.exists())
@@ -1279,19 +1272,6 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
         prompt.assert_not_called()
         self.assertFalse(User.objects.exists())
 
-    def test_bootstrap_rejects_password_that_fails_configured_policy(self):
-        with (
-            patch("builtins.input", side_effect=self.command_inputs),
-            patch("getpass.getpass", side_effect=["12345678", "12345678"]),
-        ):
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        self.assertFalse(User.objects.exists())
-        self.assertFalse(RoleAssignment.objects.exists())
-        self.assertFalse(AuditEvent.objects.filter(
-            action="accounts.initial_system_admin_bootstrap"
-        ).exists())
-
     def test_bootstrap_rolls_back_identity_and_assignment_when_audit_fails(self):
         with patch(
             "accounts.management.commands.bootstrap_first_system_admin.record_event",
@@ -1299,23 +1279,6 @@ class InitialSystemAdminBootstrapCommandTests(TestCase):
         ):
             with self.assertRaises(RuntimeError):
                 self.run_bootstrap()
-
-        self.assertFalse(User.objects.exists())
-        self.assertFalse(RoleAssignment.objects.exists())
-        self.assertFalse(AuditEvent.objects.filter(
-            action="accounts.initial_system_admin_bootstrap"
-        ).exists())
-
-    def test_bootstrap_rejects_password_mismatch_without_persisting_identity(self):
-        with (
-            patch("builtins.input", side_effect=self.command_inputs),
-            patch("getpass.getpass", side_effect=[
-                self.strong_password,
-                "Different-Password-2026!",
-            ]),
-        ):
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
         self.assertFalse(User.objects.exists())
         self.assertFalse(RoleAssignment.objects.exists())
         self.assertFalse(AuditEvent.objects.filter(
@@ -1343,6 +1306,8 @@ class SystemAdminUserProvisioningFormTests(TestCase):
         self.assertEqual(user.username, "1234567890")
         self.assertEqual(user.national_id, "1234567890")
         self.assertEqual(user.mobile, "09123456789")
+        self.assertTrue(user.check_password("09123456789"))
+        self.assertFalse(user.check_password("Another-Strong-Password-2026!"))
         self.assertTrue(user.is_active)
         self.assertTrue(user.must_change_password)
         self.assertFalse(user.is_staff)
@@ -1382,13 +1347,15 @@ class SystemAdminUserProvisioningFormTests(TestCase):
 
         User.objects.create_user(
             username="1234567890",
-            password="StrongPass!2026",
+            password="Already-Changed-Test-Password-2026!",
+            national_id="1234567890",
+            mobile="09123456789",
             must_change_password=False,
         )
         base["first_name"] = "کاربر"
         duplicate = SystemAdminUserCreationForm(data=base)
         self.assertFalse(duplicate.is_valid())
-        self.assertIn("username", duplicate.errors)
+        self.assertIn("national_id", duplicate.errors)
 
     def test_admin_add_form_rejects_national_id_already_used_by_legacy_username(self):
         from accounts.admin import SystemAdminUserCreationForm
@@ -1415,8 +1382,10 @@ class SystemAdminUserProvisioningFormTests(TestCase):
         model_admin = admin.site._registry[User]
         request = RequestFactory().get("/admin/accounts/user/add/")
         administrator = User.objects.create_user(
-            username="provisioning-form-admin",
-            password="StrongPass!2026",
+            username="0000000011",
+            password="Already-Changed-Admin-Password-2026!",
+            national_id="0000000011",
+            mobile="09120000011",
             must_change_password=False,
         )
         RoleAssignment.objects.create(
@@ -1428,6 +1397,9 @@ class SystemAdminUserProvisioningFormTests(TestCase):
         request.user = administrator
         form = model_admin.get_form(request)
         self.assertTrue({"username", "first_name", "last_name", "national_id", "mobile"} <= set(form.base_fields))
+        self.assertNotIn("password1", form.base_fields)
+        self.assertNotIn("password2", form.base_fields)
+        self.assertFalse(model_admin.has_add_permission(request))
         self.assertNotIn("is_staff", form.base_fields)
         self.assertNotIn("is_superuser", form.base_fields)
         self.assertNotIn("role", form.base_fields)

@@ -24,6 +24,7 @@ from accounts.access import (
     company_ids_for, has_global_access, has_role, insurer_ids_for, line_codes_for,
 )
 from accounts.models import RoleAssignment
+from accounts.provisioning import normalize_mobile, provision_insured_person_account
 from assets.models import AssetPolicyPeriod, AssetValuation, InsuredAsset, Vehicle
 from auditlog.services import record_event
 from claims.models import Claim
@@ -95,12 +96,10 @@ def _staff(user):
 
 def _profile_allowed(user, code):
     if code == "people_roster":
-        specialist_lines = line_codes_for(user, role=RoleAssignment.Role.INSURANCE_SPECIALIST)
-        return (
-            has_global_access(user)
-            or ("health" in specialist_lines or "*" in specialist_lines)
-            or has_role(user, RoleAssignment.Role.SUBSIDIARY_REP)
-        )
+        # The complete insured roster is a central identity source. Only the
+        # System Admin may upload/replace it; a separate authorized reviewer
+        # approves the previewed batch before accounts are provisioned.
+        return has_role(user, RoleAssignment.Role.SYSTEM_ADMIN)
     if code == "claims":
         return (
             has_global_access(user)
@@ -233,6 +232,11 @@ def _preview_people(user, mapped_rows):
             active_employment = employment_history.filter(status=PersonEmployment.Status.ACTIVE).first()
 
             if action == "add_employee":
+                mobile = normalize_mobile(raw.get("mobile"))
+                if len(mobile) != 11 or not mobile.startswith("09"):
+                    raise ValueError(
+                        f"ردیف {row_number}: برای ایجاد حساب بیمه‌شده، شماره همراه معتبر با قالب 09xxxxxxxxx الزامی است."
+                    )
                 if not _text(raw.get("first_name")) or not _text(raw.get("last_name")):
                     raise ValueError(f"ردیف {row_number}: نام و نام خانوادگی برای افزودن کارمند الزامی است.")
                 birth_date = _parse_date(raw.get("birth_date"), row_number, "birth_date")
@@ -248,6 +252,11 @@ def _preview_people(user, mapped_rows):
                     raise ValueError(f"ردیف {row_number}: انتقال یا استخدام مجدد در شرکت دیگر باید از مسیر رسمی بررسی شود.")
 
             elif action == "add_dependent":
+                mobile = normalize_mobile(raw.get("mobile"))
+                if len(mobile) != 11 or not mobile.startswith("09"):
+                    raise ValueError(
+                        f"ردیف {row_number}: برای ایجاد حساب فرد تحت تکفل، شماره همراه معتبر با قالب 09xxxxxxxxx الزامی است."
+                    )
                 relationship = _text(raw.get("relationship")).lower()
                 allowed_relationships = {
                     Person.Relationship.SPOUSE, Person.Relationship.CHILD,
@@ -305,7 +314,7 @@ def _preview_people(user, mapped_rows):
                 "last_name": _text(raw.get("last_name"))[:100],
                 "birth_date": birth_date.isoformat() if birth_date else None,
                 "personnel_code": _text(raw.get("personnel_code"))[:50],
-                "mobile": _text(raw.get("mobile"))[:20],
+                "mobile": normalize_mobile(raw.get("mobile")),
                 "iban": _text(raw.get("iban")).replace(" ", "").upper()[:34],
                 "relationship": _text(raw.get("relationship")).lower(),
                 "employee_national_id": normalize_national_id(raw.get("employee_national_id")),
@@ -810,10 +819,8 @@ def _process_people_batch(batch, reviewer):
         if not company or company.code != row["company_code"]:
             raise ValidationError("شرکت این ردیف پس از پیش‌نمایش غیرفعال یا تغییر کرده است.")
         uploader = batch.uploaded_by
-        uploader_still_authorized = (
-            has_global_access(uploader)
-            or has_role(uploader, RoleAssignment.Role.INSURANCE_SPECIALIST, line_code="health")
-            or has_role(uploader, RoleAssignment.Role.SUBSIDIARY_REP, company_id=company.pk)
+        uploader_still_authorized = has_role(
+            uploader, RoleAssignment.Role.SYSTEM_ADMIN
         )
         if not uploader_still_authorized:
             raise PermissionDenied("انتصاب بارگذار برای شرکت این ردیف معتبر نیست یا لغو شده است.")
@@ -847,11 +854,20 @@ def _process_people_batch(batch, reviewer):
                 person.is_active = True
                 person.is_insured = True
                 person.save(update_fields=["is_active", "is_insured", "updated_at"])
+            if person.mobile != row["mobile"]:
+                person.mobile = row["mobile"]
+                person.save(update_fields=["mobile", "updated_at"])
             PersonEmployment.objects.create(
                 person=person, company=company, personnel_code=row["personnel_code"],
                 job_title="ثبت گروهی فهرست بیمه‌شدگان", valid_from=today,
                 status=PersonEmployment.Status.ACTIVE, source_reference=batch.batch_number,
                 created_by=batch.uploaded_by, approved_by=reviewer,
+            )
+            provision_insured_person_account(
+                person,
+                company=company,
+                actor=reviewer,
+                source_reference=batch.batch_number,
             )
 
         elif action == "add_dependent":
@@ -873,13 +889,19 @@ def _process_people_batch(batch, reviewer):
                 and not PersonEmployment.objects.filter(person=employee).exists()
             ):
                 raise ValidationError("بیمه‌شده اصلی دیگر در این شرکت اشتغال معتبر ندارد.")
-            Person.objects.create(
+            person = Person.objects.create(
                 company=company, national_id=row["national_id"],
                 first_name=row["first_name"], last_name=row["last_name"],
                 birth_date=date.fromisoformat(row["birth_date"]),
                 relationship=row["relationship"], employee=employee,
                 personnel_code=row["personnel_code"], mobile=row["mobile"], iban=row["iban"],
                 is_insured=True, is_active=True,
+            )
+            provision_insured_person_account(
+                person,
+                company=company,
+                actor=reviewer,
+                source_reference=batch.batch_number,
             )
 
         elif action == "end_employment":
@@ -900,6 +922,45 @@ def _process_people_batch(batch, reviewer):
             ).exists():
                 person.is_insured = False
                 person.save(update_fields=["is_insured", "updated_at"])
+            if person.user_id:
+                base_assignments = RoleAssignment.objects.select_for_update().filter(
+                    user_id=person.user_id,
+                    role=RoleAssignment.Role.INSURED_PERSON,
+                    company=company,
+                    is_active=True,
+                )
+                for assignment in base_assignments:
+                    before = {
+                        "user_id": assignment.user_id,
+                        "company_id": assignment.company_id,
+                        "valid_from": assignment.valid_from.isoformat(),
+                        "valid_until": (
+                            assignment.valid_until.isoformat()
+                            if assignment.valid_until else None
+                        ),
+                        "is_active": assignment.is_active,
+                    }
+                    assignment.is_active = False
+                    if assignment.valid_from <= today and (
+                        assignment.valid_until is None or assignment.valid_until > today
+                    ):
+                        assignment.valid_until = today
+                    assignment.save()
+                    record_event(
+                        actor=reviewer,
+                        action="insured_person_access_ended",
+                        obj=assignment,
+                        summary="پایان دسترسی بیمه‌شده پس از خاتمه اشتغال",
+                        before_data=before,
+                        after_data={
+                            **before,
+                            "valid_until": (
+                                assignment.valid_until.isoformat()
+                                if assignment.valid_until else None
+                            ),
+                            "is_active": False,
+                        },
+                    )
 
 
 def _process_claims_batch(batch, reviewer, request):

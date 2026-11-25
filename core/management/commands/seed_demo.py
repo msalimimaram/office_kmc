@@ -216,10 +216,6 @@ class Command(BaseCommand):
             verify_fields=("company", "personnel_code", "first_name", "last_name", "birth_date", "relationship"),
         )
 
-        import os
-        demo_password = os.environ.get("DEMO_SEED_PASSWORD", "")
-        if not demo_password:
-            raise CommandError("Set DEMO_SEED_PASSWORD in the environment before creating demo accounts.")
         user_specs = (
             ("Admin", User.Role.SYSTEM_ADMIN, None, "", None, "مدیر", "سامانه", "", ("",)),
             ("Shahamat", User.Role.DEPARTMENT_HEAD, None, "", None, "رئیس", "اداره بیمه", "", ("",)),
@@ -233,37 +229,72 @@ class Command(BaseCommand):
             ("employee.b", User.Role.EMPLOYEE, company_b, employee_b.national_id, None, "رضا", "آزمایشی", "09122222222", ("*",)),
             ("Saman", User.Role.INSURER, None, "", insurer, "نماینده", "بیمه‌گر سامان", "09123330001", ("",)),
         )
+        demo_identity = {
+            "Admin": ("9999900001", "09120000009"),
+            "Shahamat": ("9999900002", "09120000008"),
+            "Salimi": ("9999900003", "09120000001"),
+            "Amiri": ("9999900004", "09120000002"),
+            "Delbari": ("9999900005", "09120000003"),
+            "Mahbod": ("9999900006", "09120000004"),
+            "Saman": ("9999900007", "09123330001"),
+        }
         users = {}
         generated_users = []
-        for username, role, company, national_id, insurer_obj, first_name, last_name, mobile, line_codes in user_specs:
+        for account_key, role, company, national_id, insurer_obj, first_name, last_name, mobile, line_codes in user_specs:
+            fallback_national_id, fallback_mobile = demo_identity.get(
+                account_key,
+                (national_id, mobile),
+            )
+            national_id = national_id or fallback_national_id
+            mobile = mobile or fallback_mobile
+            login_username = national_id
+            if not login_username or len(login_username) != 10 or not login_username.isdigit():
+                raise CommandError(f"Demo identity for {account_key} has an invalid national ID.")
+            if not mobile or len(mobile) != 11 or not mobile.startswith("09"):
+                raise CommandError(f"Demo identity for {account_key} has an invalid mobile number.")
             defaults = {
                 "role": role, "company": company, "national_id": national_id,
                 "insurer": insurer_obj, "first_name": first_name, "last_name": last_name,
-                "mobile": mobile, "is_active": True, "is_staff": username == "Admin",
-                "must_change_password": False,
+                "mobile": mobile, "is_active": True, "is_staff": account_key == "Admin",
+                "must_change_password": True,
             }
-            user = User.objects.filter(username=username).first()
+            user = User.objects.filter(username=login_username).first()
             if user is None:
-                user = User(username=username, **defaults)
-                user.set_password(demo_password)
+                user = User(username=login_username, **defaults)
+                user.set_password(mobile)
                 user.save()
                 created_counts[User._meta.label] = created_counts.get(User._meta.label, 0) + 1
-                generated_users.append(username)
+                generated_users.append(account_key)
             else:
-                for field in ("role", "company", "national_id", "insurer", "is_active"):
+                for field in (
+                    "role", "company", "national_id", "insurer", "is_active", "mobile",
+                ):
                     if getattr(user, field) != defaults[field]:
                         raise CommandError(
-                            f"Seed collision in accounts.User (username={username}): "
+                            f"Seed collision in accounts.User (username={login_username}): "
                             f"{field} differs. Existing account and password were not changed."
                         )
                 if not user.has_usable_password():
                     raise CommandError(
-                        f"Seed collision in accounts.User (username={username}): "
+                        f"Seed collision in accounts.User (username={login_username}): "
                         "the existing account has no usable password. "
                         "Existing credentials and account state were not changed."
                     )
                 reused_counts[User._meta.label] = reused_counts.get(User._meta.label, 0) + 1
-            users[username] = user
+            users[account_key] = user
+
+        for person, account_key in (
+            (employee_a, "employee.a"),
+            (employee_b, "employee.b"),
+        ):
+            linked_user = users[account_key]
+            if person.user_id and person.user_id != linked_user.pk:
+                raise CommandError(
+                    f"Demo person {account_key} is already linked to a different account."
+                )
+            if person.user_id != linked_user.pk:
+                person.user = linked_user
+                person.save(update_fields=("user", "updated_at"))
 
         users.update({
             "admin.demo": users["Admin"], "head.demo": users["Shahamat"],
@@ -414,7 +445,9 @@ class Command(BaseCommand):
         new_demo_users = list(generated_users) + list(extended["additional_users_created"])
         self.stdout.write("حساب‌های نمایشی: Admin, Shahamat, Salimi, Amiri, Delbari, Mahbod, "
                          "Namayande1 تا Namayande4، Saman و Saman2")
-        self.stdout.write("رمز مشترک حساب‌های تازه‌ساخته‌شده از DEMO_SEED_PASSWORD خوانده شد.")
+        self.stdout.write(
+            "نام کاربری حساب‌های نمایشی کد ملی نمایشی هر فرد است؛ رمز اولیه از شماره همراه همان حساب ساخته شده و در اولین ورود باید تغییر کند."
+        )
         self.stdout.write("این حساب‌ها فقط برای نمایش و آزمون هستند؛ پیش از استقرار واقعی غیرفعال/بازتنظیم شوند.")
         self.stdout.write("تعداد ایجادشده: " + str(sum(created_counts.values())))
         self.stdout.write("تعداد بازیابی‌شده بدون تغییر: " + str(sum(reused_counts.values())))

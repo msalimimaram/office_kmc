@@ -90,9 +90,13 @@ def active_internal_position_assignments(user, *, on_date: date | None = None):
 
 
 def has_position_level(
-    user, *levels: int, unit_id: int | None = None, on_date: date | None = None
+    user,
+    *levels: int,
+    unit_id: int | None = None,
+    line_code: str | None = None,
+    on_date: date | None = None,
 ) -> bool:
-    """Check a valid organizational position without granting domain roles."""
+    """Check a valid organizational position without granting a global domain role."""
     if not levels:
         return False
     qs = active_internal_position_assignments(user, on_date=on_date).filter(
@@ -101,15 +105,26 @@ def has_position_level(
     )
     if unit_id is not None:
         qs = qs.filter(unit_id=unit_id)
+    if line_code is not None:
+        qs = qs.filter(line_code=line_code)
     return qs.exists()
 
 
-def is_unit_manager(user, *, on_date: date | None = None) -> bool:
-    """Supervisors and responsibles can manage work within their org scope."""
+def is_unit_manager(
+    user,
+    *,
+    unit_id: int | None = None,
+    line_code: str | None = None,
+    on_date: date | None = None,
+) -> bool:
+    """A line head, supervisor or responsible manages only their assigned scope."""
     return has_position_level(
         user,
+        PositionAssignment.position.field.related_model.Level.HEAD,
         PositionAssignment.position.field.related_model.Level.SUPERVISOR,
         PositionAssignment.position.field.related_model.Level.RESPONSIBLE,
+        unit_id=unit_id,
+        line_code=line_code,
         on_date=on_date,
     )
 

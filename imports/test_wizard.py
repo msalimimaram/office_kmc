@@ -19,7 +19,8 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.company_a = Company.objects.create(code="XLS-A", name="شرکت نمونه Excel الف")
         self.company_b = Company.objects.create(code="XLS-B", name="شرکت نمونه Excel ب")
         self.representative = User.objects.create_user(
-            username="excel-company-rep", password="StrongPass!2026",
+            username="0000000014", password="Already-Changed-Rep-Password-2026!",
+            national_id="0000000014", mobile="09120000014",
             must_change_password=False, company=self.company_a
         )
         RoleAssignment.objects.create(
@@ -30,13 +31,27 @@ class FlexiblePeopleRosterImportTests(TestCase):
             reason="نماینده شرکت برای آزمون ورود گروهی",
         )
         self.reviewer = User.objects.create_user(
-            username="excel-reviewer", password="StrongPass!2026",
+            username="0000000013", password="Already-Changed-Head-Password-2026!",
+            national_id="0000000013", mobile="09120000013",
             must_change_password=False
         )
         RoleAssignment.objects.create(
             user=self.reviewer,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تأیید مستقل فایل",
+        )
+
+        self.system_admin = User.objects.create_user(
+            username="0000000012",
+            password="Already-Changed-Admin-Password-2026!",
+            national_id="0000000012",
+            mobile="09120000012",
+            must_change_password=False,
+        )
+        RoleAssignment.objects.create(
+            user=self.system_admin,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            reason="مدیر سامانه مجاز به بارگذاری فهرست بیمه‌شدگان",
         )
 
     def _workbook_upload(self, rows, name="roster.xlsx"):
@@ -112,7 +127,7 @@ class FlexiblePeopleRosterImportTests(TestCase):
 
     def test_custom_column_mapping_supports_d_and_y_and_requires_independent_approval(self):
         client = self.client
-        client.force_login(self.representative)
+        client.force_login(self.system_admin)
         response = client.post(
             reverse("people_import"),
             {"header_row": 1, **self._mapping(), "file": self._workbook_upload([self._row()])},
@@ -137,35 +152,45 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.assertEqual(person.company_id, self.company_a.pk)
         self.assertEqual(person.first_name, "علی")
         self.assertEqual(person.last_name, "نمونه")
+        person_user = User.objects.get(username=person.national_id)
+        self.assertEqual(person_user.national_id, person.national_id)
+        self.assertEqual(person_user.mobile, person.mobile)
+        self.assertTrue(person_user.check_password(person.mobile))
+        self.assertNotEqual(person_user.password, person.mobile)
+        self.assertTrue(person_user.must_change_password)
+        self.assertTrue(RoleAssignment.objects.filter(
+            user=person_user,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company_a,
+            is_active=True,
+        ).exists())
         employment = PersonEmployment.objects.get(person=person, company=self.company_a)
         self.assertEqual(employment.status, PersonEmployment.Status.ACTIVE)
         batch.refresh_from_db()
         self.assertEqual(batch.status, ImportBatch.Status.PROCESSED)
         self.assertEqual(batch.preview_data, [])
 
-    def test_company_representative_cannot_import_people_for_another_company(self):
+    def test_company_representative_cannot_upload_the_central_people_roster(self):
         row = self._row(company_code="XLS-B", national_id="0012345679")
         self.client.force_login(self.representative)
         response = self.client.post(
             reverse("people_import"),
             {"header_row": 1, **self._mapping(), "file": self._workbook_upload([row])},
         )
-        self.assertEqual(response.status_code, 200)
-        batch = ImportBatch.objects.get(source_type="people_roster")
-        self.assertEqual(batch.valid_rows, 0)
-        self.assertEqual(batch.invalid_rows, 1)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(ImportBatch.objects.filter(source_type="people_roster").exists())
         self.assertFalse(Person.objects.filter(national_id="0012345679").exists())
 
     def test_visible_sample_page_shows_accepted_fields_and_rows(self):
-        self.client.force_login(self.representative)
+        self.client.force_login(self.system_admin)
         response = self.client.get(reverse("import_sample", args=["people_roster"]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "کد ملی شخص")
         self.assertContains(response, "0012345690")
         self.assertContains(response, "ستون نمونه")
 
-    def test_template_is_available_to_authorized_company_representative(self):
-        self.client.force_login(self.representative)
+    def test_template_is_available_to_system_admin(self):
+        self.client.force_login(self.system_admin)
         response = self.client.get(reverse("import_template", args=["people_roster"]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -175,13 +200,13 @@ class FlexiblePeopleRosterImportTests(TestCase):
 
     def test_uploader_role_is_rechecked_before_confirmation(self):
         row = self._row(national_id="0012345681")
-        self.client.force_login(self.representative)
+        self.client.force_login(self.system_admin)
         self.client.post(
             reverse("people_import"),
             {"header_row": 1, **self._mapping(), "file": self._workbook_upload([row])},
         )
         batch = ImportBatch.objects.get(source_type="people_roster")
-        assignment = self.representative.role_assignments.get(role=RoleAssignment.Role.SUBSIDIARY_REP)
+        assignment = self.system_admin.role_assignments.get(role=RoleAssignment.Role.SYSTEM_ADMIN)
         assignment.is_active = False
         assignment.save(update_fields=["is_active"])
         self.client.force_login(self.reviewer)
@@ -192,7 +217,7 @@ class FlexiblePeopleRosterImportTests(TestCase):
         self.assertEqual(batch.status, ImportBatch.Status.VALIDATED)
 
     def test_primary_employee_and_dependent_can_be_imported_from_one_workbook(self):
-        self.client.force_login(self.representative)
+        self.client.force_login(self.system_admin)
         response = self.client.post(
             reverse("people_import"),
             {
@@ -216,6 +241,24 @@ class FlexiblePeopleRosterImportTests(TestCase):
         dependent = Person.objects.get(national_id="0012345691")
         self.assertEqual(dependent.employee_id, primary.pk)
         self.assertEqual(dependent.company_id, self.company_a.pk)
+        primary_user = User.objects.get(username=primary.national_id)
+        dependent_user = User.objects.get(username=dependent.national_id)
+        self.assertTrue(primary_user.check_password(primary.mobile))
+        self.assertTrue(dependent_user.check_password(dependent.mobile))
+        self.assertTrue(primary_user.must_change_password)
+        self.assertTrue(dependent_user.must_change_password)
+        self.assertTrue(RoleAssignment.objects.filter(
+            user=primary_user,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company_a,
+            is_active=True,
+        ).exists())
+        self.assertTrue(RoleAssignment.objects.filter(
+            user=dependent_user,
+            role=RoleAssignment.Role.INSURED_PERSON,
+            company=self.company_a,
+            is_active=True,
+        ).exists())
         self.assertTrue(PersonEmployment.objects.filter(
             person=primary, company=self.company_a, status=PersonEmployment.Status.ACTIVE
         ).exists())
