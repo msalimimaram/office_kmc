@@ -404,12 +404,8 @@ class Command(BaseCommand):
             raise CommandError(
                 f"ممیزی گردش‌کار ناموفق بود؛ {len(missing)} فرآیند فاقد گردش‌کار و {len(errors)} مغایرت."
             )
+
         if proposal_mode:
-            self.stdout.write(self.style.SUCCESS(
-                f"ممیزی پیشنهاد موفق: گردش‌کار {active_definitions[0].code} از نظر ساختار، نقش‌ها و مسیرهای دامنه معتبر است."
-            ))
-        else:
-            if proposal_mode:
             self.stdout.write(self.style.SUCCESS(
                 f"ممیزی پیشنهاد موفق: گردش‌کار {active_definitions[0].code} از نظر ساختار، نقش‌ها و مسیرهای دامنه معتبر است."
             ))
