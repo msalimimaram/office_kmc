@@ -1869,6 +1869,106 @@ class OperationalWorkflowSeedCommandTests(TestCase):
         self.assertEqual(versions_before, versions_after)
         self.assertEqual(WorkflowDefinition.objects.count(), 19)
 
+    def _create_proposals_for_audit_regression(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        call_command(
+            "seed_operational_workflows",
+            created_by=self.creator.pk,
+            commit_proposals=True,
+            stdout=StringIO(),
+        )
+
+    def _assert_proposal_audit_rejected(self, definition, expected_fragment):
+        from io import StringIO
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        output = StringIO()
+        with self.assertRaises(CommandError):
+            call_command("audit_workflows", definition_id=definition.pk, stdout=output)
+        self.assertIn(expected_fragment, output.getvalue())
+
+    def test_audit_rejects_generic_request_route_with_wrong_source_and_destination(self):
+        from requests_portal.models import ServiceRequest
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code=ServiceRequest.Kind.OTHER)
+        transition = definition.transitions.get(action_code="refer_to_insurer")
+        transition.source_step = definition.steps.get(code=ServiceRequest.Status.NEEDS_INFO)
+        transition.target_step = definition.steps.get(code=ServiceRequest.Status.APPROVED)
+        transition.save()
+
+        self._assert_proposal_audit_rejected(definition, "other/refer_to_insurer")
+
+    def test_audit_rejects_position_based_actor_bypass_on_generic_request_route(self):
+        from accounts.models import OrganizationalPosition
+        from requests_portal.models import ServiceRequest
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code=ServiceRequest.Kind.OTHER)
+        transition = definition.transitions.get(action_code="refer_to_insurer")
+        transition.allowed_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        transition.save()
+
+        self._assert_proposal_audit_rejected(definition, "other/refer_to_insurer")
+
+    def test_audit_rejects_position_and_incomplete_recipient_grants_for_claim_objection_answer(self):
+        from accounts.models import OrganizationalPosition, RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="claim_objection")
+        answer = definition.transitions.get(action_code="answer")
+        answer.allowed_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        answer.recipient_roles = [RoleAssignment.Role.SYSTEM_ADMIN]
+        answer.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "claim_objection/answer"
+        )
+
+    def test_audit_rejects_position_only_claim_objection_reassignment(self):
+        from accounts.models import OrganizationalPosition
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="claim_objection")
+        reopen = definition.transitions.get(action_code="reopen_review")
+        reopen.allowed_roles = []
+        reopen.allowed_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        reopen.recipient_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        reopen.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "claim_objection/reopen_review"
+        )
+
+    def test_audit_rejects_claim_objection_close_without_both_global_roles(self):
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="claim_objection")
+        close = definition.transitions.get(action_code="close_objection")
+        close.allowed_roles = [RoleAssignment.Role.SYSTEM_ADMIN]
+        close.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "claim_objection/close_objection"
+        )
+
     def test_proposal_generation_requires_time_valid_system_admin_creator(self):
         from django.core.management import call_command
         from django.core.management.base import CommandError
