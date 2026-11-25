@@ -424,9 +424,9 @@ class DemoSeedCommandSafetyTests(TestCase):
 
         # The *.demo names are in-memory fixture aliases, not persisted usernames.
         # Resolve the actual accounts created by seed_demo instead.
-        specialist = User.objects.get(username="Amiri")
-        department_head = User.objects.get(username="Shahamat")
-        supervisor = User.objects.get(username="Salimi")
+        specialist = User.objects.get(national_id="9999900004")
+        department_head = User.objects.get(national_id="9999900002")
+        supervisor = User.objects.get(national_id="9999900003")
         route_resolution_cases = (
             (
                 WorkflowTransition.PositionRouteScope.ANCESTORS,
@@ -479,7 +479,7 @@ class DemoSeedCommandSafetyTests(TestCase):
             self.assertIsNotNone(assignment, scope)
             self.assertTrue(eligible_assignments.filter(pk=assignment.pk).exists(), scope)
 
-        employee = User.objects.get(username="employee.a")
+        employee = User.objects.get(national_id="0012345678")
         employee.set_password("LocallyChosen!Password2026")
         employee.save(update_fields=["password"])
 
