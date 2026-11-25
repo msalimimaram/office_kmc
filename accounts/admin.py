@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django import forms
+from django.contrib import messages
+from django.http import HttpResponseRedirect
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -339,6 +341,15 @@ class RoleAssignmentAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if request.user.is_superuser and obj.role == RoleAssignment.Role.SYSTEM_ADMIN:
+            messages.success(
+                request,
+                "نخستین مدیر سامانه ثبت شد. دسترسی سوپریوزر راه‌انداز به پنل مدیریت عملیاتی بسته شده است؛ اکنون از حساب مدیر سامانه وارد شوید.",
+            )
+            return HttpResponseRedirect("/")
+        return super().response_add(request, obj, post_url_continue)
 
     def save_model(self, request, obj, form, change):
         if self._bootstrap_request(request):
