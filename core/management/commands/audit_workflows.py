@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 from django.utils import timezone
 
-from accounts.models import RoleAssignment
+from accounts.models import OrganizationalPosition, RoleAssignment
 from assets.models import AssetPolicyEndorsement, AssetPolicyPeriod, AssetValuation
 from claims.models import Claim, ClaimObjection
 from insurance.models import ContractRevision
