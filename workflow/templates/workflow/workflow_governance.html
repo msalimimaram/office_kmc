@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}حاکمیت گردش‌کار{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <h1>حاکمیت گردش‌کار</h1>
+    <p>پیشنهادهای نسخه‌دار ثبت‌شده توسط مدیر سامانه را بررسی و در صورت انطباق تأیید کنید.</p>
+  </div>
+</section>
+
+{% for definition in proposals %}
+<section class="panel">
+  <div class="page-heading">
+    <div>
+      <h2>{{ definition.title }} — نسخه {{ definition.version }}</h2>
+      <p>کد: {{ definition.code }} · پیشنهاددهنده: {{ definition.created_by.get_full_name|default:definition.created_by.username }} · تاریخ ثبت: {{ definition.created_at }}</p>
+    </div>
+    <span class="status status-pending">در انتظار تأیید</span>
+  </div>
+  {% if definition.description %}<p>{{ definition.description }}</p>{% endif %}
+
+  <h3>مراحل گردش</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ترتیب</th><th>مرحله</th><th>نقش‌های مجاز</th><th>مهلت کاری (دقیقه)</th><th>نوع</th></tr></thead>
+      <tbody>
+      {% for step in definition.steps.all %}
+        <tr>
+          <td>{{ step.order }}</td>
+          <td>{{ step.title }} <small>{{ step.code }}</small></td>
+          <td>{{ step.allowed_roles|join:"، " }}{% if step.allowed_position_levels %} · سطوح سمت: {{ step.allowed_position_levels|join:"، " }}{% endif %}</td>
+          <td>{{ step.sla_minutes }}</td>
+          <td>{% if step.is_initial %}آغازین{% elif step.is_terminal %}پایانی{% else %}میانی{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>مسیرهای انتقال</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>از مرحله</th><th>اقدام</th><th>به مرحله</th><th>نقش اقدام‌کننده</th><th>گیرنده</th></tr></thead>
+      <tbody>
+      {% for transition in definition.transitions.all %}
+        <tr>
+          <td>{{ transition.source_step.title }}</td>
+          <td>{{ transition.title }} <small>{{ transition.action_code }}</small></td>
+          <td>{% if transition.closes_case %}بستن پرونده{% else %}{{ transition.target_step.title }}{% endif %}</td>
+          <td>{{ transition.allowed_roles|join:"، " }}</td>
+          <td>{{ transition.recipient_roles|join:"، " }}{% if transition.recipient_position_levels %}سطوح سمت: {{ transition.recipient_position_levels|join:"، " }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if definition.created_by_id == request.user.pk %}
+    <p class="text-danger">شما ایجادکننده این پیشنهاد هستید و طبق اصل تفکیک وظایف نمی‌توانید آن را تأیید کنید.</p>
+  {% else %}
+    <form method="post" action="{% url 'workflow_definition_approve' definition.pk %}">
+      {% csrf_token %}
+      <button type="submit">تأیید و انتشار نسخه {{ definition.version }}</button>
+    </form>
+  {% endif %}
+</section>
+{% empty %}
+<section class="panel">
+  <h2>پیشنهاد در انتظاری وجود ندارد</h2>
+  <p>تمام پیشنهادهای ثبت‌شده تعیین تکلیف شده‌اند یا هنوز پیشنهادی از سوی مدیر سامانه ثبت نشده است.</p>
+</section>
+{% endfor %}
+{% endblock %}

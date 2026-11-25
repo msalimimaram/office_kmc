@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from accounts.access import has_global_access
+from accounts.models import RoleAssignment
+from .governance import has_active_governance_assignment
+from auditlog.services import record_event
 from .models import (
     BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
     WorkflowEvent, WorkflowStep, WorkflowTransition,
@@ -8,7 +10,8 @@ from .models import (
 
 
 def can_configure(request):
-    return has_global_access(request.user)
+    # Workflow configuration is a proposal-writing privilege, not an approval privilege.
+    return has_active_governance_assignment(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
 
 
 class WorkflowStepInline(admin.TabularInline):
@@ -19,7 +22,7 @@ class WorkflowStepInline(admin.TabularInline):
         return can_configure(request) and not (obj and obj.published_at)
 
     def has_change_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
     def has_delete_permission(self, request, obj=None):
         return can_configure(request) and not (obj and obj.is_active)
@@ -46,6 +49,7 @@ class WorkflowDefinitionAdmin(admin.ModelAdmin):
     list_filter = ("is_active",)
     search_fields = ("code", "title")
     inlines = (WorkflowStepInline, WorkflowTransitionInline)
+    readonly_fields = ("created_by", "approved_by", "is_active", "published_at")
 
     def has_module_permission(self, request):
         return can_configure(request)
@@ -57,7 +61,45 @@ class WorkflowDefinitionAdmin(admin.ModelAdmin):
         return can_configure(request)
 
     def has_change_permission(self, request, obj=None):
-        return can_configure(request)
+        return can_configure(request) and (
+            obj is None or (not obj.is_active and obj.published_at is None)
+        )
+
+    def save_model(self, request, obj, form, change):
+        before = None
+        if change:
+            previous = type(obj).objects.get(pk=obj.pk)
+            before = {
+                "code": previous.code,
+                "version": previous.version,
+                "title": previous.title,
+                "description": previous.description,
+            }
+        else:
+            obj.created_by = request.user
+
+        # Admin can only save a draft proposal. Approval fields are assigned
+        # exclusively by the authenticated Department Head governance action.
+        obj.approved_by = None
+        obj.is_active = False
+        obj.published_at = None
+        super().save_model(request, obj, form, change)
+        after = {
+            "code": obj.code,
+            "version": obj.version,
+            "title": obj.title,
+            "description": obj.description,
+            "status": "draft",
+        }
+        record_event(
+            actor=request.user,
+            action="workflow.definition.proposed" if not change else "workflow.definition.proposal_updated",
+            obj=obj,
+            summary="پیشنهاد نسخه گردش‌کار توسط مدیر سامانه ثبت/به‌روزرسانی شد.",
+            before_data=before or {},
+            after_data=after,
+            request=request,
+        )
 
     def has_delete_permission(self, request, obj=None):
         return False

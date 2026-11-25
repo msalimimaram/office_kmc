@@ -6,10 +6,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.views.decorators.http import require_POST
 
 from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
 from accounts.models import RoleAssignment, User
-from .models import WorkflowCase, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowTransition
+from .models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowTransition
+from .governance import approve_workflow_definition, has_active_governance_assignment
 from .forms import WorkflowSatisfactionForm
 from .presentation import build_workflow_presentation
 from .services import (
@@ -362,3 +364,55 @@ def workflow_satisfaction_submitted(request, pk):
     return render(request, "workflow/satisfaction_submitted.html", {
         "survey": survey,
     })
+
+
+@login_required
+def workflow_governance(request):
+    """Department Head queue for approving System Admin workflow proposals."""
+    if not has_active_governance_assignment(
+        request.user, RoleAssignment.Role.DEPARTMENT_HEAD
+    ):
+        raise PermissionDenied("دسترسی به تأیید گردش‌کار فقط برای رئیس اداره بیمه با انتصاب معتبر مجاز است.")
+
+    proposals = WorkflowDefinition.objects.filter(
+        is_active=False,
+        published_at__isnull=True,
+        approved_by__isnull=True,
+    ).select_related("created_by").prefetch_related(
+        "steps", "transitions__source_step", "transitions__target_step"
+    ).order_by("code", "-version")
+    return render(request, "workflow/workflow_governance.html", {
+        "proposals": proposals,
+    })
+
+
+@login_required
+@require_POST
+def workflow_definition_approve(request, pk):
+    """Publish a proposal using the identity of the currently authenticated Head."""
+    if not has_active_governance_assignment(
+        request.user, RoleAssignment.Role.DEPARTMENT_HEAD
+    ):
+        raise PermissionDenied("تأیید گردش‌کار فقط برای رئیس اداره بیمه با انتصاب معتبر مجاز است.")
+
+    proposal = get_object_or_404(
+        WorkflowDefinition,
+        pk=pk,
+        is_active=False,
+        published_at__isnull=True,
+        approved_by__isnull=True,
+    )
+    try:
+        approve_workflow_definition(
+            definition_id=proposal.pk,
+            approver=request.user,
+            request=request,
+        )
+    except ValidationError as exc:
+        messages.error(request, f"انتشار انجام نشد: {exc}")
+    else:
+        messages.success(
+            request,
+            f"نسخه {proposal.version} گردش‌کار «{proposal.title}» با تأیید شما منتشر شد.",
+        )
+    return redirect("workflow_governance")

@@ -1,4 +1,3 @@
-from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q, Max
@@ -6,12 +5,11 @@ from django.utils import timezone
 
 from accounts.models import OrganizationalPosition, RoleAssignment
 from requests_portal.models import ServiceRequest
-from workflow.models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowStep, WorkflowTransition
-from workflow.services import _scope_for_object, _validate_recipient, is_delegated_assignee
+from workflow.models import WorkflowDefinition, WorkflowStep, WorkflowTransition
 
 
 class Command(BaseCommand):
-    help = "Publish versioned operational workflows; preserve historical definitions and cases."
+    help = "Create draft proposals for the 19 operational workflows; publication requires an authenticated Department Head."
     BASELINE_SCHEMA_VERSION = "baseline-route-v4"
 
     WORKFLOWS = (
@@ -28,32 +26,22 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--created-by", type=int, required=True)
-        parser.add_argument("--approved-by", type=int, required=True)
         parser.add_argument(
-            "--publish",
+            "--commit-proposals",
             action="store_true",
-            help="Commit the complete workflow catalog. Without this flag, execution is a rollback-only dry run.",
+            help="Persist the generated draft proposals. This never approves or publishes them.",
         )
 
     @transaction.atomic
     def handle(self, *args, **options):
         from django.contrib.auth import get_user_model
-        from django.core.management import call_command
 
         User = get_user_model()
         today = timezone.localdate()
-        global_roles = [
-            RoleAssignment.Role.DEPARTMENT_HEAD,
-            RoleAssignment.Role.SYSTEM_ADMIN,
-        ]
         try:
             creator = User.objects.get(pk=options["created_by"], is_active=True)
-            approver = User.objects.get(pk=options["approved_by"], is_active=True)
         except User.DoesNotExist as exc:
-            raise CommandError("Both --created-by and --approved-by must identify existing active users.") from exc
-
-        if creator.pk == approver.pk:
-            raise CommandError("Creator and approver must be different users (separation of duties).")
+            raise CommandError("--created-by must identify an existing active user.") from exc
 
         creator_assignment = RoleAssignment.objects.filter(
             user=creator,
@@ -62,30 +50,32 @@ class Command(BaseCommand):
             valid_from__lte=today,
         ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
         if not creator_assignment:
-            raise CommandError("The creator must have an active System Admin assignment.")
-        approver_assignment = RoleAssignment.objects.filter(
-            user=approver,
-            role=RoleAssignment.Role.DEPARTMENT_HEAD,
-            is_active=True,
-            valid_from__lte=today,
-        ).filter(Q(valid_until__isnull=True) | Q(valid_until__gte=today)).exists()
-        if not approver_assignment:
-            raise CommandError("The approver must have an active Department Head assignment.")
+            raise CommandError("The proposal creator must have an active, time-valid System Admin assignment.")
 
-        actor = creator
+        operational_catalog = list(self.WORKFLOWS) + [
+            (code, f"گردش درخواست: {title}", None)
+            for code, title in ServiceRequest.Kind.choices
+        ]
         created = []
         skipped = []
-        for code, title, approved_step_code in self.WORKFLOWS:
+
+        for code, title, approved_step_code in operational_catalog:
             active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
             if active and self.BASELINE_SCHEMA_VERSION in active.description:
-                self._rebase_open_cases(code, active, actor)
-                skipped.append(code)
+                skipped.append(f"{code} (نسخه پایه از قبل فعال است)")
                 continue
-            if active:
-                # Published definitions remain immutable; only their active
-                # pointer is retired. Existing cases retain their old version.
-                active.is_active = False
-                active.save(update_fields=["is_active"])
+
+            existing_proposal = WorkflowDefinition.objects.filter(
+                code=code,
+                is_active=False,
+                published_at__isnull=True,
+                approved_by__isnull=True,
+                description__contains=self.BASELINE_SCHEMA_VERSION,
+            ).order_by("-version").first()
+            if existing_proposal:
+                skipped.append(f"{code} (پیشنهاد نسخه {existing_proposal.version} از قبل ثبت شده است)")
+                continue
+
             version = (
                 WorkflowDefinition.objects.filter(code=code)
                 .aggregate(value=Max("version"))["value"] or 0
@@ -96,10 +86,15 @@ class Command(BaseCommand):
                 version=version,
                 created_by=creator,
                 description=(
-                    f"{self.BASELINE_SCHEMA_VERSION}: گردش پایه نسخه‌دار. تغییر مسیر فقط با ایجاد و انتشار نسخه جدید "
-                    "و پیشنهاد مدیر سامانه و تأیید رئیس اداره بیمه مجاز است."
+                    f"{self.BASELINE_SCHEMA_VERSION}: پیش‌نویس پیشنهادی گردش‌کار. "
+                    "این نسخه تا زمان تأیید مستقیم رئیس اداره بیمه غیرفعال می‌ماند. "
+                    "نسخه فعال قبلی و پرونده‌های جاری آن بدون تغییر حفظ می‌شوند."
                 ),
             )
+            global_roles = [
+                RoleAssignment.Role.DEPARTMENT_HEAD,
+                RoleAssignment.Role.SYSTEM_ADMIN,
+            ]
             if code == "person_change":
                 self._build_person_change(definition)
             elif code == "claim_review":
@@ -108,140 +103,37 @@ class Command(BaseCommand):
                 self._build_claim_objection(definition, global_roles)
             elif code == "management_report_approval":
                 self._build_report_approval(definition, global_roles)
-            else:
+            elif approved_step_code:
                 self._build_global_approval(definition, approved_step_code, global_roles)
-            definition.approved_by = approver
-            definition.is_active = True
-            definition.save()
-            self._rebase_open_cases(code, definition, actor)
-            created.append(code)
+            else:
+                self._build_service_request(definition, global_roles)
 
-        # Every ServiceRequest kind is routed through the same audited state
-        # contract, while each kind keeps its own immutable workflow definition.
-        for code, title in ServiceRequest.Kind.choices:
-            active = WorkflowDefinition.objects.filter(code=code, is_active=True).first()
-            if active and self.BASELINE_SCHEMA_VERSION in active.description:
-                self._rebase_open_cases(code, active, actor)
-                skipped.append(code)
-                continue
-            if active:
-                active.is_active = False
-                active.save(update_fields=["is_active"])
-            version = (
-                WorkflowDefinition.objects.filter(code=code)
-                .aggregate(value=Max("version"))["value"] or 0
-            ) + 1
-            definition = WorkflowDefinition.objects.create(
-                code=code,
-                title=f"گردش درخواست: {title}",
-                version=version,
-                created_by=creator,
-                description=(
-                    f"{self.BASELINE_SCHEMA_VERSION}: گردش استاندارد درخواست پرتال. مسیرها با نسخه جدید و "
-                    "با پیشنهاد مدیر سامانه و تأیید رئیس اداره بیمه تغییر می‌کنند."
-                ),
-            )
-            self._build_service_request(definition, global_roles)
-            definition.approved_by = approver
-            definition.is_active = True
-            definition.save()
-            self._rebase_open_cases(code, definition, actor)
-            created.append(code)
+            if definition.steps.filter(is_initial=True).count() != 1:
+                raise CommandError(f"{code}: proposal must contain exactly one initial step.")
+            if not definition.transitions.exists():
+                raise CommandError(f"{code}: proposal must contain at least one transition.")
+            definition.full_clean()
+            created.append(f"{code} v{version}")
 
-        # The audit is part of the same transaction: publication is rejected
-        # atomically if the resulting catalog does not satisfy its invariants.
-        call_command("audit_workflows")
-
-        if options["publish"]:
+        if options["commit_proposals"]:
             if created:
-                self.stdout.write(self.style.SUCCESS("Created and published: " + ", ".join(created)))
+                self.stdout.write(self.style.SUCCESS("Draft proposals created: " + ", ".join(created)))
+            else:
+                self.stdout.write("No new proposals were required.")
         else:
             transaction.set_rollback(True)
             self.stdout.write(self.style.WARNING(
-                "DRY RUN: catalog validated and audit passed; all database writes were rolled back. "
-                "Re-run with --publish to commit."
+                "DRY RUN: all proposal definitions and routes were validated, then rolled back. "
+                "Re-run with --commit-proposals to persist drafts."
             ))
+
         if skipped:
-            self.stdout.write("Already active; left unchanged: " + ", ".join(skipped))
+            self.stdout.write("Unchanged: " + ", ".join(skipped))
         self.stdout.write(
-            "Contract and asset approvals are restricted to Department Head/System Admin. "
-            "Person changes follow Company Representative → Insurer Representative → "
-            "Company Representative; insurer representatives cannot close requests."
+            "No workflow was approved or activated, no existing active version was retired, "
+            "and no open case was migrated. A Department Head must approve each proposal "
+            "from the authenticated Workflow Governance page."
         )
-
-    def _rebase_open_cases(self, code, definition, actor):
-        """Move open cases to the active version without discarding event history.
-
-        Every case is prevalidated against the new step's scope. If its owner
-        no longer qualifies, the whole seed transaction rolls back instead of
-        silently granting access or orphaning an active case.
-        """
-        cases = WorkflowCase.objects.filter(
-            definition__code=code,
-            status__in=[WorkflowCase.Status.OPEN, WorkflowCase.Status.WAITING],
-        ).exclude(definition=definition).select_related(
-            "definition", "current_step", "current_assignee",
-            "current_position_assignment", "delegation", "content_type",
-        ).order_by("pk")
-        for case in cases:
-            if not case.current_step_id or not case.current_assignee_id or case.is_locked:
-                raise CommandError(
-                    f"WorkflowCase #{case.pk} cannot be upgraded: current owner/step is missing or locked."
-                )
-            target_step = definition.steps.filter(code=case.current_step.code).first()
-            if target_step is None:
-                raise CommandError(
-                    f"WorkflowCase #{case.pk} cannot be upgraded: step '{case.current_step.code}' is absent in v{definition.version}."
-                )
-            scope = _scope_for_object(case.content_object)
-            try:
-                position_assignment = _validate_recipient(
-                    case.current_assignee,
-                    target_step.allowed_roles,
-                    position_levels=target_step.allowed_position_levels,
-                    scope=scope,
-                    source_user=case.current_assignee,
-                )
-            except (PermissionDenied, ValidationError) as exc:
-                if case.delegation_id and is_delegated_assignee(case, case.current_assignee):
-                    position_assignment = None
-                else:
-                    raise CommandError(
-                        f"WorkflowCase #{case.pk} owner is not eligible for upgraded step '{target_step.code}': {exc}"
-                    ) from exc
-
-            old_definition = case.definition
-            old_step = case.current_step
-            old_assignee = case.current_assignee
-            old_position_assignment = case.current_position_assignment
-            case.definition = definition
-            case.current_step = target_step
-            case.current_position_assignment = position_assignment
-            case.save(update_fields=[
-                "definition", "current_step", "current_position_assignment",
-            ])
-            WorkflowEvent.objects.create(
-                workflow_case=case,
-                actor=actor,
-                event_type=WorkflowEvent.EventType.ACTION,
-                action_code="workflow_version_migrated",
-                from_step=old_step,
-                to_step=target_step,
-                from_assignee=old_assignee,
-                to_assignee=old_assignee,
-                from_position_assignment=old_position_assignment,
-                to_position_assignment=position_assignment,
-                note=(
-                    f"انتقال کنترل‌شده پرونده از نسخه {old_definition.version} "
-                    f"به نسخه {definition.version} گردش‌کار؛ تاریخچه قبلی حفظ شد."
-                ),
-                acted_at=timezone.now(),
-                sent_at=timezone.now(),
-                metadata={
-                    "from_version": old_definition.version,
-                    "to_version": definition.version,
-                },
-            )
 
     def _build_report_approval(self, definition, global_roles):
         specialist_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST]
