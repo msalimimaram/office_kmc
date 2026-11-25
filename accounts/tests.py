@@ -1239,9 +1239,14 @@ class InitialSystemAdminDesignationAdminTests(TestCase):
         from django.test import Client
         client = Client()
         client.force_login(self.technical_admin)
+        index_response = client.get("/admin/")
+        self.assertEqual(index_response.status_code, 302)
+        self.assertEqual(index_response["Location"], "/admin/accounts/roleassignment/add/")
         response = client.get("/admin/accounts/roleassignment/add/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "مدیر سامانه")
+        self.assertEqual(client.get("/admin/accounts/user/").status_code, 403)
+        self.assertEqual(client.get("/admin/auth/group/").status_code, 403)
 
     def test_admin_post_finishes_setup_and_redirects_bootstrap_superuser_out_of_admin(self):
         from django.test import Client
