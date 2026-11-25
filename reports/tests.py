@@ -10,6 +10,7 @@ from accounts.models import (
 from reports.models import Report, ReportVersion
 from workflow.models import WorkflowCase
 from workflow.services import transition_case
+from workflow.test_support import seed_and_approve_workflows
 
 
 class ManagementReportWorkflowTests(TestCase):
@@ -75,7 +76,7 @@ class ManagementReportWorkflowTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             reason="مدیر سامانه پیشنهاددهنده گردش گزارش",
         )
-        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
+        seed_and_approve_workflows(admin=self.workflow_admin, head=self.head, codes=("management_report_approval",))
 
     def _create_report(self):
         client = Client()
