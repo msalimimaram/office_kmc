@@ -59,7 +59,6 @@ from imports.models import ImportBatch
 from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
 from workflow.models import WorkflowCase, WorkflowDefinition
-from workflow.governance import approve_workflow_definition
 from workflow.test_support import seed_and_approve_workflows
 
 
