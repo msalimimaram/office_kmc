@@ -1226,7 +1226,7 @@ class InitialSystemAdminDesignationAdminTests(TestCase):
             set(),
         )
         form_class = self.model_admin.get_form(self.request)
-        self.assertIs(form_class, InitialSystemAdminAssignmentForm)
+        # ModelAdmin.get_form() returns a generated ModelForm subclass;\n        # verify the restricted bootstrap form is its base, not exact identity.\n        self.assertTrue(issubclass(form_class, InitialSystemAdminAssignmentForm))
         form = form_class()
         self.assertEqual(
             list(form.fields["role"].choices),
