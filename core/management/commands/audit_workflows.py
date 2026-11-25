@@ -389,26 +389,110 @@ class Command(BaseCommand):
                     )
 
             if code == "management_report_approval":
+                supervisor_level = int(OrganizationalPosition.Level.SUPERVISOR)
+                responsible_level = int(OrganizationalPosition.Level.RESPONSIBLE)
                 required_steps = {
-                    "supervisor_review", "responsible_review", "head_review",
-                    "returned", "approved", "rejected",
+                    "supervisor_review": (set(), {supervisor_level}),
+                    "responsible_review": (set(), {responsible_level}),
+                    "head_review": (global_roles, set()),
+                    "returned": ({specialist_role}, set()),
+                    "approved": (global_roles, set()),
+                    "rejected": (global_roles, set()),
                 }
-                missing_steps = required_steps - {step.code for step in steps}
-                if missing_steps:
-                    errors.append(f"{code}: مراحل ضروری تعریف نشده‌اند: {', '.join(sorted(missing_steps))}")
-                by_action = {item.action_code: item for item in transitions}
-                for action_code in {
-                    "approve_to_responsible", "approve_to_head", "return_to_creator",
-                    "approve", "reject", "resubmit", "finalize", "finalize_rejection",
-                }:
-                    if action_code not in by_action:
-                        errors.append(f"{code}: اقدام ضروری {action_code} تعریف نشده است.")
-                if any(
-                    transition.closes_case
-                    and not set(transition.allowed_roles or transition.source_step.allowed_roles).issubset(global_roles)
-                    for transition in transitions
-                ):
-                    errors.append(f"{code}: مختومه‌سازی گزارش فقط برای رئیس اداره/مدیر سامانه مجاز است.")
+                for step_code, (expected_roles, expected_levels) in required_steps.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if (
+                        not step
+                        or set(step.allowed_roles or []) != expected_roles
+                        or set(step.allowed_position_levels or []) != expected_levels
+                    ):
+                        errors.append(
+                            f"{code}/{step_code}: نقش‌ها و سطوح سمت باید دقیقاً با قرارداد مصوب منطبق باشند."
+                        )
+                if not initial_steps or initial_steps[0].code != "supervisor_review":
+                    errors.append(f"{code}: مرحله آغازین باید supervisor_review باشد.")
+
+                required_routes = {
+                    "approve_to_responsible": [
+                        ("supervisor_review", "responsible_review", set(), {supervisor_level},
+                         set(), {responsible_level}, False, False, False),
+                    ],
+                    "return_to_creator": [
+                        ("supervisor_review", "returned", set(), {supervisor_level},
+                         {specialist_role}, set(), False, True, True),
+                        ("responsible_review", "returned", set(), {responsible_level},
+                         {specialist_role}, set(), False, True, True),
+                    ],
+                    "approve_to_head": [
+                        ("responsible_review", "head_review", set(), {responsible_level},
+                         global_roles, set(), False, False, False),
+                    ],
+                    "approve": [
+                        ("head_review", "approved", global_roles, set(),
+                         global_roles, set(), False, False, False),
+                    ],
+                    "reject": [
+                        ("head_review", "rejected", global_roles, set(),
+                         global_roles, set(), False, False, True),
+                    ],
+                    "resubmit": [
+                        ("returned", "supervisor_review", {specialist_role}, set(),
+                         set(), {supervisor_level}, False, False, False),
+                    ],
+                    "finalize": [
+                        ("approved", None, global_roles, set(), set(), set(), True, False, False),
+                    ],
+                    "finalize_rejection": [
+                        ("rejected", None, global_roles, set(), set(), set(), True, False, False),
+                    ],
+                }
+                transitions_by_action = {}
+                for transition in transitions:
+                    transitions_by_action.setdefault(transition.action_code, []).append(transition)
+
+                for action_code, expected_routes in required_routes.items():
+                    matches = transitions_by_action.get(action_code, [])
+                    if len(matches) != len(expected_routes):
+                        errors.append(
+                            f"{code}/{action_code}: تعداد مسیرها با قرارداد مصوب منطبق نیست."
+                        )
+                        continue
+                    for transition, expected in zip(matches, expected_routes):
+                        (
+                            source, target, actors, actor_levels, recipients,
+                            recipient_levels, closes, is_return, requires_note,
+                        ) = expected
+                        actual_target = transition.target_step.code if transition.target_step else None
+                        if transition.source_step.code != source or actual_target != target:
+                            errors.append(f"{code}/{action_code}: مبدأ یا مقصد مسیر غیرمجاز است.")
+                        if (
+                            set(transition.allowed_roles or []) != actors
+                            or set(transition.allowed_position_levels or []) != actor_levels
+                        ):
+                            errors.append(f"{code}/{action_code}: مجوز اقدام با قرارداد مصوب منطبق نیست.")
+                        if (
+                            set(transition.recipient_roles or []) != recipients
+                            or set(transition.recipient_position_levels or []) != recipient_levels
+                        ):
+                            errors.append(f"{code}/{action_code}: مجوز گیرنده با قرارداد مصوب منطبق نیست.")
+                        if (
+                            transition.closes_case != closes
+                            or transition.is_return != is_return
+                            or transition.requires_note != requires_note
+                        ):
+                            errors.append(f"{code}/{action_code}: قواعد بستن/بازگشت/یادداشت غیرمجاز است.")
+                        if transition.target_step and (
+                            set(transition.target_step.allowed_roles or []) != recipients
+                            or set(transition.target_step.allowed_position_levels or []) != recipient_levels
+                        ):
+                            errors.append(f"{code}/{action_code}: مجوزهای مرحله مقصد غیرمجاز است.")
+
+                unexpected_actions = set(transitions_by_action) - set(required_routes)
+                if unexpected_actions:
+                    errors.append(
+                        f"{code}: اقدام‌های خارج از قرارداد مجاز نیستند: "
+                        + ", ".join(sorted(unexpected_actions))
+                    )
 
             if code == "claim_review":
                 intake_roles = {specialist_role} | global_roles
