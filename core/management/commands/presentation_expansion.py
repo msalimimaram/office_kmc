@@ -1446,9 +1446,16 @@ def expand_presentation_dataset(*, record, users, created_counts, reused_counts,
                 order=2,
                 allowed_roles=[] if route_spec else [role],
                 allowed_position_levels=recipient_levels,
+                sla_minutes=480,
                 is_terminal=False,
                 allow_return=True,
             )
+            for step in (pending, approved):
+                step.sla_confirmed_by = head
+                step.sla_confirmed_at = now
+                step.save(update_fields=[
+                    "sla_minutes", "sla_confirmed_by", "sla_confirmed_at",
+                ])
             WorkflowTransition.objects.create(
                 definition=definition,
                 source_step=pending,
