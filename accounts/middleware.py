@@ -31,18 +31,38 @@ class RestrictAdminAccessMiddleware:
         ):
             from accounts.access import has_global_access
             from accounts.models import RoleAssignment
+            from django.core.exceptions import PermissionDenied
 
-            # A Django superuser is admitted only for the one-time designation
-            # of the first operational System Admin. Once any System Admin
-            # assignment history exists, the technical bootstrap account loses
-            # access to the business admin site.
+            # The technical superuser receives a narrowly scoped, one-time
+            # bootstrap route. It cannot browse or operate other Django admin
+            # models while choosing the first operational System Admin.
             bootstrap_available = not RoleAssignment.objects.filter(
                 role=RoleAssignment.Role.SYSTEM_ADMIN
             ).exists()
-            allowed = has_global_access(user) or (
-                user.is_superuser and bootstrap_available
-            )
-            if not allowed:
-                from django.core.exceptions import PermissionDenied
-                raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه یا رئیس اداره بیمه مجاز است.")
+            if user.is_superuser and bootstrap_available and not has_global_access(user):
+                if request.path_info == "/admin/":
+                    return redirect("/admin/accounts/roleassignment/add/")
+                allowed_bootstrap_paths = {
+                    "/admin/accounts/roleassignment/add/",
+                    "/admin/jsi18n/",
+                }
+                is_role_assignment_autocomplete = (
+                    request.path_info == "/admin/autocomplete/"
+                    and request.GET.get("app_label") == "accounts"
+                    and request.GET.get("model_name") == "roleassignment"
+                    and request.GET.get("field_name") == "user"
+                )
+                if (
+                    request.path_info not in allowed_bootstrap_paths
+                    and not is_role_assignment_autocomplete
+                ):
+                    raise PermissionDenied(
+                        "حساب سوپریوزر راه‌انداز فقط به فرم انتخاب نخستین مدیر سامانه دسترسی دارد."
+                    )
+                return self.get_response(request)
+
+            if not has_global_access(user):
+                raise PermissionDenied(
+                    "دسترسی به پنل مدیریت فقط برای مدیر سامانه یا رئیس اداره بیمه مجاز است."
+                )
         return self.get_response(request)
