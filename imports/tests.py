@@ -60,20 +60,7 @@ from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
 from workflow.models import WorkflowCase, WorkflowDefinition
 from workflow.governance import approve_workflow_definition
-from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
-
-
-def _seed_and_approve_workflows(*, admin, head, codes):
-    """Exercise the same proposal-then-Head-approval lifecycle as production."""
-    WorkflowSeedCommand().handle(created_by=admin.pk, commit_proposals=True)
-    for code in codes:
-        proposal = WorkflowDefinition.objects.get(
-            code=code,
-            is_active=False,
-            approved_by__isnull=True,
-            published_at__isnull=True,
-        )
-        approve_workflow_definition(definition_id=proposal.pk, approver=head)
+from workflow.test_support import seed_and_approve_workflows
 
 
 class ImportBatchApprovalFlowTests(TestCase):
