@@ -1969,6 +1969,39 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             definition, "claim_objection/close_objection"
         )
 
+    def test_audit_rejects_person_change_finalization_by_insurer(self):
+        from accounts.models import RoleAssignment
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="person_change")
+        transition = definition.transitions.get(action_code="approve_and_close")
+        transition.allowed_roles = [
+            RoleAssignment.Role.SUBSIDIARY_REP,
+            RoleAssignment.Role.INSURER_REP,
+        ]
+        transition.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "person_change/approve_and_close"
+        )
+
+    def test_audit_rejects_position_based_claim_review_authority(self):
+        from accounts.models import OrganizationalPosition
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="claim_review")
+        transition = definition.transitions.get(action_code="submit_for_decision")
+        transition.allowed_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        transition.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "claim_review/submit_for_decision"
+        )
+
     def test_proposal_generation_requires_time_valid_system_admin_creator(self):
         from django.core.management import call_command
         from django.core.management.base import CommandError
