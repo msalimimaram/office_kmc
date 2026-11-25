@@ -156,7 +156,6 @@ class ClaimVisibilityTests(TestCase):
             )
 
     def test_only_employee_or_company_representative_can_submit_claim_objection(self):
-        from django.core.management import call_command
         from accounts.models import RoleAssignment
 
         claim = Claim.objects.get(claim_number="CL-1")
@@ -342,7 +341,6 @@ class ClaimObjectionReviewFlowTests(TestCase):
         )
 
     def _start_workflow_case(self):
-        from django.core.management import call_command
         from accounts.models import RoleAssignment
         from workflow.services import start_workflow
 
