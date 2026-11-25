@@ -22,14 +22,31 @@
   <h3>مراحل گردش</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>ترتیب</th><th>مرحله</th><th>نقش‌های مجاز</th><th>مهلت کاری (دقیقه)</th><th>نوع</th></tr></thead>
+      <thead><tr><th>ترتیب</th><th>مرحله</th><th>نقش‌های مجاز</th><th>مهلت کاری</th><th>وضعیت تأیید مهلت</th><th>نوع</th></tr></thead>
       <tbody>
       {% for step in definition.steps.all %}
         <tr>
           <td>{{ step.order }}</td>
           <td>{{ step.title }} <small>{{ step.code }}</small></td>
           <td>{{ step.allowed_roles|join:"، " }}{% if step.allowed_position_levels %} · سطوح سمت: {{ step.allowed_position_levels|join:"، " }}{% endif %}</td>
-          <td>{{ step.sla_minutes }}</td>
+          <td>
+            {% if step.is_terminal %}
+              — (مرحله پایانی)
+            {% elif step.sla_confirmed_by_id %}
+              {{ step.sla_minutes }} دقیقه
+            {% else %}
+              <span class="text-danger">{{ step.sla_minutes }} دقیقه · مقدار آزمایشی</span>
+            {% endif %}
+            {% if not step.is_terminal %}
+              <form method="post" action="{% url 'workflow_step_sla_set' definition.pk step.pk %}" class="inline-form">
+                {% csrf_token %}
+                <label for="sla-{{ step.pk }}">مهلت مصوب (دقیقه)</label>
+                <input id="sla-{{ step.pk }}" type="number" name="sla_minutes" min="1" max="525600" value="{{ step.sla_minutes }}" required>
+                <button type="submit">ثبت و تأیید مهلت</button>
+              </form>
+            {% endif %}
+          </td>
+          <td>{% if step.is_terminal %}نیازی ندارد{% elif step.sla_confirmed_by_id %}تأییدشده توسط {{ step.sla_confirmed_by.get_full_name|default:step.sla_confirmed_by.username }} · {{ step.sla_confirmed_at }}{% else %}<span class="text-danger">تأیید نشده؛ فقط نمونه آزمایشی</span>{% endif %}</td>
           <td>{% if step.is_initial %}آغازین{% elif step.is_terminal %}پایانی{% else %}میانی{% endif %}</td>
         </tr>
       {% endfor %}
@@ -61,6 +78,7 @@
     <form method="post" action="{% url 'workflow_definition_approve' definition.pk %}">
       {% csrf_token %}
       <button type="submit">تأیید و انتشار نسخه {{ definition.version }}</button>
+      <p>انتشار فقط پس از ثبت و تأیید مهلت تمام مراحل غیرپایانی امکان‌پذیر است.</p>
     </form>
   {% endif %}
 </section>
