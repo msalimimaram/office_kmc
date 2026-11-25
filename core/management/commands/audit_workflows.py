@@ -543,65 +543,114 @@ class Command(BaseCommand):
                     )
 
             if code == "person_change":
+                company_role = RoleAssignment.Role.SUBSIDIARY_REP
+                required_steps = {
+                    PersonChangeRequest.Status.COMPANY_REVIEW: {company_role},
+                    PersonChangeRequest.Status.INSURER_UPDATE: {insurer_role},
+                    PersonChangeRequest.Status.COMPANY_FINAL_REVIEW: {company_role},
+                    PersonChangeRequest.Status.REJECTED: {company_role},
+                }
+                for step_code, expected_roles in required_steps.items():
+                    step = next((item for item in steps if item.code == step_code), None)
+                    if (
+                        not step
+                        or set(step.allowed_roles or []) != expected_roles
+                        or step.allowed_position_levels
+                    ):
+                        errors.append(
+                            f"person_change/{step_code}: نقش مرحله باید دقیقاً با قرارداد مصوب منطبق باشد."
+                        )
                 if not initial_steps or initial_steps[0].code != PersonChangeRequest.Status.COMPANY_REVIEW:
                     errors.append("person_change: مرحله آغازین باید company_review باشد.")
-                elif RoleAssignment.Role.SUBSIDIARY_REP not in (initial_steps[0].allowed_roles or []):
-                    errors.append("person_change: بررسی اولیه باید به نماینده شرکت واگذار شود.")
 
-                required_steps = {
-                    PersonChangeRequest.Status.INSURER_UPDATE: insurer_role,
-                    PersonChangeRequest.Status.COMPANY_FINAL_REVIEW: RoleAssignment.Role.SUBSIDIARY_REP,
-                    PersonChangeRequest.Status.REJECTED: RoleAssignment.Role.SUBSIDIARY_REP,
+                required_routes = {
+                    "refer_to_insurer": (
+                        PersonChangeRequest.Status.COMPANY_REVIEW,
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        {company_role}, {insurer_role}, False, False,
+                    ),
+                    "reject_initial": (
+                        PersonChangeRequest.Status.COMPANY_REVIEW,
+                        PersonChangeRequest.Status.REJECTED,
+                        {company_role}, set(), False, False,
+                    ),
+                    "return_to_company": (
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        {insurer_role}, {company_role}, False, False,
+                    ),
+                    "return_for_correction": (
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        PersonChangeRequest.Status.COMPANY_REVIEW,
+                        {insurer_role}, {company_role}, False, True,
+                    ),
+                    "approve_and_close": (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        None, {company_role}, set(), True, False,
+                    ),
+                    "send_back_to_insurer": (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.INSURER_UPDATE,
+                        {company_role}, {insurer_role}, False, True,
+                    ),
+                    "reject_final": (
+                        PersonChangeRequest.Status.COMPANY_FINAL_REVIEW,
+                        PersonChangeRequest.Status.REJECTED,
+                        {company_role}, set(), False, False,
+                    ),
+                    "close_rejected": (
+                        PersonChangeRequest.Status.REJECTED,
+                        None, {company_role}, set(), True, False,
+                    ),
                 }
-                for step_code, role in required_steps.items():
-                    step = next((item for item in steps if item.code == step_code), None)
-                    if not step or role not in (step.allowed_roles or []):
-                        errors.append(f"person_change/{step_code}: نقش مجاز ضروری تعریف نشده است.")
-
-                required_edges = {
-                    (PersonChangeRequest.Status.COMPANY_REVIEW, PersonChangeRequest.Status.INSURER_UPDATE),
-                    (PersonChangeRequest.Status.INSURER_UPDATE, PersonChangeRequest.Status.COMPANY_FINAL_REVIEW),
-                    (PersonChangeRequest.Status.COMPANY_FINAL_REVIEW, PersonChangeRequest.Status.REJECTED),
-                }
-                for source_code, target_code in required_edges:
-                    if not any(
-                        item.source_step.code == source_code
-                        and item.target_step
-                        and item.target_step.code == target_code
-                        for item in transitions
-                    ):
-                        errors.append(f"person_change: مسیر {source_code} به {target_code} تعریف نشده است.")
-
-                if not any(
-                    item.source_step.code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
-                    and item.closes_case
-                    and RoleAssignment.Role.SUBSIDIARY_REP in (item.allowed_roles or [])
-                    for item in transitions
-                ):
-                    errors.append("person_change: تأیید نهایی و بستن باید توسط نماینده شرکت انجام شود.")
-
+                transitions_by_action = {}
                 for transition in transitions:
-                    if transition.closes_case and not set(
-                        transition.allowed_roles or transition.source_step.allowed_roles
-                    ).issubset(company_approver_roles):
-                        errors.append(f"person_change/{transition.action_code}: نقش بستن نهایی غیرمجاز است.")
+                    transitions_by_action.setdefault(transition.action_code, []).append(transition)
 
-                    source_code = transition.source_step.code
-                    target_code = transition.target_step.code if transition.target_step else None
-                    if (
-                        source_code == PersonChangeRequest.Status.COMPANY_REVIEW
-                        and target_code == PersonChangeRequest.Status.INSURER_UPDATE
-                        and insurer_role not in (transition.recipient_roles or [])
-                    ):
-                        errors.append("person_change: ارجاع از شرکت باید به نماینده بیمه‌گر باشد.")
-                    if (
-                        source_code == PersonChangeRequest.Status.INSURER_UPDATE
-                        and target_code == PersonChangeRequest.Status.COMPANY_FINAL_REVIEW
-                        and RoleAssignment.Role.SUBSIDIARY_REP not in (transition.recipient_roles or [])
-                    ):
-                        errors.append("person_change: نتیجه بیمه‌گر باید به نماینده شرکت بازگردد.")
+                for action_code, expected in required_routes.items():
+                    matches = transitions_by_action.get(action_code, [])
+                    if len(matches) != 1:
+                        errors.append(
+                            f"person_change/{action_code}: اقدام باید دقیقاً یک‌بار تعریف شود."
+                        )
+                        continue
+                    transition = matches[0]
+                    source, target, actors, recipients, closes, is_return = expected
+                    actual_target = transition.target_step.code if transition.target_step else None
+                    if transition.source_step.code != source or actual_target != target:
+                        errors.append(
+                            f"person_change/{action_code}: مبدأ یا مقصد با مسیر مصوب منطبق نیست."
+                        )
+                    if set(transition.allowed_roles or []) != actors or transition.allowed_position_levels:
+                        errors.append(
+                            f"person_change/{action_code}: نقش یا مجوز سمت‌محور اقدام غیرمجاز است."
+                        )
+                    if set(transition.recipient_roles or []) != recipients or transition.recipient_position_levels:
+                        errors.append(
+                            f"person_change/{action_code}: نقش یا مجوز سمت‌محور گیرنده غیرمجاز است."
+                        )
+                    if transition.closes_case != closes or transition.is_return != is_return:
+                        errors.append(
+                            f"person_change/{action_code}: قاعده بستن یا بازگشت با قرارداد مصوب منطبق نیست."
+                        )
+                    if transition.target_step:
+                        target_step = transition.target_step
+                        if (
+                            set(target_step.allowed_roles or []) != recipients
+                            or target_step.allowed_position_levels
+                        ):
+                            errors.append(
+                                f"person_change/{action_code}: مجوزهای مرحله مقصد با گیرنده مصوب منطبق نیست."
+                            )
 
-        for warning in warnings:
+                unexpected_actions = set(transitions_by_action) - set(required_routes)
+                if unexpected_actions:
+                    errors.append(
+                        "person_change: اقدام‌های خارج از قرارداد مجاز نیستند: "
+                        + ", ".join(sorted(unexpected_actions))
+                    )
+
+            for warning in warnings:
             self.stdout.write(self.style.WARNING("هشدار SLA: " + warning))
 
         if errors:
