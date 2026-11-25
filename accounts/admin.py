@@ -222,6 +222,12 @@ class CustomUserAdmin(UserAdmin):
             request=request,
         )
 
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        if is_initial_system_admin_bootstrap_user(request.user):
+            return queryset.filter(is_active=True, is_superuser=False)
+        return queryset
+
     def has_module_permission(self, request):
         return is_system_admin(request)
 
@@ -244,6 +250,13 @@ class CustomUserAdmin(UserAdmin):
 
 class InitialSystemAdminAssignmentForm(forms.ModelForm):
     """Narrow, one-time form shown only to the technical bootstrap superuser."""
+
+    reason = forms.CharField(
+        min_length=5,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label="دلیل و مستند انتخاب",
+    )
 
     class Meta:
         model = RoleAssignment
