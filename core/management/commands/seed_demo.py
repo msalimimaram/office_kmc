@@ -15,6 +15,59 @@ from requests_portal.models import ServiceRequest
 SEED_DATE = date(2026, 11, 10)
 
 
+def _is_pristine_migrated_organization_catalog():
+    """Allow only the exact immutable organization catalog created by accounts.0007."""
+    from accounts.models import OrganizationalPosition, OrganizationalUnit
+
+    units = OrganizationalUnit.objects.all()
+    if units.count() != 1:
+        return False
+    unit = units.first()
+    if (
+        unit.code != "insurance-department"
+        or unit.name != "اداره بیمه"
+        or unit.parent_id is not None
+        or unit.company_id is not None
+        or unit.is_active is not True
+    ):
+        return False
+
+    line_titles = (
+        ("health", "درمان"),
+        ("life", "عمر و حوادث"),
+        ("liability", "مسئولیت"),
+        ("fire", "آتش‌سوزی و اموال"),
+        ("third_party", "شخص ثالث"),
+        ("body", "بدنه خودرو"),
+    )
+    expected = {
+        "department-head": ("رئیس اداره بیمه", 3, True, False),
+    }
+    for code, title in line_titles:
+        expected.update({
+            f"{code}-head": (f"رئیس رشته {title}", 3, True, False),
+            f"{code}-supervisor": (f"سرپرست رشته {title}", 4, True, False),
+            f"{code}-responsible": (f"مسئول رشته {title}", 5, True, False),
+            f"{code}-specialist": (f"کارشناس رشته {title}", 6, True, True),
+        })
+
+    positions = OrganizationalPosition.objects.select_related("unit").all()
+    if positions.count() != len(expected):
+        return False
+
+    actual = {}
+    for position in positions:
+        if position.unit_id != unit.pk or position.code in actual:
+            return False
+        actual[position.code] = (
+            position.title,
+            position.level,
+            position.is_active,
+            position.allow_multiple_holders,
+        )
+    return actual == expected
+
+
 def _assert_empty_disposable_database():
     """Refuse to seed any database that already contains application data."""
     from django.apps import apps
@@ -52,6 +105,14 @@ def _assert_empty_disposable_database():
                 )
                 if is_pristine_bootstrap:
                     continue
+
+        # accounts.0007 creates one reserved central unit and its exact 25-role
+        # catalog on every migrated database. Permit only that untouched catalog.
+        if model._meta.label_lower in {
+            "accounts.organizationalunit",
+            "accounts.organizationalposition",
+        } and _is_pristine_migrated_organization_catalog():
+            continue
 
         if model._default_manager.exists():
             populated.append(model._meta.label)
