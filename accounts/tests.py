@@ -1243,6 +1243,29 @@ class InitialSystemAdminDesignationAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "مدیر سامانه")
 
+    def test_admin_post_finishes_setup_and_redirects_bootstrap_superuser_out_of_admin(self):
+        from django.test import Client
+
+        client = Client()
+        client.force_login(self.technical_admin)
+        response = client.post("/admin/accounts/roleassignment/add/", data={
+            "user": str(self.candidate.pk),
+            "role": RoleAssignment.Role.SYSTEM_ADMIN,
+            "valid_from": self.today.isoformat(),
+            "valid_until": "",
+            "is_active": "on",
+            "reason": "انتخاب مدیر سامانه با مجوز مدیریت سازمان",
+            "_save": "ذخیره",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/")
+        assignment = RoleAssignment.objects.get(
+            user=self.candidate,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+        )
+        self.assertEqual(assignment.granted_by_id, self.technical_admin.pk)
+        self.assertTrue(User.objects.get(pk=self.candidate.pk).is_staff)
+
     def test_superuser_can_designate_one_active_non_superuser_and_is_audited(self):
         from accounts.admin import InitialSystemAdminAssignmentForm
 
