@@ -108,6 +108,8 @@ class Command(BaseCommand):
             else:
                 self._build_service_request(definition, global_roles)
 
+            self._apply_provisional_sla_examples(definition)
+
             if definition.steps.filter(is_initial=True).count() != 1:
                 raise CommandError(f"{code}: proposal must contain exactly one initial step.")
             if not definition.transitions.exists():
@@ -134,6 +136,35 @@ class Command(BaseCommand):
             "and no open case was migrated. A Department Head must approve each proposal "
             "from the authenticated Workflow Governance page."
         )
+
+    def _apply_provisional_sla_examples(self, definition):
+        """Populate testable examples; none is considered Head-approved."""
+        from django.utils import timezone
+
+        role_examples = {
+            RoleAssignment.Role.SUBSIDIARY_REP: 240,       # 4 working hours
+            RoleAssignment.Role.INSURANCE_SPECIALIST: 480, # 1 working day
+            RoleAssignment.Role.INSURER_REP: 960,          # 2 working days
+            RoleAssignment.Role.INSURED_PERSON: 1440,      # 3 working days
+            RoleAssignment.Role.DEPARTMENT_HEAD: 480,
+            RoleAssignment.Role.SYSTEM_ADMIN: 480,
+        }
+        for step in definition.steps.all():
+            if step.is_terminal:
+                continue
+            examples = [
+                role_examples[role]
+                for role in (step.allowed_roles or [])
+                if role in role_examples
+            ]
+            if step.allowed_position_levels:
+                examples.append(960)
+            step.sla_minutes = max(examples, default=480)
+            # Deliberately leave confirmation provenance empty. Only the
+            # authenticated Department Head governance action can approve it.
+            step.sla_confirmed_by = None
+            step.sla_confirmed_at = None
+            step.save(update_fields=["sla_minutes", "sla_confirmed_by", "sla_confirmed_at"])
 
     def _build_report_approval(self, definition, global_roles):
         specialist_roles = [RoleAssignment.Role.INSURANCE_SPECIALIST]
