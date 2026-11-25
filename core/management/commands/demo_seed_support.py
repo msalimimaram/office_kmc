@@ -7,7 +7,7 @@ guard rather than treated as idempotent updates.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, StringIO
 import secrets
 import os
 
@@ -119,7 +119,7 @@ def _ensure_workflow(obj, code, actor, assignee, note="داده نمونه بر�
 def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, employee_a, employee_b, created_counts=None, reused_counts=None):
     """Create interconnected demo records across the discovered domain-model manifest."""
     from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
-    WorkflowSeedCommand().handle(created_by=users["admin.demo"].pk, approved_by=users["head.demo"].pk, publish=True)
+    from workflow.governance import approve_workflow_definition
 
     today = timezone.localdate()
     now = timezone.now()
@@ -127,6 +127,35 @@ def seed_extended_fixtures(*, record, users, company_a, company_b, insurer, empl
     end_date = date(2028, 12, 29)
     admin = users["admin.demo"]
     head = users["head.demo"]
+
+    # Demo data may simulate the Department Head's approval, but it must do so
+    # through the same domain service and audit trail as the real governance flow.
+    seed_output = StringIO()
+    seed_command = WorkflowSeedCommand(stdout=seed_output)
+    seed_command.handle(created_by=admin.pk, commit_proposals=True)
+    proposals = list(WorkflowDefinition.objects.filter(
+        is_active=False,
+        approved_by__isnull=True,
+        published_at__isnull=True,
+        description__contains=WorkflowSeedCommand.BASELINE_SCHEMA_VERSION,
+    ).order_by("code", "version"))
+    if len(proposals) != 19:
+        raise CommandError(
+            "Demo workflow bootstrap expected exactly 19 draft operational proposals; "
+            f"found {len(proposals)}."
+        )
+    for proposal in proposals:
+        for step in proposal.steps.filter(is_terminal=False):
+            step.sla_minutes = max(step.sla_minutes or 0, 480)
+            step.sla_confirmed_by = head
+            step.sla_confirmed_at = now
+            step.save(update_fields=[
+                "sla_minutes", "sla_confirmed_by", "sla_confirmed_at",
+            ])
+        approve_workflow_definition(
+            definition_id=proposal.pk,
+            approver=head,
+        )
     specialist = users["specialist.demo"]
     health_supervisor = users["supervisor.demo"]
     fire_specialist = users["Delbari"]
