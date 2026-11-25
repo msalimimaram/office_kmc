@@ -28,6 +28,61 @@ def has_active_governance_assignment(user, role):
     ).exists()
 
 
+def build_workflow_snapshot(definition):
+    """Return a JSON-safe, complete snapshot of a proposal's executable graph."""
+    steps = list(definition.steps.order_by("order", "pk"))
+    transitions = list(
+        definition.transitions.select_related("source_step", "target_step").order_by(
+            "source_step__order", "pk"
+        )
+    )
+    return {
+        "code": definition.code,
+        "title": definition.title,
+        "version": definition.version,
+        "description": definition.description,
+        "is_active": definition.is_active,
+        "approved_by_id": definition.approved_by_id,
+        "published_at": (
+            definition.published_at.isoformat() if definition.published_at else None
+        ),
+        "steps": [
+            {
+                "code": step.code,
+                "title": step.title,
+                "order": step.order,
+                "allowed_roles": list(step.allowed_roles or []),
+                "allowed_position_levels": list(step.allowed_position_levels or []),
+                "sla_minutes": step.sla_minutes,
+                "is_initial": step.is_initial,
+                "is_terminal": step.is_terminal,
+                "allow_return": step.allow_return,
+                "requires_acknowledgement": step.requires_acknowledgement,
+            }
+            for step in steps
+        ],
+        "transitions": [
+            {
+                "source_step": transition.source_step.code,
+                "target_step": (
+                    transition.target_step.code if transition.target_step_id else None
+                ),
+                "action_code": transition.action_code,
+                "title": transition.title,
+                "allowed_roles": list(transition.allowed_roles or []),
+                "allowed_position_levels": list(transition.allowed_position_levels or []),
+                "recipient_roles": list(transition.recipient_roles or []),
+                "recipient_position_levels": list(transition.recipient_position_levels or []),
+                "position_route_scope": transition.position_route_scope,
+                "requires_note": transition.requires_note,
+                "is_return": transition.is_return,
+                "closes_case": transition.closes_case,
+            }
+            for transition in transitions
+        ],
+    }
+
+
 @transaction.atomic
 def approve_workflow_definition(*, definition_id, approver, request=None):
     """Approve and activate one draft using the authenticated Head's identity.
@@ -109,6 +164,8 @@ def approve_workflow_definition(*, definition_id, approver, request=None):
             + ", ".join(unreachable)
         )
 
+    proposal_snapshot = build_workflow_snapshot(definition)
+
     previous_active = WorkflowDefinition.objects.select_for_update().filter(
         code=definition.code,
         is_active=True,
@@ -136,12 +193,14 @@ def approve_workflow_definition(*, definition_id, approver, request=None):
         before_data={
             "is_active": False,
             "approved_by_id": None,
+            "workflow": proposal_snapshot,
             **previous_data,
         },
         after_data={
             "is_active": True,
             "approved_by_id": approver.pk,
             "published_at": definition.published_at.isoformat() if definition.published_at else None,
+            "workflow": build_workflow_snapshot(definition),
         },
         metadata={
             "code": definition.code,

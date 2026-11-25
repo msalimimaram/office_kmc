@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from accounts.models import RoleAssignment
 from accounts.access import has_global_access
-from .governance import has_active_governance_assignment
+from .governance import build_workflow_snapshot, has_active_governance_assignment
 from auditlog.services import record_event
 from .models import (
     BusinessCalendar, CalendarHoliday, WorkflowCase, WorkflowDefinition,
@@ -106,6 +106,19 @@ class WorkflowDefinitionAdmin(admin.ModelAdmin):
             after_data=after,
             request=request,
         )
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        definition = form.instance
+        if not definition.is_active and definition.published_at is None:
+            record_event(
+                actor=request.user,
+                action="workflow.definition.proposal_routes_saved",
+                obj=definition,
+                summary="مراحل و مسیرهای پیش‌نویس گردش‌کار ذخیره شدند.",
+                after_data={"workflow": build_workflow_snapshot(definition)},
+                request=request,
+            )
 
     def has_delete_permission(self, request, obj=None):
         return False
