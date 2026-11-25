@@ -10,7 +10,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.access import has_global_access, is_insurance_staff, is_unit_manager
 from accounts.models import RoleAssignment, User
-from .models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowTransition
+from .models import WorkflowCase, WorkflowDefinition, WorkflowEvent, WorkflowSatisfactionSurvey, WorkflowStep, WorkflowTransition
 from .governance import approve_workflow_definition, has_active_governance_assignment
 from .forms import WorkflowSatisfactionForm
 from .presentation import build_workflow_presentation
@@ -387,6 +387,61 @@ def workflow_governance(request):
     return render(request, "workflow/workflow_governance.html", {
         "proposals": proposals,
     })
+
+
+@login_required
+@require_POST
+def workflow_step_sla_set(request, definition_pk, step_pk):
+    """Only the active Department Head may set and confirm a draft step SLA."""
+    if not has_active_governance_assignment(
+        request.user, RoleAssignment.Role.DEPARTMENT_HEAD
+    ):
+        raise PermissionDenied("تعیین مهلت SLA فقط برای رئیس اداره بیمه با انتصاب معتبر مجاز است.")
+
+    definition = get_object_or_404(
+        WorkflowDefinition,
+        pk=definition_pk,
+        is_active=False,
+        published_at__isnull=True,
+        approved_by__isnull=True,
+    )
+    step = get_object_or_404(WorkflowStep, pk=step_pk, definition=definition)
+    raw_minutes = request.POST.get("sla_minutes", "").strip()
+    try:
+        minutes = int(raw_minutes)
+    except (TypeError, ValueError):
+        messages.error(request, "مهلت باید به دقیقه و به‌صورت عدد صحیح ثبت شود.")
+        return redirect("workflow_governance")
+    if minutes < 1 or minutes > 525600:
+        messages.error(request, "مهلت باید بین ۱ دقیقه تا ۳۶۵ روز کاری باشد.")
+        return redirect("workflow_governance")
+
+    before = {
+        "sla_minutes": step.sla_minutes,
+        "sla_confirmed_by_id": step.sla_confirmed_by_id,
+        "sla_confirmed_at": step.sla_confirmed_at.isoformat() if step.sla_confirmed_at else None,
+    }
+    step.sla_minutes = minutes
+    step.sla_confirmed_by = request.user
+    step.sla_confirmed_at = timezone.now()
+    step.save(update_fields=["sla_minutes", "sla_confirmed_by", "sla_confirmed_at"])
+    from auditlog.services import record_event
+    record_event(
+        actor=request.user,
+        action="workflow.step.sla_confirmed",
+        obj=step,
+        summary="رئیس اداره بیمه مهلت کاری مرحله گردش‌کار را تعیین/تأیید کرد.",
+        before_data=before,
+        after_data={
+            "sla_minutes": step.sla_minutes,
+            "sla_confirmed_by_id": request.user.pk,
+            "sla_confirmed_at": step.sla_confirmed_at.isoformat(),
+        },
+        metadata={"workflow_code": definition.code, "workflow_version": definition.version},
+        request=request,
+    )
+    messages.success(request, f"مهلت مرحله «{step.title}» ثبت و با هویت شما تأیید شد.")
+    return redirect("workflow_governance")
 
 
 @login_required
