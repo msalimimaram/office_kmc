@@ -1171,120 +1171,142 @@ class AuthorizationAssignmentBulkWriteGuardTests(TestCase):
         self.assertTrue(self.position_assignment.is_active)
 
 class InitialSystemAdminBootstrapCommandTests(TestCase):
-    command_inputs = [
-        "BOOTSTRAP FIRST SYSTEM ADMIN",
-        "1234567890",
-        "مدیر",
-        "سامانه",
-        "09123456789",
-    ]
+    def test_retired_command_fails_closed_without_creating_accounts_or_assignments(self):
+        from django.core.management import call_command, CommandError
 
-    def run_bootstrap(self, inputs=None):
-        with patch("builtins.input", side_effect=inputs or self.command_inputs):
-            call_command("bootstrap_first_system_admin", stdout=StringIO())
-
-    def test_bootstrap_creates_admin_with_national_id_and_mobile_initial_credential(self):
-        self.run_bootstrap()
-        user = User.objects.get(username="1234567890")
-        self.assertEqual(user.national_id, user.username)
-        self.assertEqual(user.mobile, "09123456789")
-        self.assertTrue(user.is_active)
-        self.assertTrue(user.is_staff)
-        self.assertFalse(user.is_superuser)
-        self.assertTrue(user.must_change_password)
-        self.assertTrue(user.check_password("09123456789"))
-        self.assertNotEqual(user.password, "09123456789")
-
-        assignment = RoleAssignment.objects.get(user=user)
-        self.assertEqual(assignment.role, RoleAssignment.Role.SYSTEM_ADMIN)
-        self.assertTrue(assignment.is_valid_on())
-        self.assertIsNone(assignment.granted_by_id)
-        self.assertIsNone(assignment.approved_by_id)
-
-        event = AuditEvent.objects.get(
-            action="accounts.initial_system_admin_bootstrap",
-            object_id=str(user.pk),
-        )
-        self.assertIsNone(event.actor_id)
-        self.assertEqual(event.after_data["role"], RoleAssignment.Role.SYSTEM_ADMIN)
-        self.assertNotIn("password", event.after_data)
-        self.assertNotIn("password", event.metadata)
-        self.assertNotIn("09123456789", str(event.after_data))
-        self.assertNotIn("09123456789", str(event.metadata))
-
-    def test_bootstrap_refuses_any_existing_account_before_prompting(self):
-        User.objects.create_user(
-            username="existing-account",
-            password="StrongPass!2026",
-            is_active=False,
+        technical_admin = User.objects.create_superuser(
+            username="bootstrap-root",
+            password="StrongBootstrap!2026",
         )
         with patch("builtins.input") as prompt:
             with self.assertRaises(CommandError):
                 call_command("bootstrap_first_system_admin", stdout=StringIO())
         prompt.assert_not_called()
         self.assertEqual(User.objects.count(), 1)
-
-    def test_bootstrap_confirmation_mismatch_creates_nothing(self):
-        with patch("builtins.input", side_effect=["NO"]):
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        self.assertFalse(User.objects.exists())
+        self.assertTrue(User.objects.get(pk=technical_admin.pk).is_superuser)
         self.assertFalse(RoleAssignment.objects.exists())
-        self.assertFalse(AuditEvent.objects.filter(
-            action="accounts.initial_system_admin_bootstrap"
-        ).exists())
 
-    def test_bootstrap_rejects_invalid_national_id_and_mobile(self):
-        invalid_national_id = list(self.command_inputs)
-        invalid_national_id[1] = "1234"
-        with patch("builtins.input", side_effect=invalid_national_id):
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        self.assertFalse(User.objects.exists())
 
-        invalid_mobile = list(self.command_inputs)
-        invalid_mobile[4] = "123456"
-        with patch("builtins.input", side_effect=invalid_mobile):
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        self.assertFalse(User.objects.exists())
+class InitialSystemAdminDesignationAdminTests(TestCase):
+    def setUp(self):
+        from django.test import RequestFactory
 
-    def test_bootstrap_refuses_modified_baseline_calendar_before_prompting(self):
-        from workflow.models import BusinessCalendar
-
-        calendar = BusinessCalendar.objects.get(code="iran-default")
-        calendar.title = "تقویم تغییر یافته"
-        calendar.save(update_fields=["title"])
-        with patch("builtins.input") as prompt:
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        prompt.assert_not_called()
-        self.assertFalse(User.objects.exists())
-
-    def test_bootstrap_refuses_database_with_business_data_before_prompting(self):
-        Company.objects.create(
-            code="BOOTSTRAP-EXISTING-DATA",
-            name="داده عملیاتی موجود",
+        self.today = timezone.localdate()
+        self.technical_admin = User.objects.create_superuser(
+            username="bootstrap-root",
+            password="StrongBootstrap!2026",
         )
-        with patch("builtins.input") as prompt:
-            with self.assertRaises(CommandError):
-                call_command("bootstrap_first_system_admin", stdout=StringIO())
-        prompt.assert_not_called()
-        self.assertFalse(User.objects.exists())
+        self.candidate = User.objects.create_user(
+            username="1234567890",
+            password="StrongCandidate!2026",
+            national_id="1234567890",
+            first_name="مدیر",
+            last_name="عملیاتی",
+            is_active=True,
+            is_staff=False,
+            must_change_password=False,
+        )
+        self.factory = RequestFactory()
+        self.model_admin = admin.site._registry[RoleAssignment]
+        self.request = self.factory.get("/admin/accounts/roleassignment/add/")
+        self.request.user = self.technical_admin
 
-    def test_bootstrap_rolls_back_identity_and_assignment_when_audit_fails(self):
-        with patch(
-            "accounts.management.commands.bootstrap_first_system_admin.record_event",
-            side_effect=RuntimeError("forced audit failure"),
-        ):
-            with self.assertRaises(RuntimeError):
-                self.run_bootstrap()
-        self.assertFalse(User.objects.exists())
-        self.assertFalse(RoleAssignment.objects.exists())
-        self.assertFalse(AuditEvent.objects.filter(
-            action="accounts.initial_system_admin_bootstrap"
-        ).exists())
+    def test_bootstrap_superuser_sees_only_the_one_time_system_admin_designation(self):
+        from accounts.admin import InitialSystemAdminAssignmentForm
 
+        self.assertTrue(self.model_admin.has_module_permission(self.request))
+        self.assertTrue(self.model_admin.has_add_permission(self.request))
+        self.assertTrue(self.model_admin.has_view_permission(self.request))
+        self.assertFalse(self.model_admin.has_change_permission(self.request))
+        self.assertFalse(self.model_admin.has_delete_permission(self.request))
+        self.assertEqual(
+            set(self.model_admin.get_queryset(self.request).values_list("pk", flat=True)),
+            set(),
+        )
+        form_class = self.model_admin.get_form(self.request)
+        self.assertIs(form_class, InitialSystemAdminAssignmentForm)
+        form = form_class()
+        self.assertEqual(
+            list(form.fields["role"].choices),
+            [(RoleAssignment.Role.SYSTEM_ADMIN, RoleAssignment.Role.SYSTEM_ADMIN.label)],
+        )
+        self.assertEqual(
+            list(form.fields["user"].queryset.values_list("pk", flat=True)),
+            [self.candidate.pk],
+        )
+
+    def test_superuser_can_designate_one_active_non_superuser_and_is_audited(self):
+        from accounts.admin import InitialSystemAdminAssignmentForm
+
+        form = InitialSystemAdminAssignmentForm(data={
+            "user": str(self.candidate.pk),
+            "role": RoleAssignment.Role.SYSTEM_ADMIN,
+            "valid_from": self.today.isoformat(),
+            "valid_until": "",
+            "is_active": "on",
+            "reason": "انتخاب مدیر سامانه با مجوز مدیریت سازمان",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        assignment = form.save(commit=False)
+        self.model_admin.save_model(
+            self.request, assignment, form, change=False
+        )
+
+        assignment.refresh_from_db()
+        self.candidate.refresh_from_db()
+        self.assertEqual(assignment.role, RoleAssignment.Role.SYSTEM_ADMIN)
+        self.assertEqual(assignment.granted_by_id, self.technical_admin.pk)
+        self.assertIsNone(assignment.approved_by_id)
+        self.assertTrue(self.candidate.is_staff)
+        self.assertFalse(self.candidate.is_superuser)
+        event = AuditEvent.objects.get(
+            action="accounts.initial_system_admin_designated",
+            object_id=str(assignment.pk),
+        )
+        self.assertEqual(event.actor_id, self.technical_admin.pk)
+        self.assertEqual(event.after_data["role"], RoleAssignment.Role.SYSTEM_ADMIN)
+
+    def test_initial_form_rejects_superuser_as_operational_admin(self):
+        from accounts.admin import InitialSystemAdminAssignmentForm
+
+        form = InitialSystemAdminAssignmentForm(data={
+            "user": str(self.technical_admin.pk),
+            "role": RoleAssignment.Role.SYSTEM_ADMIN,
+            "valid_from": self.today.isoformat(),
+            "valid_until": "",
+            "is_active": "on",
+            "reason": "تلاش برای انتصاب حساب فنی به‌عنوان حساب عملیاتی",
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn("user", form.errors)
+
+    def test_superuser_bootstrap_access_closes_after_first_system_admin_history(self):
+        from django.test import Client
+
+        RoleAssignment.objects.create(
+            user=self.candidate,
+            role=RoleAssignment.Role.SYSTEM_ADMIN,
+            valid_from=self.today,
+            reason="انتصاب موجود برای آزمون قفل‌شدن راه‌اندازی",
+        )
+        client = Client()
+        client.force_login(self.technical_admin)
+        self.assertEqual(client.get("/admin/").status_code, 403)
+        self.assertFalse(self.model_admin.has_module_permission(self.request))
+
+    def test_non_admin_staff_user_cannot_open_assignment_admin(self):
+        from django.test import Client
+
+        ordinary_staff = User.objects.create_user(
+            username="ordinary-staff",
+            password="OrdinaryStaff!2026",
+            is_staff=True,
+            is_superuser=False,
+            must_change_password=False,
+        )
+        client = Client()
+        client.force_login(ordinary_staff)
+        self.assertEqual(client.get("/admin/").status_code, 403)
 
 
 class SystemAdminUserProvisioningFormTests(TestCase):
