@@ -2075,6 +2075,18 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
         self.assertEqual(event.after_data["approved_by_id"], self.head.pk)
 
     def test_creator_cannot_approve_own_proposal_even_with_both_assignments(self):
+        from datetime import timedelta
+
+        # End the fixture head's appointment before assigning the unique
+        # Department Head role to the creator for this segregation-of-duties test.
+        incumbent_head_assignment = RoleAssignment.objects.get(
+            user=self.head,
+            role=RoleAssignment.Role.DEPARTMENT_HEAD,
+        )
+        incumbent_head_assignment.valid_from = timezone.localdate() - timedelta(days=2)
+        incumbent_head_assignment.valid_until = timezone.localdate() - timedelta(days=1)
+        incumbent_head_assignment.save()
+
         RoleAssignment.objects.create(
             user=self.creator,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
