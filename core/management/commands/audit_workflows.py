@@ -833,7 +833,7 @@ class Command(BaseCommand):
                     )
 
             for warning in warnings:
-            self.stdout.write(self.style.WARNING("هشدار SLA: " + warning))
+                self.stdout.write(self.style.WARNING("هشدار SLA: " + warning))
 
         if errors:
             for error in errors:
