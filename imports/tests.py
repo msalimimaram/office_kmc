@@ -124,7 +124,7 @@ class ImportBatchApprovalFlowTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش‌کارهای آزمون",
         )
-        _seed_and_approve_workflows(
+        seed_and_approve_workflows(
             admin=workflow_admin,
             head=self.workflow_owner,
             codes=("claim_review",),
@@ -284,7 +284,7 @@ class AssetImportApprovalSnapshotTests(TestCase):
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای تأیید ورود دارایی",
         )
-        _seed_and_approve_workflows(
+        seed_and_approve_workflows(
             admin=workflow_admin,
             head=reviewer,
             codes=("asset_valuation_approval", "asset_policy_approval"),
