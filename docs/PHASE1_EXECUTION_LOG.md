@@ -639,3 +639,34 @@ python manage.py makemigrations --check --dry-run
 ```
 
 **وضعیت:** این call-site اصلاح شد اما PASS آن هنوز اثبات نشده است؛ فاز یک OPEN و Production همچنان NO-GO است. بازطراحی seed غیرمخرب/idempotent طبق ترتیب توافق‌شده تا سبز شدن پایدار full suite به تعویق می‌ماند.
+
+
+## 2026-11-25 — اجرای کامل پس از اصلاح fixtureهای سمت
+
+**شناسه اجرا:** P1-SUITE-397-01  
+**گزارش‌دهنده:** مالک پروژه، خروجی ترمینال محلی  
+**شاخه محلی:** `main`  
+**SHA دقیق:** `2eec75a88ad9d7f2e10af1ba68b598b80bc2e9f6`  
+**فرمان:** `python manage.py test --verbosity 2`
+
+| کنترل | نتیجه | شواهد |
+|---|---|---|
+| مجموعه کامل Django | **PASS** | ۳۹۷ تست، ۳۹۷ موفق، صفر failure، صفر error؛ زمان ۴۲۳٫۴۶۵ ثانیه. |
+| test database | PASS | دیتابیس حافظه‌ای پس از اجرا تخریب شد. |
+| انتساب نتیجه به SHA | PASS | بلافاصله پس از اجرا، `git rev-parse HEAD` مقدار دقیق `2eec75a88ad9d7f2e10af1ba68b598b80bc2e9f6` را نشان داد. |
+| وضعیت شاخه و working tree | PASS با فایل محلی حفظ‌شده | `main...origin/main`؛ فقط `db.sqlite3.before-identity-migration.bak` untracked بود. |
+
+### تفسیر و محدوده اعتبار
+
+این اجرا، اصلاح fixtureهای `PositionAssignment` در commit `2eec75a` را در قالب full suite تأیید می‌کند؛ بنابراین خطای قبلی seed fixture در همین SHA رفع شده است.
+
+در زمان ثبت این گزارش، remote `main` جلوتر و روی `279353f30b5036fad67bed5237cae75dfb9ced7f` است. commitهای کد `989fbf638a4089abb272b7b399e752e97e1967fe` و `4aeb152bf62470a47d52dc3bae98ff736d5f6aef` بعد از SHA آزموده‌شده قرار دارند و در اجرای ۳۹۷تایی حضور نداشته‌اند. بنابراین این PASS به HEAD فعلی remote تعمیم داده نمی‌شود؛ آزمون‌های متأثر از تغییرات ممیزی workflow باید روی نسخه جدید اجرا شوند.
+
+### اقدام بعدی محدود
+
+1. با `git pull --ff-only origin main` فقط fast-forward انجام شود؛ پیش از آن و پس از آن فایل پشتیبان `db.sqlite3.before-identity-migration.bak` حفظ شود و هیچ reset/clean/delete اجرا نشود.
+2. آزمون‌های هدفمند مرتبط با سخت‌گیری جدید `audit_workflows` و مسیرهای workflow تغییرکرده روی HEAD جدید اجرا شوند.
+3. خروجی `audit_workflows` فقط روی دیتابیس محلی مورد تأیید و پس از اطمینان از مقصد DB اجرا و ثبت شود.
+4. full suite ۳۹۷تایی تا وقتی تغییر مؤثر دیگری در کد یا محیط ایجاد نشده، بی‌دلیل تکرار نشود.
+
+**تصمیم:** P1-SUITE-397-01 = PASS روی SHA `2eec75a`. فاز یک همچنان OPEN و Production همچنان **NO-GO**؛ این نتیجه به‌تنهایی اثبات‌کننده پذیرش امنیتی، زیرساختی یا کسب‌وکار نیست.
