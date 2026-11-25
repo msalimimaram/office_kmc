@@ -40,13 +40,13 @@ class WorkflowTransitionInline(admin.TabularInline):
     extra = 0
 
     def has_add_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
     def has_change_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
     def has_delete_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
 
 @admin.register(WorkflowDefinition)

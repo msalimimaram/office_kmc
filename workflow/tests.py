@@ -2059,6 +2059,7 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
         assignment = RoleAssignment.objects.get(
             user=self.head, role=RoleAssignment.Role.DEPARTMENT_HEAD
         )
+        assignment.valid_from = timezone.localdate() - timedelta(days=30)
         assignment.valid_until = timezone.localdate() - timedelta(days=1)
         assignment.save()
         definition = self._draft()

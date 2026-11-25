@@ -70,10 +70,43 @@ def approve_workflow_definition(*, definition_id, approver, request=None):
         step.code for step in steps
         if not step.is_terminal and not step.outgoing_transitions.exists()
     ]
+    terminal_with_routes = [
+        step.code for step in steps
+        if step.is_terminal and step.outgoing_transitions.exists()
+    ]
     if disconnected:
         raise ValidationError(
             "برای مراحل غیرپایانی مسیر خروجی تعریف نشده است: "
             + ", ".join(disconnected)
+        )
+    if terminal_with_routes:
+        raise ValidationError(
+            "مرحله پایانی نباید مسیر خروجی داشته باشد: "
+            + ", ".join(terminal_with_routes)
+        )
+
+    # Reject unreachable states before approval, not only during the final
+    # whole-catalog release audit.
+    transitions = list(definition.transitions.select_related("source_step", "target_step"))
+    reachable_ids = {initial_steps[0].pk}
+    changed = True
+    while changed:
+        changed = False
+        for transition in transitions:
+            if (
+                transition.source_step_id in reachable_ids
+                and transition.target_step_id
+                and transition.target_step_id not in reachable_ids
+            ):
+                reachable_ids.add(transition.target_step_id)
+                changed = True
+    unreachable = [
+        step.code for step in steps if step.pk not in reachable_ids
+    ]
+    if unreachable:
+        raise ValidationError(
+            "مراحل زیر از مرحله آغازین قابل دسترسی نیستند: "
+            + ", ".join(unreachable)
         )
 
     previous_active = WorkflowDefinition.objects.select_for_update().filter(
