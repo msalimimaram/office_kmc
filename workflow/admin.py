@@ -24,6 +24,11 @@ class WorkflowStepInline(admin.TabularInline):
     model = WorkflowStep
     extra = 0
 
+    def get_readonly_fields(self, request, obj=None):
+        # SLA authority belongs exclusively to the Department Head governance
+        # endpoint, never to the System Admin proposal editor.
+        return ("sla_minutes", "sla_confirmed_by", "sla_confirmed_at")
+
     def has_add_permission(self, request, obj=None):
         return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
