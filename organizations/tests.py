@@ -830,6 +830,12 @@ class PersonChangeRequestWorkflowTests(TestCase):
                 recipient_roles=recipients,
                 closes_case=closes,
             )
+        from django.utils import timezone
+        for step in definition.steps.filter(is_terminal=False):
+            step.sla_minutes = 480
+            step.sla_confirmed_by = self.head
+            step.sla_confirmed_at = timezone.now()
+            step.save(update_fields=["sla_minutes", "sla_confirmed_by", "sla_confirmed_at"])
         definition.approved_by = self.head
         definition.is_active = True
         definition.save()
