@@ -30,9 +30,18 @@ class RestrictAdminAccessMiddleware:
             and user.is_authenticated
         ):
             from accounts.access import has_global_access
+            from accounts.models import RoleAssignment
 
-            # Technical Django flags never replace a current business-role grant.
-            allowed = has_global_access(user)
+            # A Django superuser is admitted only for the one-time designation
+            # of the first operational System Admin. Once any System Admin
+            # assignment history exists, the technical bootstrap account loses
+            # access to the business admin site.
+            bootstrap_available = not RoleAssignment.objects.filter(
+                role=RoleAssignment.Role.SYSTEM_ADMIN
+            ).exists()
+            allowed = has_global_access(user) or (
+                user.is_superuser and bootstrap_available
+            )
             if not allowed:
                 from django.core.exceptions import PermissionDenied
                 raise PermissionDenied("دسترسی به پنل مدیریت فقط برای مدیر سامانه یا رئیس اداره بیمه مجاز است.")
