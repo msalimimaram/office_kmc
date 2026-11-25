@@ -228,6 +228,44 @@ class DemoSeedCommandSafetyTests(TestCase):
         # the only existing application row permitted by the seed guard.
         _assert_empty_disposable_database()
 
+    def test_seed_guard_rejects_a_modified_migrated_organization_position(self):
+        from django.core.management.base import CommandError
+        from accounts.models import OrganizationalPosition
+        from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        position = OrganizationalPosition.objects.get(code="department-head")
+        position.title = "عنوان دستکاری‌شده"
+        position.save(update_fields=["title"])
+
+        with self.assertRaises(CommandError) as raised:
+            _assert_empty_disposable_database()
+
+        self.assertIn("accounts.OrganizationalPosition", str(raised.exception))
+        position.refresh_from_db()
+        self.assertEqual(position.title, "عنوان دستکاری‌شده")
+
+    def test_seed_guard_rejects_an_additional_migrated_organization_position(self):
+        from django.core.management.base import CommandError
+        from accounts.models import OrganizationalPosition, OrganizationalUnit
+        from core.management.commands.seed_demo import _assert_empty_disposable_database
+
+        unit = OrganizationalUnit.objects.get(code="insurance-department")
+        extra = OrganizationalPosition.objects.create(
+            unit=unit,
+            code="unexpected-seed-position",
+            title="سمت اضافه",
+            level=OrganizationalPosition.Level.SPECIALIST,
+            is_active=True,
+            allow_multiple_holders=True,
+        )
+
+        with self.assertRaises(CommandError) as raised:
+            _assert_empty_disposable_database()
+
+        self.assertIn("accounts.OrganizationalPosition", str(raised.exception))
+        extra.refresh_from_db()
+        self.assertEqual(extra.code, "unexpected-seed-position")
+
     def test_seed_guard_rejects_a_modified_or_additional_business_calendar(self):
         from django.core.management.base import CommandError
         from workflow.models import BusinessCalendar
