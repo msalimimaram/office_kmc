@@ -2002,6 +2002,43 @@ class OperationalWorkflowSeedCommandTests(TestCase):
             definition, "claim_review/submit_for_decision"
         )
 
+    def test_audit_rejects_management_report_route_with_wrong_position_grant(self):
+        from accounts.models import OrganizationalPosition
+        from workflow.models import WorkflowDefinition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="management_report_approval")
+        transition = definition.transitions.get(action_code="approve_to_head")
+        transition.allowed_position_levels = [
+            int(OrganizationalPosition.Level.SUPERVISOR)
+        ]
+        transition.save()
+
+        self._assert_proposal_audit_rejected(
+            definition, "management_report_approval/approve_to_head"
+        )
+
+    def test_audit_rejects_unexpected_person_change_action(self):
+        from workflow.models import WorkflowDefinition, WorkflowTransition
+
+        self._create_proposals_for_audit_regression()
+        definition = WorkflowDefinition.objects.get(code="person_change")
+        source = definition.steps.get(code="company_review")
+        target = definition.steps.get(code="insurer_update")
+        WorkflowTransition.objects.create(
+            definition=definition,
+            source_step=source,
+            target_step=target,
+            action_code="unauthorized_shortcut",
+            title="مسیر اضافی غیرمجاز",
+            allowed_roles=[RoleAssignment.Role.SUBSIDIARY_REP],
+            recipient_roles=[RoleAssignment.Role.INSURER_REP],
+        )
+
+        self._assert_proposal_audit_rejected(
+            definition, "person_change: اقدام‌های خارج از قرارداد مجاز نیستند"
+        )
+
     def test_proposal_generation_requires_time_valid_system_admin_creator(self):
         from django.core.management import call_command
         from django.core.management.base import CommandError
