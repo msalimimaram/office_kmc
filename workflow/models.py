@@ -186,6 +186,19 @@ class WorkflowStep(models.Model):
         help_text="سطوح مجاز از ساختار سازمانی؛ همراه با محدوده رشته‌ای انتصاب بررسی می‌شوند.",
     )
     sla_minutes = models.PositiveIntegerField("مهلت کاری (دقیقه)", default=0)
+    sla_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="workflow_step_sla_confirmations",
+        verbose_name="تعیین‌کننده مهلت",
+    )
+    sla_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="زمان تأیید مهلت",
+    )
     is_initial = models.BooleanField("مرحله آغازین", default=False)
     is_terminal = models.BooleanField("مرحله پایانی", default=False)
     allow_return = models.BooleanField("امکان بازگشت", default=True)
