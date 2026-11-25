@@ -58,8 +58,22 @@ from claims.models import Claim, ClaimPayment
 from imports.models import ImportBatch
 from insurance.models import Contract, Insurer, InsuranceLine
 from organizations.models import Company, Person
-from workflow.models import WorkflowCase
+from workflow.models import WorkflowCase, WorkflowDefinition
+from workflow.governance import approve_workflow_definition
 from core.management.commands.seed_operational_workflows import Command as WorkflowSeedCommand
+
+
+def _seed_and_approve_workflows(*, admin, head, codes):
+    """Exercise the same proposal-then-Head-approval lifecycle as production."""
+    WorkflowSeedCommand().handle(created_by=admin.pk, commit_proposals=True)
+    for code in codes:
+        proposal = WorkflowDefinition.objects.get(
+            code=code,
+            is_active=False,
+            approved_by__isnull=True,
+            published_at__isnull=True,
+        )
+        approve_workflow_definition(definition_id=proposal.pk, approver=head)
 
 
 class ImportBatchApprovalFlowTests(TestCase):
@@ -103,7 +117,7 @@ class ImportBatchApprovalFlowTests(TestCase):
             line_code=InsuranceLine.HEALTH,
             reason="کارشناس درمان در تست واردسازی",
         )
-        workflow_owner = User.objects.create_user(
+        self.workflow_owner = User.objects.create_user(
             username="import-workflow-owner",
             password="StrongPass!2026",
             must_change_password=False,
@@ -119,11 +133,15 @@ class ImportBatchApprovalFlowTests(TestCase):
             reason="مدیر سامانه پیشنهاددهنده گردش واردسازی",
         )
         RoleAssignment.objects.create(
-            user=workflow_owner,
+            user=self.workflow_owner,
             role=RoleAssignment.Role.DEPARTMENT_HEAD,
             reason="رئیس اداره برای انتشار گردش‌کارهای آزمون",
         )
-        WorkflowSeedCommand().handle(created_by=workflow_admin.pk, approved_by=workflow_owner.pk, publish=True)
+        _seed_and_approve_workflows(
+            admin=workflow_admin,
+            head=self.workflow_owner,
+            codes=("claim_review",),
+        )
         self.batch = ImportBatch.objects.create(
             batch_number="IMP-TEST-0001",
             file=SimpleUploadedFile("claims.xlsx", b"test-file"),
@@ -203,16 +221,7 @@ class ImportBatchApprovalFlowTests(TestCase):
             invalid_rows=0,
             preview_data=[dict(self.batch.preview_data[0])],
         )
-        head = User.objects.create_user(
-            username="import-head",
-            password="StrongPass!2026",
-            must_change_password=False,
-        )
-        RoleAssignment.objects.create(
-            user=head,
-            role=RoleAssignment.Role.DEPARTMENT_HEAD,
-            reason="رئیس اداره برای بازبینی ورود داخلی",
-        )
+        head = self.workflow_owner
         client = Client()
         client.force_login(self.reviewer)
         self.assertEqual(
