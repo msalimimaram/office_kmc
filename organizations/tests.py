@@ -7,6 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import RoleAssignment, User
+from workflow.test_support import seed_and_approve_workflows
 from organizations.models import (
     Company,
     CompanyLeadershipPosition,
@@ -493,7 +494,7 @@ class PersonChangeWorkflowTests(TestCase):
             role=RoleAssignment.Role.SYSTEM_ADMIN,
             reason="مدیر سامانه پیشنهاددهنده گردش اصلاح اطلاعات",
         )
-        call_command("seed_operational_workflows", created_by=self.workflow_admin.pk, approved_by=self.head.pk, publish=True)
+        seed_and_approve_workflows(admin=self.workflow_admin, head=self.head, codes=("person_change",))
 
     def test_mobile_change_follows_company_insurer_company_and_applies_only_after_final_close(self):
         from django.contrib.contenttypes.models import ContentType
