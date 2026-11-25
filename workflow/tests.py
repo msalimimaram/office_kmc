@@ -2009,6 +2009,9 @@ class WorkflowDefinitionPublicationGovernanceTests(TestCase):
             title="ردشده",
             order=3,
             allowed_roles=global_roles,
+            sla_minutes=480,
+            sla_confirmed_by=self.head,
+            sla_confirmed_at=timezone.now(),
         )
         WorkflowTransition.objects.create(
             definition=definition,
