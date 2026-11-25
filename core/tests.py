@@ -315,12 +315,24 @@ class DemoSeedCommandSafetyTests(TestCase):
         with patch.dict("os.environ", seed_environment):
             call_command("seed_demo")
 
+        department_head = User.objects.get(national_id="9999900002")
+        active_definitions = WorkflowDefinition.objects.filter(is_active=True).prefetch_related("steps")
+        self.assertGreaterEqual(active_definitions.count(), 50)
+        for definition in active_definitions:
+            self.assertEqual(definition.approved_by_id, department_head.pk)
+            for step in definition.steps.filter(is_terminal=False):
+                self.assertGreater(step.sla_minutes, 0, f"{definition.code}/{step.code}")
+                self.assertEqual(step.sla_confirmed_by_id, department_head.pk)
+                self.assertIsNotNone(step.sla_confirmed_at)
+
         from datetime import date
         from organizations.models import (
             CompanyLeadershipPosition, CompanyLeadershipTitle,
             Person, PersonEmployment, PersonRelationship,
         )
-        from workflow.models import WorkflowCase, WorkflowSatisfactionSurvey, WorkflowTransition
+        from workflow.models import (
+            WorkflowCase, WorkflowDefinition, WorkflowSatisfactionSurvey, WorkflowTransition,
+        )
 
         self.assertGreaterEqual(CompanyLeadershipPosition.objects.count(), 50)
         linked_titles = CompanyLeadershipTitle.objects.filter(
