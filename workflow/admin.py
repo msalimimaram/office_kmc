@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from accounts.models import RoleAssignment
+from accounts.access import has_global_access
 from .governance import has_active_governance_assignment
 from auditlog.services import record_event
 from .models import (
@@ -14,18 +15,23 @@ def can_configure(request):
     return has_active_governance_assignment(request.user, RoleAssignment.Role.SYSTEM_ADMIN)
 
 
+def can_view_operations(request):
+    # Both global business roles retain read-only operational oversight.
+    return has_global_access(request.user)
+
+
 class WorkflowStepInline(admin.TabularInline):
     model = WorkflowStep
     extra = 0
 
     def has_add_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.published_at)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
     def has_change_permission(self, request, obj=None):
         return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
     def has_delete_permission(self, request, obj=None):
-        return can_configure(request) and not (obj and obj.is_active)
+        return can_configure(request) and not (obj and (obj.is_active or obj.published_at))
 
 
 class WorkflowTransitionInline(admin.TabularInline):
@@ -113,10 +119,10 @@ class WorkflowCaseAdmin(admin.ModelAdmin):
     readonly_fields = tuple(field.name for field in WorkflowCase._meta.fields)
 
     def has_module_permission(self, request):
-        return can_configure(request)
+        return can_view_operations(request)
 
     def has_view_permission(self, request, obj=None):
-        return can_configure(request)
+        return can_view_operations(request)
 
     def has_add_permission(self, request):
         return False
@@ -135,10 +141,10 @@ class WorkflowEventAdmin(admin.ModelAdmin):
     readonly_fields = tuple(field.name for field in WorkflowEvent._meta.fields)
 
     def has_module_permission(self, request):
-        return can_configure(request)
+        return can_view_operations(request)
 
     def has_view_permission(self, request, obj=None):
-        return can_configure(request)
+        return can_view_operations(request)
 
     def has_add_permission(self, request):
         return False

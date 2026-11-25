@@ -174,6 +174,9 @@ def workflow_case_list(request):
     return render(request, "workflow/workflow_case_list.html", {
         "cases": case_rows,
         "page_obj": page_obj,
+        "can_govern_workflows": has_active_governance_assignment(
+            request.user, RoleAssignment.Role.DEPARTMENT_HEAD
+        ),
     })
 
 
